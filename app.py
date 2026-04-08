@@ -8,7 +8,7 @@ from flask import (
     redirect, url_for, jsonify
 )
 from dotenv import load_dotenv
-import api_client as ac
+import api_client_provider as ac
 import predictor as pred
 
 load_dotenv()
@@ -36,12 +36,14 @@ def _require_teams():
 
 @app.route("/", methods=["GET"])
 def index():
+    load_error = None
     try:
         teams = ac.get_teams(LEAGUE, SEASON)
     except Exception as e:
         teams = []
+        load_error = str(e)
         app.logger.error("Failed to fetch teams: %s", e)
-    return render_template("index.html", teams=teams)
+    return render_template("index.html", teams=teams, load_error=load_error)
 
 
 @app.route("/select", methods=["POST"])

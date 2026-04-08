@@ -7,8 +7,7 @@ Poisson distribution for correct scores and goal totals.
 
 from __future__ import annotations
 
-import numpy as np
-from scipy.stats import poisson
+import math
 from typing import Any
 
 
@@ -67,7 +66,8 @@ def form_pts(form: list[dict]) -> float:
 def avg_goals(form: list[dict], scored: bool = True) -> float:
     if not form:
         return 1.2
-    return float(np.mean([r["gf"] if scored else r["ga"] for r in form]))
+    goals = [r["gf"] if scored else r["ga"] for r in form]
+    return float(sum(goals) / len(goals))
 
 
 def home_away_split(form: list[dict]) -> dict:
@@ -115,16 +115,30 @@ def h2h_record(fixtures: list, id_a: int, id_b: int) -> dict:
 
 # ── Poisson model ──────────────────────────────────────────────────────────────
 
+def _poisson_pmf(goals: int, lam: float) -> float:
+    if goals < 0:
+        return 0.0
+    if lam <= 0:
+        return 1.0 if goals == 0 else 0.0
+    return math.exp(goals * math.log(lam) - lam - math.lgamma(goals + 1))
+
+
+def _poisson_cdf(goals: int, lam: float) -> float:
+    if goals < 0:
+        return 0.0
+    return float(sum(_poisson_pmf(i, lam) for i in range(goals + 1)))
+
+
 def score_matrix(lam_a: float, lam_b: float, max_g: int = 6) -> dict:
     return {
-        (i, j): float(poisson.pmf(i, lam_a) * poisson.pmf(j, lam_b))
+        (i, j): float(_poisson_pmf(i, lam_a) * _poisson_pmf(j, lam_b))
         for i in range(max_g + 1)
         for j in range(max_g + 1)
     }
 
 
 def over_prob(lam: float, threshold: float) -> float:
-    return float(1 - poisson.cdf(int(threshold), lam))
+    return float(1 - _poisson_cdf(int(threshold), lam))
 
 
 # ── Top scorer candidates ──────────────────────────────────────────────────────

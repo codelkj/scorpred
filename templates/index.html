@@ -12,7 +12,7 @@
 
   {% if not teams %}
   <div class="alert alert-warn">
-    Could not load teams — check your <code>API_FOOTBALL_KEY</code> in <code>.env</code>.
+    {{ load_error or "Could not load teams. Check your API_FOOTBALL_KEY in .env." }}
   </div>
   {% else %}
 

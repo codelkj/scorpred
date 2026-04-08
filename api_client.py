@@ -15,8 +15,11 @@ load_dotenv()
 
 CACHE_DIR = Path("cache")
 CACHE_HOURS = 24
-API_HOST = "v3.football.api-sports.io"
-API_KEY = os.getenv("API_FOOTBALL_KEY", "")
+API_BASE_URL = os.getenv("API_FOOTBALL_BASE_URL", "https://v3.football.api-sports.io").rstrip("/")
+API_MODE = os.getenv("API_FOOTBALL_MODE", "apisports").strip().lower()
+RAPIDAPI_HOST = os.getenv("API_FOOTBALL_RAPIDAPI_HOST", "api-football-v1.p.rapidapi.com")
+API_KEY = os.getenv("API_FOOTBALL_KEY", "").strip()
+PLACEHOLDER_API_KEYS = {"", "your_api_key_here"}
 
 
 # ── Cache helpers ──────────────────────────────────────────────────────────────
@@ -34,6 +37,18 @@ def _cache_valid(path: Path) -> bool:
     return age < timedelta(hours=CACHE_HOURS)
 
 
+def _request_headers() -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+
+    if API_MODE == "rapidapi":
+        headers["x-rapidapi-host"] = RAPIDAPI_HOST
+        headers["x-rapidapi-key"] = API_KEY
+    else:
+        headers["x-apisports-key"] = API_KEY
+
+    return headers
+
+
 # ── Core request ───────────────────────────────────────────────────────────────
 
 def api_get(endpoint: str, params: dict = None) -> dict:
@@ -45,17 +60,17 @@ def api_get(endpoint: str, params: dict = None) -> dict:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
 
-    if not API_KEY:
-        raise RuntimeError("API_FOOTBALL_KEY is not set in .env")
+    if API_KEY.lower() in PLACEHOLDER_API_KEYS:
+        raise RuntimeError("Set API_FOOTBALL_KEY in .env to a real API-Football key.")
 
-    headers = {
-        "x-rapidapi-host": API_HOST,
-        "x-rapidapi-key": API_KEY,
-    }
-    url = f"https://{API_HOST}/{endpoint.lstrip('/')}"
+    headers = _request_headers()
+    url = f"{API_BASE_URL}/{endpoint.lstrip('/')}"
     resp = requests.get(url, headers=headers, params=params, timeout=15)
     resp.raise_for_status()
     data = resp.json()
+
+    if data.get("errors"):
+        raise RuntimeError(f"API-Football error for {endpoint}: {data['errors']}")
 
     CACHE_DIR.mkdir(exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
