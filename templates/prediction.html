@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}Prediction — {{ team_a.name }} vs {{ team_b.name }}{% endblock %}
+
+{% block content %}
+
+<div class="match-header card">
+  <div class="match-team">
+    <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="team-logo-lg" />
+    <span class="match-team-name">{{ team_a.name }}</span>
+  </div>
+  <div class="match-vs">
+    <span class="vs-label">Prediction</span>
+    <span class="confidence-badge conf-{{ result.confidence | lower }}">{{ result.confidence }} Confidence</span>
+  </div>
+  <div class="match-team">
+    <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="team-logo-lg" />
+    <span class="match-team-name">{{ team_b.name }}</span>
+  </div>
+</div>
+
+<!-- ── 1X2 ── -->
+<div class="section-title">Match Winner (1X2)</div>
+<div class="prediction-card card">
+  <div class="model-note">
+    Weighted model: H2H 25% · Form 30% · Home/Away 20% · Injuries 15% · xG proxy 10%
+  </div>
+  <div class="win-probs">
+    <div class="win-block">
+      <div class="win-pct accent">{{ result.win_prob.a }}%</div>
+      <div class="win-label">{{ team_a.name }}</div>
+      <div class="win-bar"><div class="win-fill" style="width:{{ result.win_prob.a }}%;background:#00ff87"></div></div>
+    </div>
+    <div class="win-block">
+      <div class="win-pct">{{ result.win_prob.draw }}%</div>
+      <div class="win-label">Draw</div>
+      <div class="win-bar"><div class="win-fill" style="width:{{ result.win_prob.draw }}%;background:#f59e0b"></div></div>
+    </div>
+    <div class="win-block">
+      <div class="win-pct">{{ result.win_prob.b }}%</div>
+      <div class="win-label">{{ team_b.name }}</div>
+      <div class="win-bar"><div class="win-fill" style="width:{{ result.win_prob.b }}%;background:#3b82f6"></div></div>
+    </div>
+  </div>
+
+  <div class="underlying-data">
+    <strong>Underlying data:</strong>
+    H2H — {{ result.h2h_record.a_wins }}W / {{ result.h2h_record.draws }}D / {{ result.h2h_record.b_wins }}L (last {{ result.h2h_record.total }} meetings) ·
+    λA={{ result.lambda_a }} goals/game · λB={{ result.lambda_b }} goals/game
+  </div>
+
+  <div class="recommended-bet">
+    Recommended: <span class="accent">
+      {% if result.recommended_winner == 'Team A' %}{{ team_a.name }} Win
+      {% elif result.recommended_winner == 'Team B' %}{{ team_b.name }} Win
+      {% else %}Draw
+      {% endif %}
+    </span>
+    <span class="confidence-badge conf-{{ result.confidence | lower }}">{{ result.confidence }}</span>
+  </div>
+</div>
+
+<!-- Prediction row: BTTS + Over/Under side by side -->
+<div class="pred-row">
+
+  <!-- ── BTTS ── -->
+  <div class="card pred-half">
+    <div class="section-title-sm">Both Teams To Score</div>
+    <div class="model-note">Based on scoring rates across last 5 games each team</div>
+    <div class="donut-wrap">
+      <canvas id="bttsChart" width="200" height="200"></canvas>
+    </div>
+    <div class="btts-labels">
+      <span class="btts-yes">BTTS Yes: <strong>{{ result.btts_yes }}%</strong></span>
+      <span class="btts-no">BTTS No: <strong>{{ result.btts_no }}%</strong></span>
+    </div>
+    <div class="underlying-data">
+      Avg goals: {{ team_a.name }} scores {{ result.avg_gf_a }}/game, concedes {{ result.avg_ga_a }}/game.
+      {{ team_b.name }} scores {{ result.avg_gf_b }}/game, concedes {{ result.avg_ga_b }}/game.
+    </div>
+  </div>
+
+  <!-- ── Over/Under ── -->
+  <div class="card pred-half">
+    <div class="section-title-sm">Total Goals</div>
+    <div class="model-note">Poisson model · Expected total: {{ result.avg_total_goals }} goals</div>
+    <div class="ou-blocks">
+      <div class="ou-block">
+        <div class="ou-pct accent">{{ result.over25 }}%</div>
+        <div class="ou-label">Over 2.5</div>
+      </div>
+      <div class="ou-block">
+        <div class="ou-pct">{{ result.over15 }}%</div>
+        <div class="ou-label">Over 1.5</div>
+      </div>
+      <div class="ou-block">
+        <div class="ou-pct">{{ 100 - result.over25 }}%</div>
+        <div class="ou-label">Under 2.5</div>
+      </div>
+    </div>
+    <canvas id="ouChart" width="300" height="180"></canvas>
+    <div class="underlying-data">
+      Combined λ = {{ result.lambda_a }} + {{ result.lambda_b }} = {{ result.avg_total_goals }}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Correct Score ── -->
+<div class="section-title">Correct Score (Poisson)</div>
+<div class="card">
+  <div class="model-note">Poisson distribution with λA={{ result.lambda_a }} and λB={{ result.lambda_b }}</div>
+  <div class="score-predictions">
+    {% for s in result.top_scores %}
+    <div class="score-pred-card rank-{{ loop.index }}">
+      <div class="score-pred-rank">#{{ loop.index }}</div>
+      <div class="score-pred-score">{{ s.score }}</div>
+      <div class="score-pred-prob">{{ s.prob }}%</div>
+      <div class="score-pred-bar">
+        <div class="score-pred-fill" style="width:{{ [s.prob * 5, 100] | min }}%"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ── Corners ── -->
+<div class="section-title">Corner Kicks</div>
+<div class="card pred-corners">
+  <div class="model-note">Average from team form data (exact requires per-fixture stats endpoint)</div>
+  <div class="corners-stat">
+    <span class="corners-num accent">{{ result.corners_avg }}</span>
+    <span class="corners-label">Avg corners per game</span>
+  </div>
+  <div class="ou-blocks">
+    <div class="ou-block">
+      <div class="ou-pct accent">{{ result.over95_corners }}%</div>
+      <div class="ou-label">Over 9.5 corners</div>
+    </div>
+    <div class="ou-block">
+      <div class="ou-pct">{{ 100 - result.over95_corners }}%</div>
+      <div class="ou-label">Under 9.5 corners</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── First Goalscorer ── -->
+<div class="section-title">First Goalscorer Candidates</div>
+<div class="fgs-columns">
+  <div class="fgs-col card">
+    <h3><img src="{{ team_a.logo }}" class="team-logo-sm" alt="" /> {{ team_a.name }}</h3>
+    {% if result.fgs_a %}
+    {% for p in result.fgs_a %}
+    <div class="fgs-row {{ 'injured' if p.injured else '' }}">
+      {% if p.photo %}<img src="{{ p.photo }}" class="player-photo-sm" alt="" />{% endif %}
+      <span class="fgs-name">{{ p.name }}{% if p.injured %} <span class="inj-flag">🩹</span>{% endif %}</span>
+      <span class="fgs-prob accent">{{ p.prob }}%</span>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state">Squad data not available.</div>
+    {% endif %}
+  </div>
+  <div class="fgs-col card">
+    <h3><img src="{{ team_b.logo }}" class="team-logo-sm" alt="" /> {{ team_b.name }}</h3>
+    {% if result.fgs_b %}
+    {% for p in result.fgs_b %}
+    <div class="fgs-row {{ 'injured' if p.injured else '' }}">
+      {% if p.photo %}<img src="{{ p.photo }}" class="player-photo-sm" alt="" />{% endif %}
+      <span class="fgs-name">{{ p.name }}{% if p.injured %} <span class="inj-flag">🩹</span>{% endif %}</span>
+      <span class="fgs-prob accent">{{ p.prob }}%</span>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state">Squad data not available.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Bettor's Slip ── -->
+<div class="section-title">Bettor's Slip</div>
+<div class="bettors-slip card" id="bettorsSlip">
+  <div class="slip-header">
+    <span>⚽ {{ team_a.name }} vs {{ team_b.name }}</span>
+    <button class="btn btn-sm" onclick="copySlip()">Copy Slip</button>
+  </div>
+  <div class="slip-row">
+    <span class="slip-market">Match Winner</span>
+    <span class="slip-pick accent">
+      {% if result.recommended_winner == 'Team A' %}{{ team_a.name }}
+      {% elif result.recommended_winner == 'Team B' %}{{ team_b.name }}
+      {% else %}Draw
+      {% endif %}
+    </span>
+    <span class="slip-conf conf-{{ result.confidence | lower }}">{{ result.confidence }}</span>
+  </div>
+  <div class="slip-row">
+    <span class="slip-market">BTTS</span>
+    <span class="slip-pick accent">{{ 'Yes' if result.btts_yes > 50 else 'No' }} ({{ [result.btts_yes, result.btts_no] | max }}%)</span>
+    <span class="slip-conf conf-medium">Medium</span>
+  </div>
+  <div class="slip-row">
+    <span class="slip-market">Total Goals</span>
+    <span class="slip-pick accent">{{ 'Over 2.5' if result.over25 > 50 else 'Under 2.5' }} ({{ result.over25 if result.over25 > 50 else 100 - result.over25 }}%)</span>
+    <span class="slip-conf conf-medium">Medium</span>
+  </div>
+  <div class="slip-row">
+    <span class="slip-market">Correct Score</span>
+    <span class="slip-pick accent">{{ result.top_scores[0].score }} ({{ result.top_scores[0].prob }}%)</span>
+    <span class="slip-conf conf-low">Low</span>
+  </div>
+  <div class="slip-row">
+    <span class="slip-market">Corner Kicks</span>
+    <span class="slip-pick accent">{{ 'Over 9.5' if result.over95_corners > 50 else 'Under 9.5' }} ({{ result.over95_corners }}%)</span>
+    <span class="slip-conf conf-medium">Medium</span>
+  </div>
+  <div class="slip-disclaimer">
+    ⚠️ For informational purposes only. Please gamble responsibly.
+  </div>
+</div>
+
+<div class="nav-cta">
+  <a href="/" class="btn btn-secondary">New Matchup</a>
+  <a href="/matchup" class="btn btn-secondary">Back to Analysis</a>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // BTTS donut
+  new Chart(document.getElementById('bttsChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['BTTS Yes', 'BTTS No'],
+      datasets: [{
+        data: [{{ result.btts_yes }}, {{ result.btts_no }}],
+        backgroundColor: ['#00ff87', '#21262d'],
+        borderColor: ['#00ff87', '#30363d'],
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      cutout: '65%',
+      plugins: {
+        legend: { labels: { color: '#e6edf3' } }
+      }
+    }
+  });
+
+  // Over/Under bar
+  new Chart(document.getElementById('ouChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Over 1.5', 'Over 2.5', 'Under 2.5', 'Under 1.5'],
+      datasets: [{
+        data: [{{ result.over15 }}, {{ result.over25 }}, {{ 100 - result.over25 }}, {{ 100 - result.over15 }}],
+        backgroundColor: ['#00ff87','#00cc6e','#3b82f6','#2563eb'],
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: '#21262d' }, ticks: { color: '#8b949e', callback: v => v + '%' } },
+        x: { grid: { display: false }, ticks: { color: '#8b949e' } }
+      }
+    }
+  });
+
+  function copySlip() {
+    const slip = document.getElementById('bettorsSlip');
+    const lines = [];
+    lines.push(`⚽ {{ team_a.name }} vs {{ team_b.name }}`);
+    slip.querySelectorAll('.slip-row').forEach(row => {
+      const market = row.querySelector('.slip-market')?.textContent.trim();
+      const pick   = row.querySelector('.slip-pick')?.textContent.trim();
+      const conf   = row.querySelector('.slip-conf')?.textContent.trim();
+      if (market) lines.push(`${market}: ${pick} [${conf}]`);
+    });
+    lines.push('⚠️ For informational purposes only. Please gamble responsibly.');
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      const btn = slip.querySelector('button');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy Slip', 2000);
+    });
+  }
+</script>
+{% endblock %}

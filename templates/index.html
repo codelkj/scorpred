@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Select Teams{% endblock %}
+
+{% block content %}
+<div class="hero">
+  <h1 class="hero-title">Football <span class="accent">Predictor</span></h1>
+  <p class="hero-sub">Data-driven match analysis for the Premier League</p>
+</div>
+
+<div class="card team-select-card">
+  <h2 class="card-title">Select a Matchup</h2>
+
+  {% if not teams %}
+  <div class="alert alert-warn">
+    Could not load teams — check your <code>API_FOOTBALL_KEY</code> in <code>.env</code>.
+  </div>
+  {% else %}
+
+  <form method="POST" action="/select" id="teamForm">
+    <div class="team-pickers">
+
+      <!-- Team A -->
+      <div class="picker-group">
+        <label class="picker-label">Home Team</label>
+        <div class="custom-select-wrap" id="wrapA">
+          <div class="custom-select-trigger" id="triggerA">
+            <img class="team-logo-sm" id="logoA" src="" alt="" style="display:none" />
+            <span id="labelA">Choose Team A</span>
+            <span class="caret">▾</span>
+          </div>
+          <div class="custom-select-dropdown" id="dropA">
+            <input class="select-search" type="text" placeholder="Search team…" id="searchA" autocomplete="off" />
+            <div class="select-options" id="optionsA">
+              {% for t in teams | sort(attribute='team.name') %}
+              <div class="select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
+                <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm" />
+                <span>{{ t.team.name }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <input type="hidden" name="team_a" id="team_a" required />
+        </div>
+      </div>
+
+      <div class="vs-badge">VS</div>
+
+      <!-- Team B -->
+      <div class="picker-group">
+        <label class="picker-label">Away Team</label>
+        <div class="custom-select-wrap" id="wrapB">
+          <div class="custom-select-trigger" id="triggerB">
+            <img class="team-logo-sm" id="logoB" src="" alt="" style="display:none" />
+            <span id="labelB">Choose Team B</span>
+            <span class="caret">▾</span>
+          </div>
+          <div class="custom-select-dropdown" id="dropB">
+            <input class="select-search" type="text" placeholder="Search team…" id="searchB" autocomplete="off" />
+            <div class="select-options" id="optionsB">
+              {% for t in teams | sort(attribute='team.name') %}
+              <div class="select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
+                <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm" />
+                <span>{{ t.team.name }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <input type="hidden" name="team_b" id="team_b" required />
+        </div>
+      </div>
+    </div>
+
+    <div id="sameTeamError" class="alert alert-error" style="display:none">
+      Please select two different teams.
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-lg btn-full" id="analyseBtn" disabled>
+      Analyse Matchup →
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="features-grid">
+  <div class="feature-card">
+    <div class="feature-icon">📊</div>
+    <h3>Head-to-Head</h3>
+    <p>Last 5 meetings with goals, cards, corners and shots data.</p>
+  </div>
+  <div class="feature-card">
+    <div class="feature-icon">📈</div>
+    <h3>Form Analysis</h3>
+    <p>Recent 5-game form strings with goals scored &amp; conceded.</p>
+  </div>
+  <div class="feature-card">
+    <div class="feature-icon">🧬</div>
+    <h3>Poisson Model</h3>
+    <p>Statistically modelled correct-score &amp; over/under predictions.</p>
+  </div>
+  <div class="feature-card">
+    <div class="feature-icon">🩺</div>
+    <h3>Injury Report</h3>
+    <p>Live injury &amp; suspension data factored into every prediction.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Generic custom-select controller
+  function initCustomSelect(wrapperId, triggerId, dropId, searchId, optionsId, hiddenId, logoId, labelId, otherHiddenId) {
+    const wrap = document.getElementById(wrapperId);
+    const trigger = document.getElementById(triggerId);
+    const drop = document.getElementById(dropId);
+    const searchEl = document.getElementById(searchId);
+    const optsCont = document.getElementById(optionsId);
+    const hidden = document.getElementById(hiddenId);
+    const logo = document.getElementById(logoId);
+    const label = document.getElementById(labelId);
+    const allOpts = () => optsCont.querySelectorAll('.select-option');
+
+    trigger.addEventListener('click', () => {
+      drop.classList.toggle('open');
+      if (drop.classList.contains('open')) searchEl.focus();
+    });
+
+    searchEl.addEventListener('input', () => {
+      const q = searchEl.value.toLowerCase();
+      allOpts().forEach(o => {
+        o.style.display = o.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
+
+    allOpts().forEach(opt => {
+      opt.addEventListener('click', () => {
+        hidden.value = opt.dataset.value;
+        label.textContent = opt.dataset.name;
+        logo.src = opt.dataset.logo;
+        logo.style.display = 'inline';
+        drop.classList.remove('open');
+        validateForm();
+      });
+    });
+
+    document.addEventListener('click', e => {
+      if (!wrap.contains(e.target)) drop.classList.remove('open');
+    });
+  }
+
+  initCustomSelect('wrapA','triggerA','dropA','searchA','optionsA','team_a','logoA','labelA','team_b');
+  initCustomSelect('wrapB','triggerB','dropB','searchB','optionsB','team_b','logoB','labelB','team_a');
+
+  function validateForm() {
+    const a = document.getElementById('team_a').value;
+    const b = document.getElementById('team_b').value;
+    const btn = document.getElementById('analyseBtn');
+    const err = document.getElementById('sameTeamError');
+    if (a && b && a === b) {
+      err.style.display = 'block';
+      btn.disabled = true;
+    } else if (a && b) {
+      err.style.display = 'none';
+      btn.disabled = false;
+    } else {
+      err.style.display = 'none';
+      btn.disabled = true;
+    }
+  }
+</script>
+{% endblock %}

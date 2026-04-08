@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Error{% endblock %}
+{% block content %}
+<div class="error-page">
+  <h1>Something went wrong</h1>
+  <p class="error-msg">{{ msg }}</p>
+  <p>This may be an API connectivity issue. Check your API key in <code>.env</code> and ensure you have not exceeded your daily quota (100 requests/day on the free tier).</p>
+  <a href="/" class="btn btn-primary">Back to Home</a>
+</div>
+{% endblock %}

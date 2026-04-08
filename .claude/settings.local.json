@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile api_client.py predictor.py app.py)",
+      "Bash(python app.py)",
+      "Bash(.venv/Scripts/python.exe -c \"import flask, dotenv, requests, scipy\")",
+      "Bash(.venv/Scripts/python.exe -m pip install -r requirements.txt)",
+      "Bash(timeout 5 .venv/Scripts/python.exe app.py)",
+      "Bash(.venv/Scripts/python.exe --version)",
+      "Bash(rm -rf .venv)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(where python3:*)",
+      "Bash(python3 -c \"import sys; print\\(sys.executable\\)\")"
+    ]
+  }
+}

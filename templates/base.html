@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}ScorPred{% endblock %} — Football Predictor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+  <nav class="navbar">
+    <a href="/" class="nav-brand">
+      <span class="brand-icon">⚽</span>
+      <span>ScorPred</span>
+    </a>
+    <div class="nav-links">
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">Teams</a>
+      {% if session.get('team_a_id') %}
+      <a href="/matchup" class="{% if request.path == '/matchup' %}active{% endif %}">Matchup</a>
+      <a href="/player"  class="{% if request.path == '/player'  %}active{% endif %}">Players</a>
+      <a href="/prediction" class="{% if request.path == '/prediction' %}active{% endif %}">Prediction</a>
+      {% endif %}
+    </div>
+    <div class="nav-mobile-toggle" id="navToggle">&#9776;</div>
+  </nav>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>⚠️ This app is for informational purposes only. Please gamble responsibly. 18+</p>
+  </footer>
+
+  <script src="{{ url_for('static', filename='charts.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

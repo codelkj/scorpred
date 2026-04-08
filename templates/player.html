@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}Player Comparison{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h1>Player <span class="accent">Comparison</span></h1>
+  <p class="page-sub">Select one player from each squad to compare their stats</p>
+</div>
+
+<div class="player-selectors card">
+  <div class="player-selector-group">
+    <label class="picker-label">
+      <img src="{{ team_a.logo }}" class="team-logo-sm" alt="" /> {{ team_a.name }} Player
+    </label>
+    <select id="playerA" class="player-select">
+      <option value="">— Select Player —</option>
+      {% for p in squad_a | sort(attribute='name') %}
+      <option value="{{ p.id }}" data-pos="{{ p.position }}">{{ p.name }} ({{ p.position }})</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="vs-badge">VS</div>
+
+  <div class="player-selector-group">
+    <label class="picker-label">
+      <img src="{{ team_b.logo }}" class="team-logo-sm" alt="" /> {{ team_b.name }} Player
+    </label>
+    <select id="playerB" class="player-select">
+      <option value="">— Select Player —</option>
+      {% for p in squad_b | sort(attribute='name') %}
+      <option value="{{ p.id }}" data-pos="{{ p.position }}">{{ p.name }} ({{ p.position }})</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+<!-- Loading indicator -->
+<div id="playerLoading" class="loading-state" style="display:none">
+  <div class="spinner"></div> Loading player data…
+</div>
+
+<!-- Player stat cards -->
+<div class="player-cards" id="playerCards" style="display:none">
+  <div class="player-stat-card" id="cardA">
+    <div class="player-header">
+      <img id="photoA" src="" class="player-photo" alt="" />
+      <div>
+        <h3 id="nameA">—</h3>
+        <span id="posA" class="position-badge"></span>
+      </div>
+    </div>
+    <div class="player-stats" id="statsA"></div>
+  </div>
+
+  <div class="player-stat-card" id="cardB">
+    <div class="player-header">
+      <img id="photoB" src="" class="player-photo" alt="" />
+      <div>
+        <h3 id="nameB">—</h3>
+        <span id="posB" class="position-badge"></span>
+      </div>
+    </div>
+    <div class="player-stats" id="statsB"></div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div id="chartsSection" class="charts-section" style="display:none">
+  <div class="chart-card">
+    <h3 class="chart-title">Radar Comparison</h3>
+    <canvas id="radarChart" width="400" height="400"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3 class="chart-title">Last 10 Games — Rating</h3>
+    <canvas id="ratingChart" width="400" height="200"></canvas>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let radarChart = null;
+  let ratingChart = null;
+  const playerData = { A: null, B: null };
+
+  const statKeys = [
+    { key: 'goals.total',      label: 'Goals',          max: 30 },
+    { key: 'assists',          label: 'Assists',         max: 20 },
+    { key: 'shots.on',         label: 'Shots on Target', max: 80 },
+    { key: 'passes.key',       label: 'Key Passes',      max: 100 },
+    { key: 'dribbles.success', label: 'Dribbles Won',    max: 60 },
+    { key: 'duels.won',        label: 'Duels Won',       max: 150 },
+    { key: 'rating',           label: 'Rating',          max: 10 },
+  ];
+
+  function dig(obj, path) {
+    return path.split('.').reduce((o, k) => (o && o[k] != null ? o[k] : null), obj);
+  }
+
+  function getStats(playerResp) {
+    if (!playerResp || !playerResp.length) return null;
+    const s = playerResp[0].statistics?.[0];
+    if (!s) return null;
+    return {
+      goals:     dig(s, 'goals.total') || 0,
+      assists:   dig(s, 'goals.assists') || 0,
+      shots_on:  dig(s, 'shots.on') || 0,
+      key_passes: dig(s, 'passes.key') || 0,
+      dribbles:  dig(s, 'dribbles.success') || 0,
+      duels:     dig(s, 'duels.won') || 0,
+      rating:    parseFloat(dig(s, 'games.rating') || '0'),
+      minutes:   dig(s, 'games.minutes') || 0,
+      appearances: dig(s, 'games.appearences') || 0,
+    };
+  }
+
+  function renderStatCard(side, resp) {
+    const data = resp[0];
+    const s = getStats(resp);
+    if (!data || !s) return;
+
+    document.getElementById(`photo${side}`).src = data.player?.photo || '';
+    document.getElementById(`name${side}`).textContent = data.player?.name || '—';
+    document.getElementById(`pos${side}`).textContent = data.statistics?.[0]?.games?.position || '';
+
+    const rows = [
+      ['Goals', s.goals],
+      ['Assists', s.assists],
+      ['Shots on Target', s.shots_on],
+      ['Key Passes', s.key_passes],
+      ['Dribbles Won', s.dribbles],
+      ['Duels Won', s.duels],
+      ['Rating', s.rating.toFixed(2)],
+      ['Minutes Played', s.minutes],
+      ['Appearances', s.appearances],
+    ];
+
+    document.getElementById(`stats${side}`).innerHTML = rows.map(([label, val]) => `
+      <div class="stat-item">
+        <span class="stat-label">${label}</span>
+        <span class="stat-val accent">${val ?? '—'}</span>
+      </div>
+    `).join('');
+  }
+
+  function buildRadar() {
+    if (!playerData.A || !playerData.B) return;
+    const sA = getStats(playerData.A);
+    const sB = getStats(playerData.B);
+    if (!sA || !sB) return;
+
+    const labels = ['Goals', 'Assists', 'Shots on\nTarget', 'Key Passes', 'Dribbles', 'Duels Won', 'Rating'];
+    const maxes  = [30, 20, 80, 100, 60, 150, 10];
+
+    function norm(vals) {
+      return [sA.goals, sA.assists, sA.shots_on, sA.key_passes, sA.dribbles, sA.duels, sA.rating]
+        .map((v, i) => Math.min(100, (v / maxes[i]) * 100));
+    }
+
+    const dA = norm(sA);
+    const dB = norm(sB);
+
+    const nameA = document.getElementById('nameA').textContent;
+    const nameB = document.getElementById('nameB').textContent;
+
+    if (radarChart) radarChart.destroy();
+    radarChart = new Chart(document.getElementById('radarChart'), {
+      type: 'radar',
+      data: {
+        labels,
+        datasets: [
+          { label: nameA, data: dA, backgroundColor: 'rgba(0,255,135,0.15)', borderColor: '#00ff87', pointBackgroundColor: '#00ff87' },
+          { label: nameB, data: dB, backgroundColor: 'rgba(59,130,246,0.15)', borderColor: '#3b82f6', pointBackgroundColor: '#3b82f6' },
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: { r: { suggestedMin: 0, suggestedMax: 100, ticks: { color: '#8b949e', stepSize: 25 }, grid: { color: '#21262d' }, pointLabels: { color: '#e6edf3', font: { size: 12 } } } },
+        plugins: { legend: { labels: { color: '#e6edf3' } } }
+      }
+    });
+  }
+
+  function buildRatingChart() {
+    // Placeholder — would need per-game data from a different endpoint
+    if (ratingChart) ratingChart.destroy();
+    ratingChart = new Chart(document.getElementById('ratingChart'), {
+      type: 'bar',
+      data: {
+        labels: ['G1','G2','G3','G4','G5','G6','G7','G8','G9','G10'],
+        datasets: [
+          { label: document.getElementById('nameA').textContent, data: [7.1,6.8,7.4,6.5,7.8,7.2,6.9,7.5,7.0,7.3], backgroundColor: '#00ff87' },
+          { label: document.getElementById('nameB').textContent, data: [6.9,7.2,6.6,7.1,6.8,7.3,7.0,6.7,7.4,6.5], backgroundColor: '#3b82f6' },
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { min: 5, max: 10, grid: { color: '#21262d' }, ticks: { color: '#8b949e' } },
+          x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } }
+        },
+        plugins: { legend: { labels: { color: '#e6edf3' } } }
+      }
+    });
+  }
+
+  async function loadPlayer(side, pid) {
+    document.getElementById('playerLoading').style.display = 'flex';
+    try {
+      const res = await fetch(`/api/player-stats?id=${pid}`);
+      const data = await res.json();
+      playerData[side] = data;
+      renderStatCard(side, data);
+
+      if (playerData.A && playerData.B) {
+        document.getElementById('playerCards').style.display = 'grid';
+        document.getElementById('chartsSection').style.display = 'grid';
+        buildRadar();
+        buildRatingChart();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      document.getElementById('playerLoading').style.display = 'none';
+    }
+  }
+
+  document.getElementById('playerA').addEventListener('change', function() {
+    if (this.value) loadPlayer('A', this.value);
+  });
+  document.getElementById('playerB').addEventListener('change', function() {
+    if (this.value) loadPlayer('B', this.value);
+  });
+</script>
+{% endblock %}
