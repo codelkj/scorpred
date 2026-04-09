@@ -848,3 +848,142 @@ img { display: inline-block; }
   .fpred-teams-row { flex-wrap: wrap; }
   .fpred-team.right { flex-direction: row; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Magic UI Premium Effects
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Glow Card ─────────────────────────────────────────────────────────────── */
+.glow-card {
+  position: relative;
+  background: #0d1117;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.glow-card:hover {
+  border-color: rgba(0, 255, 135, 0.4);
+  box-shadow: 0 0 30px rgba(0, 255, 135, 0.08), 0 0 60px rgba(0, 255, 135, 0.04);
+}
+
+/* NBA pages get gold glow instead of green */
+.nba-page .glow-card:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: 0 0 30px rgba(245, 158, 11, 0.08), 0 0 60px rgba(245, 158, 11, 0.04);
+}
+
+/* Preserve gradient backgrounds on specific card types */
+.feature-card.glow-card {
+  background: linear-gradient(180deg, rgba(18,18,18,.96), rgba(8,8,8,.96));
+}
+.bettors-slip.glow-card {
+  background: linear-gradient(135deg, var(--card), #0f2016);
+}
+
+/* ── Shimmer loading effect ─────────────────────────────────────────────────── */
+.shimmer {
+  background: linear-gradient(90deg, #1a2332 25%, #243044 50%, #1a2332 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Animated gradient border ───────────────────────────────────────────────── */
+.gradient-border {
+  position: relative;
+  border-radius: 16px;
+  background: linear-gradient(#0d1117, #0d1117) padding-box,
+              linear-gradient(135deg, #00ff87, #00b4ff, #00ff87) border-box;
+  border: 1px solid transparent;
+  animation: borderRotate 4s linear infinite;
+}
+@keyframes borderRotate {
+  0%   { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+/* ── Stat counter numbers ───────────────────────────────────────────────────── */
+.stat-number {
+  font-variant-numeric: tabular-nums;
+  transition: all 0.3s ease;
+}
+
+/* ── Glowing button ─────────────────────────────────────────────────────────── */
+.btn-glow {
+  background: #00ff87;
+  color: #0d1117;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 28px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 20px rgba(0, 255, 135, 0.3);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-glow:hover {
+  box-shadow: 0 0 40px rgba(0, 255, 135, 0.6);
+  transform: translateY(-2px);
+  color: #0d1117;
+  text-decoration: none;
+  opacity: 1;
+}
+
+/* ── Tab active underline ───────────────────────────────────────────────────── */
+.tab-active {
+  color: #00ff87 !important;
+  border-bottom: 2px solid #00ff87 !important;
+  transition: all 0.3s ease;
+}
+
+/* ── Probability bars ───────────────────────────────────────────────────────── */
+.prob-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.1);
+  overflow: hidden;
+  margin: .35rem 0;
+}
+.prob-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #00ff87, #00b4ff);
+  width: 0%;
+  transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Team badge hover ───────────────────────────────────────────────────────── */
+.team-badge {
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+.team-badge:hover {
+  transform: scale(1.1);
+  filter: drop-shadow(0 0 12px rgba(0, 255, 135, 0.5));
+}
+.nba-page .team-badge:hover {
+  filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.5));
+}
+
+/* ── Particles container ────────────────────────────────────────────────────── */
+#particles-js {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+.container { position: relative; z-index: 1; }
+.navbar    { position: sticky; top: 0; z-index: 100; }
+.site-footer { position: relative; z-index: 1; }
+
+/* ── GSAP entrance: cards start hidden (JS will reveal) ─────────────────────── */
+.glow-card {
+  opacity: 1; /* fallback if GSAP not loaded */
+}

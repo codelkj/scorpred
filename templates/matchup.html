@@ -4,9 +4,9 @@
 {% block content %}
 
 <!-- Match header -->
-<div class="match-header card">
+<div class="match-header card glow-card gradient-border">
   <div class="match-team">
-    <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="team-logo-lg" />
+    <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="team-logo-lg team-badge" />
     <span class="match-team-name">{{ team_a.name }}</span>
   </div>
   <div class="match-vs">
@@ -18,14 +18,14 @@
     </div>
   </div>
   <div class="match-team">
-    <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="team-logo-lg" />
+    <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="team-logo-lg team-badge" />
     <span class="match-team-name">{{ team_b.name }}</span>
   </div>
 </div>
 
 <!-- Tab navigation -->
 <div class="tab-bar">
-  <button class="tab-btn active" data-tab="h2h">Last 5 Meetings</button>
+  <button class="tab-btn active tab-active" data-tab="h2h">Last 5 Meetings</button>
   <button class="tab-btn" data-tab="form">Recent Form</button>
   <button class="tab-btn" data-tab="homeaway">Home / Away</button>
   <button class="tab-btn" data-tab="injuries">Injuries</button>
@@ -39,7 +39,7 @@
   {% set away_id = f.teams.away.id %}
   {% set hg = f.goals.home %}
   {% set ag = f.goals.away %}
-  <div class="fixture-card">
+  <div class="fixture-card glow-card">
     <div class="fixture-meta">
       <span class="fixture-date">{{ f.fixture.date[:10] }}</span>
       <span class="fixture-comp">{{ f.league.name }}</span>
@@ -48,7 +48,7 @@
 
     <div class="fixture-score-row">
       <div class="fixture-team">
-        <img src="{{ f.teams.home.logo }}" class="team-logo-sm" alt="" />
+        <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="" />
         <span>{{ f.teams.home.name }}</span>
       </div>
       <div class="fixture-score">
@@ -58,7 +58,7 @@
       </div>
       <div class="fixture-team right">
         <span>{{ f.teams.away.name }}</span>
-        <img src="{{ f.teams.away.logo }}" class="team-logo-sm" alt="" />
+        <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="" />
       </div>
     </div>
 
@@ -127,9 +127,9 @@
 <!-- TAB 2: Form -->
 <div class="tab-panel" id="tab-form">
   <div class="form-columns">
-    <div class="form-col">
+    <div class="form-col glow-card">
       <h3 class="col-title">
-        <img src="{{ team_a.logo }}" class="team-logo-sm" alt="" /> {{ team_a.name }}
+        <img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }}
       </h3>
       <div class="form-string">
         {% for r in form_a %}
@@ -137,14 +137,14 @@
         {% endfor %}
       </div>
       <div class="form-averages">
-        <span>Avg scored: <strong class="accent">{{ (form_a | sum(attribute='gf') / form_a|length) | round(2) if form_a else 0 }}</strong></span>
-        <span>Avg conceded: <strong class="accent">{{ (form_a | sum(attribute='ga') / form_a|length) | round(2) if form_a else 0 }}</strong></span>
-        <span>Clean sheets: <strong class="accent">{{ form_a | selectattr('cs') | list | length }}</strong></span>
+        <span>Avg scored: <strong class="accent stat-number" data-target="{{ (form_a | sum(attribute='gf') / form_a|length) | round(2) if form_a else 0 }}">{{ (form_a | sum(attribute='gf') / form_a|length) | round(2) if form_a else 0 }}</strong></span>
+        <span>Avg conceded: <strong class="accent stat-number" data-target="{{ (form_a | sum(attribute='ga') / form_a|length) | round(2) if form_a else 0 }}">{{ (form_a | sum(attribute='ga') / form_a|length) | round(2) if form_a else 0 }}</strong></span>
+        <span>Clean sheets: <strong class="accent stat-number" data-target="{{ form_a | selectattr('cs') | list | length }}">{{ form_a | selectattr('cs') | list | length }}</strong></span>
       </div>
       {% for r in form_a %}
       <div class="form-row">
         <span class="form-badge form-{{ r.result }}">{{ r.result }}</span>
-        <img src="{{ r.opponent_logo }}" class="team-logo-xs" alt="" />
+        <img src="{{ r.opponent_logo }}" class="team-logo-xs team-badge" alt="" />
         <span class="form-opp">{{ 'vs' if not r.home else 'vs' }} {{ r.opponent }}</span>
         <span class="form-score">{{ r.score }}</span>
         <span class="form-date">{{ r.date }}</span>
@@ -152,9 +152,9 @@
       {% endfor %}
     </div>
 
-    <div class="form-col">
+    <div class="form-col glow-card">
       <h3 class="col-title">
-        <img src="{{ team_b.logo }}" class="team-logo-sm" alt="" /> {{ team_b.name }}
+        <img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }}
       </h3>
       <div class="form-string">
         {% for r in form_b %}
@@ -162,14 +162,14 @@
         {% endfor %}
       </div>
       <div class="form-averages">
-        <span>Avg scored: <strong class="accent">{{ (form_b | sum(attribute='gf') / form_b|length) | round(2) if form_b else 0 }}</strong></span>
-        <span>Avg conceded: <strong class="accent">{{ (form_b | sum(attribute='ga') / form_b|length) | round(2) if form_b else 0 }}</strong></span>
-        <span>Clean sheets: <strong class="accent">{{ form_b | selectattr('cs') | list | length }}</strong></span>
+        <span>Avg scored: <strong class="accent stat-number" data-target="{{ (form_b | sum(attribute='gf') / form_b|length) | round(2) if form_b else 0 }}">{{ (form_b | sum(attribute='gf') / form_b|length) | round(2) if form_b else 0 }}</strong></span>
+        <span>Avg conceded: <strong class="accent stat-number" data-target="{{ (form_b | sum(attribute='ga') / form_b|length) | round(2) if form_b else 0 }}">{{ (form_b | sum(attribute='ga') / form_b|length) | round(2) if form_b else 0 }}</strong></span>
+        <span>Clean sheets: <strong class="accent stat-number" data-target="{{ form_b | selectattr('cs') | list | length }}">{{ form_b | selectattr('cs') | list | length }}</strong></span>
       </div>
       {% for r in form_b %}
       <div class="form-row">
         <span class="form-badge form-{{ r.result }}">{{ r.result }}</span>
-        <img src="{{ r.opponent_logo }}" class="team-logo-xs" alt="" />
+        <img src="{{ r.opponent_logo }}" class="team-logo-xs team-badge" alt="" />
         <span class="form-opp">vs {{ r.opponent }}</span>
         <span class="form-score">{{ r.score }}</span>
         <span class="form-date">{{ r.date }}</span>
@@ -182,26 +182,26 @@
 <!-- TAB 3: Home / Away -->
 <div class="tab-panel" id="tab-homeaway">
   <div class="ha-grid">
-    <div class="ha-card">
-      <h3><img src="{{ team_a.logo }}" class="team-logo-sm" alt="" /> {{ team_a.name }} — Home Record</h3>
+    <div class="ha-card glow-card">
+      <h3><img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }} — Home Record</h3>
       {% set h = split_a.home %}
       <table class="stats-table">
-        <tr><td>Played</td><td class="val">{{ h.p }}</td></tr>
-        <tr><td>Won</td><td class="val accent">{{ h.w }}</td></tr>
-        <tr><td>Drawn</td><td class="val">{{ h.d }}</td></tr>
-        <tr><td>Lost</td><td class="val">{{ h.l }}</td></tr>
+        <tr><td>Played</td><td class="val stat-number" data-target="{{ h.p }}">{{ h.p }}</td></tr>
+        <tr><td>Won</td><td class="val accent stat-number" data-target="{{ h.w }}">{{ h.w }}</td></tr>
+        <tr><td>Drawn</td><td class="val stat-number" data-target="{{ h.d }}">{{ h.d }}</td></tr>
+        <tr><td>Lost</td><td class="val stat-number" data-target="{{ h.l }}">{{ h.l }}</td></tr>
         <tr><td>Avg Goals Scored</td><td class="val accent">{{ h.gf }}</td></tr>
         <tr><td>Avg Goals Conceded</td><td class="val">{{ h.ga }}</td></tr>
       </table>
     </div>
-    <div class="ha-card">
-      <h3><img src="{{ team_b.logo }}" class="team-logo-sm" alt="" /> {{ team_b.name }} — Away Record</h3>
+    <div class="ha-card glow-card">
+      <h3><img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }} — Away Record</h3>
       {% set a = split_b.away %}
       <table class="stats-table">
-        <tr><td>Played</td><td class="val">{{ a.p }}</td></tr>
-        <tr><td>Won</td><td class="val accent">{{ a.w }}</td></tr>
-        <tr><td>Drawn</td><td class="val">{{ a.d }}</td></tr>
-        <tr><td>Lost</td><td class="val">{{ a.l }}</td></tr>
+        <tr><td>Played</td><td class="val stat-number" data-target="{{ a.p }}">{{ a.p }}</td></tr>
+        <tr><td>Won</td><td class="val accent stat-number" data-target="{{ a.w }}">{{ a.w }}</td></tr>
+        <tr><td>Drawn</td><td class="val stat-number" data-target="{{ a.d }}">{{ a.d }}</td></tr>
+        <tr><td>Lost</td><td class="val stat-number" data-target="{{ a.l }}">{{ a.l }}</td></tr>
         <tr><td>Avg Goals Scored</td><td class="val accent">{{ a.gf }}</td></tr>
         <tr><td>Avg Goals Conceded</td><td class="val">{{ a.ga }}</td></tr>
       </table>
@@ -212,8 +212,8 @@
 <!-- TAB 4: Injuries -->
 <div class="tab-panel" id="tab-injuries">
   <div class="injury-columns">
-    <div class="injury-col">
-      <h3><img src="{{ team_a.logo }}" class="team-logo-sm" alt="" /> {{ team_a.name }}</h3>
+    <div class="injury-col glow-card">
+      <h3><img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }}</h3>
       {% if injuries_a %}
       {% for inj in injuries_a %}
       <div class="injury-card">
@@ -231,8 +231,8 @@
       <div class="empty-state">No injuries reported.</div>
       {% endif %}
     </div>
-    <div class="injury-col">
-      <h3><img src="{{ team_b.logo }}" class="team-logo-sm" alt="" /> {{ team_b.name }}</h3>
+    <div class="injury-col glow-card">
+      <h3><img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }}</h3>
       {% if injuries_b %}
       {% for inj in injuries_b %}
       <div class="injury-card">
@@ -255,8 +255,8 @@
 
 <!-- CTA -->
 <div class="nav-cta">
-  <a href="/player" class="btn btn-secondary">Compare Players →</a>
-  <a href="/prediction" class="btn btn-primary">See Full Prediction →</a>
+  <a href="/player" class="btn btn-secondary btn-glow">Compare Players →</a>
+  <a href="/prediction" class="btn btn-primary btn-glow">See Full Prediction →</a>
 </div>
 
 {% endblock %}
@@ -266,9 +266,13 @@
   // Tab switching
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('active');
+        b.classList.remove('tab-active');
+      });
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
+      btn.classList.add('tab-active');
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     });
   });

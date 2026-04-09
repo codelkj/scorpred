@@ -17,7 +17,7 @@
 
   {# Data-source banner #}
   {% if route_support %}
-  <div class="nba-card" style="padding:.9rem 1.25rem; margin-bottom:1rem;">
+  <div class="nba-card glow-card" style="padding:.9rem 1.25rem; margin-bottom:1rem;">
     <div style="font-size:.78rem; font-weight:600; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:.5rem;">Data Sources</div>
     <div style="display:flex; flex-wrap:wrap; gap:.4rem;">
       {% for key, info in route_support.items() %}
@@ -36,13 +36,13 @@
   {% endif %}
 
   {% if load_error %}
-  <div class="nba-card" style="border-color: #ef4444;">
+  <div class="nba-card glow-card" style="border-color: #ef4444;">
     <p style="color:#ef4444;">⚠ Could not load teams: {{ load_error }}</p>
   </div>
   {% endif %}
 
   <!-- ── Team Selection ─────────────────────────────────────────────────── -->
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <div class="nba-card-title">🏀 Select Teams</div>
     <form method="post" action="{{ url_for('nba.select') }}">
       <div class="nba-select-grid">
@@ -69,18 +69,18 @@
       <!-- Logo preview -->
       <div id="teamPreview" style="display:none;" class="nba-matchup-header" style="margin-bottom:1.5rem;">
         <div class="nba-team-block" id="previewA">
-          <img id="logoA" src="" alt="" class="nba-team-logo" onerror="this.style.display='none'" />
+          <img id="logoA" src="" alt="" class="nba-team-logo team-badge" onerror="this.style.display='none'" />
           <span class="nba-team-name" id="nameA">Team A</span>
         </div>
         <div class="nba-vs-badge">VS</div>
         <div class="nba-team-block" id="previewB">
-          <img id="logoB" src="" alt="" class="nba-team-logo" onerror="this.style.display='none'" />
+          <img id="logoB" src="" alt="" class="nba-team-logo team-badge" onerror="this.style.display='none'" />
           <span class="nba-team-name" id="nameB">Team B</span>
         </div>
       </div>
 
       <div style="text-align:center; margin-top:1rem;">
-        <button type="submit" class="nba-btn nba-btn-primary">
+        <button type="submit" class="nba-btn nba-btn-primary btn-glow">
           🔍 Analyse Matchup
         </button>
       </div>
@@ -89,7 +89,7 @@
 
   <!-- ── Quick links if teams already selected ──────────────────────────── -->
   {% if session.get('nba_team_a_id') %}
-  <div class="nba-card" style="padding:1rem 1.5rem;">
+  <div class="nba-card glow-card" style="padding:1rem 1.5rem;">
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem;">
       <div style="color:var(--nba-muted); font-size:.9rem;">
         Last selection:
@@ -100,14 +100,14 @@
       <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
         <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Matchup</a>
         <a href="{{ url_for('nba.player') }}"  class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Players</a>
-        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary" style="font-size:.85rem; padding:.45rem 1rem;">Prediction</a>
+        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem; padding:.45rem 1rem;">Prediction</a>
       </div>
     </div>
   </div>
   {% endif %}
 
   <!-- ── Today's Games ───────────────────────────────────────────────────── -->
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <div class="nba-card-title">📅 Today's NBA Games</div>
     {% if not today_games %}
     <div style="background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.25); border-radius:8px; padding:.75rem 1rem; font-size:.83rem; color:#f59e0b; margin-bottom:.75rem;">
@@ -133,7 +133,7 @@
           {{ visit.nickname or visit.name }}
         </div>
         {% if h_pts is not none and v_pts is not none %}
-        <div class="nba-game-tile-score">{{ h_pts }} – {{ v_pts }}</div>
+        <div class="nba-game-tile-score stat-number" data-target="{{ h_pts }}">{{ h_pts }} – {{ v_pts }}</div>
         {% endif %}
         <div class="nba-game-tile-status">{{ status }}</div>
       </div>
@@ -175,5 +175,21 @@ function updatePreview() {
 
 document.getElementById('team_a').addEventListener('change', updatePreview);
 document.getElementById('team_b').addEventListener('change', updatePreview);
+</script>
+
+<!-- Particles background -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/particles.js/2.0.0/particles.min.js"></script>
+<div id="particles-js"></div>
+<script>
+particlesJS('particles-js', {
+  particles: {
+    number: { value: 40 },
+    color: { value: '#f59e0b' },
+    opacity: { value: 0.12 },
+    size: { value: 2 },
+    line_linked: { enable: true, color: '#f59e0b', opacity: 0.04 },
+    move: { enable: true, speed: 0.8 }
+  }
+});
 </script>
 {% endblock %}

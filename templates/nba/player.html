@@ -10,14 +10,14 @@
 <div class="nba-page">
 
   <!-- ── Header ───────────────────────────────────────────────────────────── -->
-  <div class="nba-matchup-header">
+  <div class="nba-matchup-header glow-card">
     <div class="nba-team-block">
-      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="nba-team-logo team-badge" onerror="this.style.display='none'"/>{% endif %}
       <span class="nba-team-name">{{ team_a.nickname or team_a.name }}</span>
     </div>
     <div class="nba-vs-badge">🏀</div>
     <div class="nba-team-block">
-      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="nba-team-logo team-badge" onerror="this.style.display='none'"/>{% endif %}
       <span class="nba-team-name">{{ team_b.nickname or team_b.name }}</span>
     </div>
   </div>
@@ -26,7 +26,7 @@
   <div style="display:flex; gap:.75rem; margin-bottom:1.5rem; flex-wrap:wrap;">
     <a href="{{ url_for('nba.index') }}"      class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">← Teams</a>
     <a href="{{ url_for('nba.matchup') }}"    class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Matchup</a>
-    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary"   style="font-size:.85rem;padding:.4rem .9rem;">Full Prediction →</a>
+    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem;padding:.4rem .9rem;">Full Prediction →</a>
   </div>
 
   {# Data-source banner #}
@@ -48,15 +48,15 @@
   </div>
 
   {% if error %}
-  <div class="nba-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ {{ error }}</p></div>
+  <div class="nba-card glow-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ {{ error }}</p></div>
   {% endif %}
 
   <!-- ── Player Selectors ──────────────────────────────────────────────────── -->
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
     {% for side, team, roster in [('A', team_a, roster_a), ('B', team_b, roster_b)] %}
-    <div class="nba-card" style="padding:1.25rem;">
+    <div class="nba-card glow-card" style="padding:1.25rem;">
       <div class="nba-card-title" style="margin-bottom:.75rem;">
-        {% if team.logo %}<img src="{{ team.logo }}" style="width:18px;height:18px;object-fit:contain;"/>{% endif %}
+        {% if team.logo %}<img src="{{ team.logo }}" class="team-badge" style="width:18px;height:18px;object-fit:contain;"/>{% endif %}
         {{ team.nickname or team.name }} — Select Player
       </div>
       <select id="playerSelect{{ side }}" class="nba-select" onchange="loadPlayer('{{ side }}')">
@@ -88,8 +88,8 @@
 
   </div>
 
-  <!-- ── Radar Chart (both players) ──────────────────────────────────────── -->
-  <div class="nba-card" id="radarSection" style="display:none;">
+  <!-- ── Radar Chart (both players) ──────────────────────────── -->
+  <div class="nba-card glow-card" id="radarSection" style="display:none;">
     <div class="nba-card-title">🕸 Player Comparison Radar</div>
     <div style="max-width:500px; margin:0 auto;">
       <canvas id="radarChart"></canvas>
@@ -98,7 +98,7 @@
 
   <!-- ── Prop Cards Grid ───────────────────────────────────────────────────── -->
   <div id="propsSection" style="display:none;">
-    <div class="nba-card">
+    <div class="nba-card glow-card">
       <div class="nba-card-title">🎯 Player Prop Lines</div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;" id="bothProps">
         <!-- populated by JS -->
@@ -110,7 +110,7 @@
 
 <!-- ── Templates for JS rendering ──────────────────────────────────────────── -->
 <template id="tmplPlayerPanel">
-  <div class="nba-player-panel">
+  <div class="nba-player-panel glow-card">
     <div class="nba-player-name" data-bind="name"></div>
     <div class="nba-player-meta" data-bind="meta"></div>
 
@@ -270,9 +270,6 @@ function renderPropsSection() {
     const d = playerData[side];
     if (!d || !d.props || !d.props.length) return;
 
-    const teamSel = document.getElementById('playerSelect' + side);
-    const teamName = teamSel ? teamSel.closest('.nba-card').querySelector('.nba-card-title').textContent.trim() : '';
-
     const col = document.createElement('div');
     col.innerHTML = `<div style="font-weight:600; color:var(--nba-gold); margin-bottom:.75rem; font-size:.9rem;">${d._name}</div>`;
 
@@ -285,7 +282,7 @@ function renderPropsSection() {
       const confClass = p.confidence >= 80 ? 'conf-high' : p.confidence >= 65 ? 'conf-medium' : 'conf-low';
 
       grid.innerHTML += `
-        <div class="nba-prop-card ${leanClass}">
+        <div class="nba-prop-card glow-card ${leanClass}">
           <div class="nba-prop-header">
             <span class="nba-prop-label">${p.label}</span>
             <span style="font-size:.75rem;color:var(--nba-muted);">${p.confidence}%</span>
@@ -322,7 +319,6 @@ function updateRadar() {
   const dataA  = [saA.points||0, saA.rebounds||0, saA.assists||0, saA.tpm||0, saA.steals||0, saA.blocks||0];
   const dataB  = [saB.points||0, saB.rebounds||0, saB.assists||0, saB.tpm||0, saB.steals||0, saB.blocks||0];
 
-  // Normalise to 0-100 range
   const max = Math.max(...dataA, ...dataB, 1);
   const normA = dataA.map(v => Math.round(v / max * 100));
   const normB = dataB.map(v => Math.round(v / max * 100));

@@ -7,7 +7,7 @@
   <p class="hero-sub">Data-driven match analysis for the Premier League</p>
 </div>
 
-<div class="card team-select-card">
+<div class="card glow-card team-select-card">
   <h2 class="card-title">Select a Matchup</h2>
 
   {% if not teams %}
@@ -24,7 +24,7 @@
         <label class="picker-label">Home Team</label>
         <div class="custom-select-wrap" id="wrapA">
           <div class="custom-select-trigger" id="triggerA">
-            <img class="team-logo-sm" id="logoA" src="" alt="" style="display:none" />
+            <img class="team-logo-sm team-badge" id="logoA" src="" alt="" style="display:none" />
             <span id="labelA">Choose Team A</span>
             <span class="caret">▾</span>
           </div>
@@ -33,7 +33,7 @@
             <div class="select-options" id="optionsA">
               {% for t in teams | sort(attribute='team.name') %}
               <div class="select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
-                <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm" />
+                <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm team-badge" />
                 <span>{{ t.team.name }}</span>
               </div>
               {% endfor %}
@@ -50,7 +50,7 @@
         <label class="picker-label">Away Team</label>
         <div class="custom-select-wrap" id="wrapB">
           <div class="custom-select-trigger" id="triggerB">
-            <img class="team-logo-sm" id="logoB" src="" alt="" style="display:none" />
+            <img class="team-logo-sm team-badge" id="logoB" src="" alt="" style="display:none" />
             <span id="labelB">Choose Team B</span>
             <span class="caret">▾</span>
           </div>
@@ -59,7 +59,7 @@
             <div class="select-options" id="optionsB">
               {% for t in teams | sort(attribute='team.name') %}
               <div class="select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
-                <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm" />
+                <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm team-badge" />
                 <span>{{ t.team.name }}</span>
               </div>
               {% endfor %}
@@ -74,7 +74,7 @@
       Please select two different teams.
     </div>
 
-    <button type="submit" class="btn btn-primary btn-lg btn-full" id="analyseBtn" disabled>
+    <button type="submit" class="btn btn-primary btn-glow btn-lg btn-full" id="analyseBtn" disabled>
       Analyse Matchup →
     </button>
   </form>
@@ -82,37 +82,37 @@
 </div>
 
 <div class="features-grid">
-  <a href="/fixtures" class="feature-card feature-link">
+  <a href="/fixtures" class="feature-card glow-card feature-link">
     <div class="feature-icon">📅</div>
     <h3>Fixtures</h3>
     <p>Upcoming Premier League matches with AI-predicted winners.</p>
     <span class="feature-cta">View Fixtures →</span>
   </a>
-  <a href="/worldcup" class="feature-card feature-link">
+  <a href="/worldcup" class="feature-card glow-card feature-link">
     <div class="feature-icon">🏆</div>
     <h3>World Cup 2026</h3>
     <p>Predict any national team match using FIFA ranking strengths.</p>
     <span class="feature-cta">Open Predictor →</span>
   </a>
-  <a href="#teamForm" class="feature-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
+  <a href="#teamForm" class="feature-card glow-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
     <div class="feature-icon">📊</div>
     <h3>Head-to-Head</h3>
     <p>Last 5 meetings with goals, cards, corners and shots data.</p>
     <span class="feature-cta">Select Teams →</span>
   </a>
-  <a href="#teamForm" class="feature-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
+  <a href="#teamForm" class="feature-card glow-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
     <div class="feature-icon">📈</div>
     <h3>Form Analysis</h3>
     <p>Recent 5-game form strings with goals scored &amp; conceded.</p>
     <span class="feature-cta">Select Teams →</span>
   </a>
-  <a href="#teamForm" class="feature-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
+  <a href="#teamForm" class="feature-card glow-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
     <div class="feature-icon">🧬</div>
     <h3>Poisson Model</h3>
     <p>Statistically modelled correct-score &amp; over/under predictions.</p>
     <span class="feature-cta">Select Teams →</span>
   </a>
-  <a href="#teamForm" class="feature-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
+  <a href="#teamForm" class="feature-card glow-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
     <div class="feature-icon">🩺</div>
     <h3>Injury Report</h3>
     <p>Live injury &amp; suspension data factored into every prediction.</p>
@@ -182,5 +182,21 @@
       btn.disabled = true;
     }
   }
+</script>
+
+<!-- Particles background -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/particles.js/2.0.0/particles.min.js"></script>
+<div id="particles-js"></div>
+<script>
+particlesJS('particles-js', {
+  particles: {
+    number: { value: 40 },
+    color: { value: '#00ff87' },
+    opacity: { value: 0.15 },
+    size: { value: 2 },
+    line_linked: { enable: true, color: '#00ff87', opacity: 0.05 },
+    move: { enable: true, speed: 0.8 }
+  }
+});
 </script>
 {% endblock %}

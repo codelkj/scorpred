@@ -10,15 +10,15 @@
 <div class="nba-page">
 
   <!-- ── Header ───────────────────────────────────────────────────────────── -->
-  <div class="nba-matchup-header">
+  <div class="nba-matchup-header glow-card">
     <div class="nba-team-block">
-      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="nba-team-logo team-badge" onerror="this.style.display='none'"/>{% endif %}
       <span class="nba-team-name">{{ team_a.city or '' }} {{ team_a.nickname or team_a.name }}</span>
       <span style="font-size:.78rem;color:var(--nba-muted);">Home</span>
     </div>
     <div class="nba-vs-badge">VS</div>
     <div class="nba-team-block">
-      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="nba-team-logo team-badge" onerror="this.style.display='none'"/>{% endif %}
       <span class="nba-team-name">{{ team_b.city or '' }} {{ team_b.nickname or team_b.name }}</span>
       <span style="font-size:.78rem;color:var(--nba-muted);">Away</span>
     </div>
@@ -55,21 +55,21 @@
   {% endif %}
 
   {% if error %}
-  <div class="nba-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ Prediction error: {{ error }}</p></div>
+  <div class="nba-card glow-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ Prediction error: {{ error }}</p></div>
   {% endif %}
 
   {% if result %}
 
   <!-- ── Win Probability ───────────────────────────────────────────────────── -->
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <div class="nba-card-title">🏆 Match Winner Prediction</div>
 
     <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:1rem; align-items:center; margin-bottom:1rem;">
       <div style="text-align:center;">
-        <div style="font-size:2.5rem; font-weight:700; color:{% if result.winner == 'A' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-          {{ result.prob_a }}%
+        <div class="stat-number" data-target="{{ result.prob_a }}" style="font-size:2.5rem; font-weight:700; color:{% if result.winner == 'A' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+          {{ result.prob_a }}
         </div>
-        <div style="color:var(--nba-muted); font-size:.85rem;">{{ team_a.nickname or team_a.name }}</div>
+        <div style="color:var(--nba-muted); font-size:.85rem;">{{ team_a.nickname or team_a.name }} %</div>
       </div>
       <div style="text-align:center;">
         <span class="nba-badge {% if result.confidence == 'High' %}nba-badge-high{% elif result.confidence == 'Medium' %}nba-badge-med{% else %}nba-badge-low{% endif %}">
@@ -77,10 +77,10 @@
         </span>
       </div>
       <div style="text-align:center;">
-        <div style="font-size:2.5rem; font-weight:700; color:{% if result.winner == 'B' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-          {{ result.prob_b }}%
+        <div class="stat-number" data-target="{{ result.prob_b }}" style="font-size:2.5rem; font-weight:700; color:{% if result.winner == 'B' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+          {{ result.prob_b }}
         </div>
-        <div style="color:var(--nba-muted); font-size:.85rem;">{{ team_b.nickname or team_b.name }}</div>
+        <div style="color:var(--nba-muted); font-size:.85rem;">{{ team_b.nickname or team_b.name }} %</div>
       </div>
     </div>
 
@@ -105,16 +105,18 @@
 
   <!-- ── Score Projections ─────────────────────────────────────────────────── -->
   <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
-    <div class="nba-card" style="text-align:center; padding:1.25rem;">
+    <div class="nba-card glow-card" style="text-align:center; padding:1.25rem;">
       <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Projected Score</div>
       <div style="font-size:1.6rem; font-weight:700; color:var(--nba-text);">
-        {{ result.proj_a_pts }} – {{ result.proj_b_pts }}
+        <span class="stat-number" data-target="{{ result.proj_a_pts }}">{{ result.proj_a_pts }}</span>
+        –
+        <span class="stat-number" data-target="{{ result.proj_b_pts }}">{{ result.proj_b_pts }}</span>
       </div>
       <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
         {{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}
       </div>
     </div>
-    <div class="nba-card" style="text-align:center; padding:1.25rem;">
+    <div class="nba-card glow-card" style="text-align:center; padding:1.25rem;">
       <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Total Points O/U</div>
       <div style="font-size:1.6rem; font-weight:700; color:var(--nba-gold);">{{ result.over_under_line }}</div>
       <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
@@ -124,7 +126,7 @@
         </span>
       </div>
     </div>
-    <div class="nba-card" style="text-align:center; padding:1.25rem;">
+    <div class="nba-card glow-card" style="text-align:center; padding:1.25rem;">
       <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Spread</div>
       <div style="font-size:1.6rem; font-weight:700; color:var(--nba-text);">-{{ result.spread_line }}</div>
       <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
@@ -135,7 +137,7 @@
 
   <!-- ── Best Bets Slip ────────────────────────────────────────────────────── -->
   {% if best_bets %}
-  <div class="nba-bets-slip">
+  <div class="nba-bets-slip glow-card">
     <div class="nba-bets-slip-title">⭐ Top Recommended Bets</div>
     {% for bet in best_bets %}
     <div class="nba-bet-row">
@@ -146,7 +148,7 @@
         <div class="nba-bet-reason">{{ bet.reason }}</div>
       </div>
       <div class="nba-bet-conf {% if bet.confidence >= 75 %}nba-badge-high{% elif bet.confidence >= 62 %}nba-badge-med{% else %}nba-badge-low{% endif %}" style="background:transparent;">
-        {{ bet.confidence }}%
+        <span class="stat-number" data-target="{{ bet.confidence }}">{{ bet.confidence }}</span>%
       </div>
     </div>
     {% endfor %}
@@ -154,24 +156,24 @@
   {% endif %}
 
   <!-- ── Key Factors ───────────────────────────────────────────────────────── -->
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <div class="nba-card-title">📋 Key Prediction Factors</div>
     <div class="nba-factors">
 
       <!-- H2H -->
       {% set h2h_c = result.components.h2h %}
-      <div class="nba-factor-card">
+      <div class="nba-factor-card glow-card">
         <div class="nba-factor-name">H2H Record (20%)</div>
         <div class="nba-factor-vals">
           <div>
-            <div class="nba-factor-val" style="color:{% if h2h_c.team_a_pct >= h2h_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ h2h_c.team_a_pct }}%
+            <div class="nba-factor-val stat-number" data-target="{{ h2h_c.team_a_pct }}" style="color:{% if h2h_c.team_a_pct >= h2h_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ h2h_c.team_a_pct }}
             </div>
             <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
           </div>
           <div>
-            <div class="nba-factor-val" style="color:{% if h2h_c.team_b_pct > h2h_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ h2h_c.team_b_pct }}%
+            <div class="nba-factor-val stat-number" data-target="{{ h2h_c.team_b_pct }}" style="color:{% if h2h_c.team_b_pct > h2h_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ h2h_c.team_b_pct }}
             </div>
             <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
           </div>
@@ -183,18 +185,18 @@
 
       <!-- Form -->
       {% set form_c = result.components.form %}
-      <div class="nba-factor-card">
+      <div class="nba-factor-card glow-card">
         <div class="nba-factor-name">Recent Form (25%)</div>
         <div class="nba-factor-vals">
           <div>
-            <div class="nba-factor-val" style="color:{% if form_c.team_a_pct >= form_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ form_c.team_a_pct }}%
+            <div class="nba-factor-val stat-number" data-target="{{ form_c.team_a_pct }}" style="color:{% if form_c.team_a_pct >= form_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ form_c.team_a_pct }}
             </div>
             <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
           </div>
           <div>
-            <div class="nba-factor-val" style="color:{% if form_c.team_b_pct > form_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ form_c.team_b_pct }}%
+            <div class="nba-factor-val stat-number" data-target="{{ form_c.team_b_pct }}" style="color:{% if form_c.team_b_pct > form_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ form_c.team_b_pct }}
             </div>
             <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
           </div>
@@ -203,15 +205,15 @@
 
       <!-- Home/Away -->
       {% set home_c = result.components.home_away %}
-      <div class="nba-factor-card">
+      <div class="nba-factor-card glow-card">
         <div class="nba-factor-name">Home Advantage (20%)</div>
         <div class="nba-factor-vals">
           <div>
-            <div class="nba-factor-val" style="color:var(--nba-gold);">{{ home_c.team_a_pct }}%</div>
+            <div class="nba-factor-val stat-number" data-target="{{ home_c.team_a_pct }}" style="color:var(--nba-gold);">{{ home_c.team_a_pct }}</div>
             <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
           </div>
           <div>
-            <div class="nba-factor-val">{{ home_c.team_b_pct }}%</div>
+            <div class="nba-factor-val stat-number" data-target="{{ home_c.team_b_pct }}">{{ home_c.team_b_pct }}</div>
             <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
           </div>
         </div>
@@ -222,18 +224,18 @@
 
       <!-- Injuries -->
       {% set inj_c = result.components.injuries %}
-      <div class="nba-factor-card">
+      <div class="nba-factor-card glow-card">
         <div class="nba-factor-name">Injury Impact (15%)</div>
         <div class="nba-factor-vals">
           <div>
-            <div class="nba-factor-val" style="color:{% if inj_c.team_a_pct >= inj_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ inj_c.team_a_pct }}%
+            <div class="nba-factor-val stat-number" data-target="{{ inj_c.team_a_pct }}" style="color:{% if inj_c.team_a_pct >= inj_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ inj_c.team_a_pct }}
             </div>
             <div style="font-size:.75rem;color:var(--nba-muted);">{{ inj_c.team_a_count }} injuries</div>
           </div>
           <div>
-            <div class="nba-factor-val" style="color:{% if inj_c.team_b_pct > inj_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ inj_c.team_b_pct }}%
+            <div class="nba-factor-val stat-number" data-target="{{ inj_c.team_b_pct }}" style="color:{% if inj_c.team_b_pct > inj_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ inj_c.team_b_pct }}
             </div>
             <div style="font-size:.75rem;color:var(--nba-muted);">{{ inj_c.team_b_count }} injuries</div>
           </div>
@@ -242,20 +244,20 @@
 
       <!-- Ratings -->
       {% set rtg_c = result.components.ratings %}
-      <div class="nba-factor-card">
+      <div class="nba-factor-card glow-card">
         <div class="nba-factor-name">Net Rating (20%)</div>
         <div class="nba-factor-vals">
           <div>
-            <div class="nba-factor-val" style="color:{% if rtg_c.team_a_pct >= rtg_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ rtg_c.team_a_pct }}%
+            <div class="nba-factor-val stat-number" data-target="{{ rtg_c.team_a_pct }}" style="color:{% if rtg_c.team_a_pct >= rtg_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ rtg_c.team_a_pct }}
             </div>
             <div style="font-size:.75rem;color:{% if rtg_c.team_a_net >= 0 %}#22c55e{% else %}#ef4444{% endif %};">
               {{ '+' if rtg_c.team_a_net >= 0 else '' }}{{ rtg_c.team_a_net }}
             </div>
           </div>
           <div>
-            <div class="nba-factor-val" style="color:{% if rtg_c.team_b_pct > rtg_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ rtg_c.team_b_pct }}%
+            <div class="nba-factor-val stat-number" data-target="{{ rtg_c.team_b_pct }}" style="color:{% if rtg_c.team_b_pct > rtg_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ rtg_c.team_b_pct }}
             </div>
             <div style="font-size:.75rem;color:{% if rtg_c.team_b_net >= 0 %}#22c55e{% else %}#ef4444{% endif %};">
               {{ '+' if rtg_c.team_b_net >= 0 else '' }}{{ rtg_c.team_b_net }}
@@ -268,7 +270,7 @@
   </div>
 
   <!-- ── Plain-English Explanation ──────────────────────────────────────────── -->
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <div class="nba-card-title">💡 What's Driving This Prediction</div>
     <div style="line-height:1.9; color:var(--nba-text); font-size:.93rem;">
       <p style="margin-bottom:.75rem;">
@@ -301,15 +303,15 @@
 
   <!-- ── Team Stats Side-by-side ─────────────────────────────────────────────── -->
   {% if stats_a or stats_b %}
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <div class="nba-card-title">📊 Team Stats</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
       {% for team, stats in [(team_a, stats_a), (team_b, stats_b)] %}
       <div>
         <div style="font-weight:600; color:var(--nba-gold); margin-bottom:.75rem;">{{ team.nickname or team.name }}</div>
         {% if stats %}
-        <div class="nba-stat-row"><span class="nba-stat-label">PPG</span><span class="nba-stat-val">{{ stats.ppg }}</span></div>
-        <div class="nba-stat-row"><span class="nba-stat-label">Opp PPG</span><span class="nba-stat-val">{{ stats.opp_ppg }}</span></div>
+        <div class="nba-stat-row"><span class="nba-stat-label">PPG</span><span class="nba-stat-val stat-number" data-target="{{ stats.ppg }}">{{ stats.ppg }}</span></div>
+        <div class="nba-stat-row"><span class="nba-stat-label">Opp PPG</span><span class="nba-stat-val stat-number" data-target="{{ stats.opp_ppg }}">{{ stats.opp_ppg }}</span></div>
         <div class="nba-stat-row"><span class="nba-stat-label">Net Rating</span>
           <span class="nba-stat-val {% if stats.net_rtg > 0 %}better{% endif %}">
             {{ '+' if stats.net_rtg > 0 else '' }}{{ stats.net_rtg }}
@@ -329,7 +331,7 @@
 
   <!-- ── Injury Reports ─────────────────────────────────────────────────────── -->
   {% if injuries_a or injuries_b %}
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <div class="nba-card-title">🏥 Injury Report</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
       {% for team, inj_list in [(team_a, injuries_a), (team_b, injuries_b)] %}
@@ -354,13 +356,13 @@
   {% endif %}
 
   <!-- ── Probability Chart ─────────────────────────────────────────────────── -->
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <div class="nba-card-title">📈 Probability Breakdown</div>
     <canvas id="probChart" height="80"></canvas>
   </div>
 
   {% else %}
-  <div class="nba-card">
+  <div class="nba-card glow-card">
     <p style="color:var(--nba-muted); text-align:center; padding:2rem;">
       Prediction data could not be generated. Please try selecting different teams.
     </p>

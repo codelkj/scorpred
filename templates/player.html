@@ -8,10 +8,10 @@
   <p class="page-sub">Select one player from each squad to compare their stats</p>
 </div>
 
-<div class="player-selectors card">
+<div class="player-selectors card glow-card">
   <div class="player-selector-group">
     <label class="picker-label">
-      <img src="{{ team_a.logo }}" class="team-logo-sm" alt="" /> {{ team_a.name }} Player
+      <img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }} Player
     </label>
     <select id="playerA" class="player-select">
       <option value="">— Select Player —</option>
@@ -25,7 +25,7 @@
 
   <div class="player-selector-group">
     <label class="picker-label">
-      <img src="{{ team_b.logo }}" class="team-logo-sm" alt="" /> {{ team_b.name }} Player
+      <img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }} Player
     </label>
     <select id="playerB" class="player-select">
       <option value="">— Select Player —</option>
@@ -43,9 +43,9 @@
 
 <!-- Player stat cards -->
 <div class="player-cards" id="playerCards" style="display:none">
-  <div class="player-stat-card" id="cardA">
+  <div class="player-stat-card glow-card" id="cardA">
     <div class="player-header">
-      <img id="photoA" src="" class="player-photo" alt="" />
+      <img id="photoA" src="" class="player-photo team-badge" alt="" />
       <div>
         <h3 id="nameA">—</h3>
         <span id="posA" class="position-badge"></span>
@@ -54,9 +54,9 @@
     <div class="player-stats" id="statsA"></div>
   </div>
 
-  <div class="player-stat-card" id="cardB">
+  <div class="player-stat-card glow-card" id="cardB">
     <div class="player-header">
-      <img id="photoB" src="" class="player-photo" alt="" />
+      <img id="photoB" src="" class="player-photo team-badge" alt="" />
       <div>
         <h3 id="nameB">—</h3>
         <span id="posB" class="position-badge"></span>
@@ -68,11 +68,11 @@
 
 <!-- Charts -->
 <div id="chartsSection" class="charts-section" style="display:none">
-  <div class="chart-card">
+  <div class="chart-card glow-card">
     <h3 class="chart-title">Radar Comparison</h3>
     <canvas id="radarChart" width="400" height="400"></canvas>
   </div>
-  <div class="chart-card">
+  <div class="chart-card glow-card">
     <h3 class="chart-title">Last 10 Games — Rating</h3>
     <canvas id="ratingChart" width="400" height="200"></canvas>
   </div>
@@ -185,7 +185,6 @@
   }
 
   function buildRatingChart() {
-    // Placeholder — would need per-game data from a different endpoint
     if (ratingChart) ratingChart.destroy();
     ratingChart = new Chart(document.getElementById('ratingChart'), {
       type: 'bar',

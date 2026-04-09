@@ -8,8 +8,8 @@
   <p class="page-sub">Next 20 matches · AI-predicted winner per game</p>
 </div>
 
-<!-- League switcher (ESPN free data) -->
-<div class="card" style="padding:1rem 1.5rem;">
+<!-- League switcher -->
+<div class="card glow-card" style="padding:1rem 1.5rem;">
   <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
     <span style="font-size:.82rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Competition</span>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
@@ -22,7 +22,7 @@
         ("UEFA.CL", "⭐ Champions League"),
       ] %}
       {% for slug, label in slugs %}
-      <a href="/fixtures?espn_slug={{ slug }}" class="btn btn-sm {{ 'btn-primary' if espn_slug == slug else 'btn-secondary' }}">{{ label }}</a>
+      <a href="/fixtures?espn_slug={{ slug }}" class="btn btn-sm {{ 'btn-primary btn-glow' if espn_slug == slug else 'btn-secondary' }}">{{ label }}</a>
       {% endfor %}
     </div>
     <span class="source-badge {{ 'source-espn' if data_source == 'espn' else 'source-api' }}">
@@ -36,14 +36,14 @@
 {% endif %}
 
 {% if not fixtures %}
-<div class="card">
+<div class="card glow-card">
   <div class="empty-state">No upcoming fixtures found. Try again later or check your API key.</div>
 </div>
 {% else %}
 
 {% for f in fixtures %}
 {% set p = f.prediction %}
-<div class="card fpred-card">
+<div class="card glow-card fpred-card">
 
   <!-- Date / venue row -->
   <div class="fpred-meta">
@@ -62,7 +62,7 @@
   <!-- Teams row -->
   <div class="fpred-teams-row">
     <div class="fpred-team">
-      <img src="{{ f.teams.home.logo }}" class="team-logo-sm" alt="{{ f.teams.home.name }}" />
+      <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.home.name }}" />
       <span class="fpred-team-name">{{ f.teams.home.name }}</span>
     </div>
 
@@ -73,25 +73,31 @@
 
     <div class="fpred-team right">
       <span class="fpred-team-name">{{ f.teams.away.name }}</span>
-      <img src="{{ f.teams.away.logo }}" class="team-logo-sm" alt="{{ f.teams.away.name }}" />
+      <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.away.name }}" />
     </div>
   </div>
 
   <!-- 1X2 probability bars -->
   <div class="fpred-probs">
     <div class="fpred-prob-block {{ 'active' if p.winner_label == 'Home Win' }}">
-      <div class="fpred-prob-pct">{{ p.home_pct }}%</div>
-      <div class="fpred-prob-bar"><div class="fpred-prob-fill" style="width:{{ p.home_pct }}%;background:#00ff87"></div></div>
+      <div class="fpred-prob-pct stat-number" data-target="{{ p.home_pct }}">{{ p.home_pct }}</div>
+      <div class="prob-bar">
+        <div class="prob-bar-fill" data-width="{{ p.home_pct }}" style="background:#00ff87"></div>
+      </div>
       <div class="fpred-prob-label">Home Win</div>
     </div>
     <div class="fpred-prob-block {{ 'active' if p.winner_label == 'Draw' }}">
-      <div class="fpred-prob-pct">{{ p.draw_pct }}%</div>
-      <div class="fpred-prob-bar"><div class="fpred-prob-fill" style="width:{{ p.draw_pct }}%;background:#f59e0b"></div></div>
+      <div class="fpred-prob-pct stat-number" data-target="{{ p.draw_pct }}">{{ p.draw_pct }}</div>
+      <div class="prob-bar">
+        <div class="prob-bar-fill" data-width="{{ p.draw_pct }}" style="background:#f59e0b"></div>
+      </div>
       <div class="fpred-prob-label">Draw</div>
     </div>
     <div class="fpred-prob-block {{ 'active' if p.winner_label == 'Away Win' }}">
-      <div class="fpred-prob-pct">{{ p.away_pct }}%</div>
-      <div class="fpred-prob-bar"><div class="fpred-prob-fill" style="width:{{ p.away_pct }}%;background:#3b82f6"></div></div>
+      <div class="fpred-prob-pct stat-number" data-target="{{ p.away_pct }}">{{ p.away_pct }}</div>
+      <div class="prob-bar">
+        <div class="prob-bar-fill" data-width="{{ p.away_pct }}" style="background:#3b82f6"></div>
+      </div>
       <div class="fpred-prob-label">Away Win</div>
     </div>
   </div>
@@ -110,7 +116,7 @@
     <form method="POST" action="/select" style="display:inline">
       <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
       <input type="hidden" name="team_b" value="{{ f.teams.away.id }}" />
-      <button type="submit" class="btn btn-primary btn-sm">Full Analysis →</button>
+      <button type="submit" class="btn btn-primary btn-sm btn-glow">Full Analysis →</button>
     </form>
   </div>
 
