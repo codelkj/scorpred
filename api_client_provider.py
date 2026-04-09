@@ -879,3 +879,133 @@ def parse_stat(stats: list, team_id: int, stat_type: str):
                 if stat["type"] == stat_type:
                     return stat["value"]
     return None
+
+
+# ── ESPN free public API (no key required) ─────────────────────────────────────
+
+ESPN_SOCCER_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+
+# Map API-Football league IDs → ESPN league slugs
+ESPN_LEAGUE_SLUGS: dict[int, str] = {
+    39:  "eng.1",   # Premier League
+    140: "esp.1",   # La Liga
+    78:  "ger.1",   # Bundesliga
+    135: "ita.1",   # Serie A
+    61:  "fra.1",   # Ligue 1
+    2:   "UEFA.CL", # Champions League
+    3:   "UEFA.EL", # Europa League
+}
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_espn_event(event: dict) -> dict | None:
+    competitions = _as_list(event.get("competitions"))
+    if not competitions:
+        return None
+    comp = competitions[0]
+    competitors = _as_list(comp.get("competitors"))
+
+    home_c = next((c for c in competitors if c.get("homeAway") == "home"), None)
+    away_c = next((c for c in competitors if c.get("homeAway") == "away"), None)
+    if not home_c or not away_c:
+        return None
+
+    ht = home_c.get("team") or {}
+    at = away_c.get("team") or {}
+    status_state = ((comp.get("status") or {}).get("type") or {}).get("state", "pre")
+    is_pre = status_state == "pre"
+
+    venue = comp.get("venue") or {}
+    season = event.get("season") or {}
+    week = event.get("week") or {}
+
+    return {
+        "fixture": {
+            "id": str(event.get("id", "")),
+            "date": event.get("date", ""),
+            "venue": {"name": venue.get("fullName", "")},
+        },
+        "league": {
+            "name": season.get("displayName", "League"),
+            "round": f"Gameweek {week['number']}" if week.get("number") else "",
+        },
+        "teams": {
+            "home": {
+                "id": _safe_int(ht.get("id")) or 0,
+                "name": ht.get("displayName", "Home"),
+                "logo": ht.get("logo", ""),
+            },
+            "away": {
+                "id": _safe_int(at.get("id")) or 0,
+                "name": at.get("displayName", "Away"),
+                "logo": at.get("logo", ""),
+            },
+        },
+        "goals": {
+            "home": None if is_pre else _safe_int(home_c.get("score")),
+            "away": None if is_pre else _safe_int(away_c.get("score")),
+        },
+        "_source": "espn",
+    }
+
+
+def get_espn_fixtures(league_slug: str = "eng.1", next_n: int = 20) -> list:
+    """
+    Fetch upcoming fixtures from ESPN's free public API — no API key needed.
+    Tries up to 6 consecutive weeks ahead and caches each fetch separately.
+    """
+    from datetime import timezone
+
+    all_events: list[dict] = []
+    seen_ids: set[str] = set()
+    now = datetime.now(timezone.utc)
+    today_str = now.strftime("%Y-%m-%d")
+
+    for week in range(6):
+        if len(all_events) >= next_n:
+            break
+        target = (now + timedelta(weeks=week)).strftime("%Y%m%d")
+        cache_key = f"espn:{league_slug}:{target}"
+        cache_p = Path("cache") / f"{hashlib.md5(cache_key.encode()).hexdigest()}.json"
+
+        if cache_p.exists() and _cache_valid(cache_p):
+            try:
+                raw: list[dict] = json.loads(cache_p.read_text(encoding="utf-8"))
+            except Exception:
+                raw = []
+        else:
+            try:
+                url = f"{ESPN_SOCCER_BASE}/{league_slug}/scoreboard"
+                with requests.Session() as sess:
+                    sess.trust_env = False
+                    resp = sess.get(
+                        url,
+                        params={"dates": target},
+                        timeout=15,
+                        headers={"Accept": "application/json"},
+                    )
+                resp.raise_for_status()
+                raw = [
+                    norm
+                    for e in resp.json().get("events", [])
+                    if (norm := _normalize_espn_event(e)) is not None
+                ]
+                Path("cache").mkdir(exist_ok=True)
+                cache_p.write_text(json.dumps(raw), encoding="utf-8")
+            except Exception:
+                raw = []
+
+        for event in raw:
+            eid = event["fixture"]["id"]
+            if eid not in seen_ids and event["fixture"]["date"][:10] >= today_str:
+                seen_ids.add(eid)
+                all_events.append(event)
+
+    all_events.sort(key=lambda e: e["fixture"]["date"])
+    return all_events[:next_n]

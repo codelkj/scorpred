@@ -187,24 +187,85 @@ def prediction():
 def fixtures():
     load_error = None
     fixtures_with_pred = []
+    data_source = "configured"
+
+    # Determine ESPN league slug from query param or default to Premier League
+    espn_slug = request.args.get("espn_slug", ac.ESPN_LEAGUE_SLUGS.get(LEAGUE, "eng.1"))
+
+    # Try configured provider; fall back to ESPN free API on failure
+    upcoming = []
     try:
         upcoming = ac.get_upcoming_fixtures(LEAGUE, SEASON, next_n=20)
-        standings_list = []
+        if not upcoming:
+            raise RuntimeError("No upcoming fixtures from configured provider")
+    except Exception as primary_err:
+        app.logger.warning("Falling back to ESPN: %s", primary_err)
         try:
-            standings_resp = ac.get_standings(LEAGUE, SEASON)
-            if standings_resp:
-                standings_list = standings_resp[0]["league"]["standings"][0]
+            upcoming = ac.get_espn_fixtures(espn_slug, next_n=20)
+            data_source = "espn"
+        except Exception as e:
+            load_error = str(e)
+            app.logger.error("ESPN fallback also failed: %s", e)
+
+    # Attach standings-based predictions
+    standings_list = []
+    try:
+        standings_resp = ac.get_standings(LEAGUE, SEASON)
+        if standings_resp:
+            standings_list = standings_resp[0]["league"]["standings"][0]
+    except Exception:
+        pass
+
+    for f in upcoming:
+        home_id = f["teams"]["home"]["id"]
+        away_id = f["teams"]["away"]["id"]
+        prediction = pred.quick_predict_from_standings(home_id, away_id, standings_list)
+        fixtures_with_pred.append({**f, "prediction": prediction})
+
+    return render_template(
+        "fixtures.html",
+        fixtures=fixtures_with_pred,
+        load_error=load_error,
+        data_source=data_source,
+        espn_slug=espn_slug,
+    )
+
+
+@app.route("/worldcup", methods=["GET", "POST"])
+def worldcup():
+    teams = sorted(pred.WC_TEAMS.keys())
+    result = None
+    team_a = request.form.get("team_a", "")
+    team_b = request.form.get("team_b", "")
+    wc_error = None
+
+    # Fetch upcoming WC fixtures from ESPN (best-effort)
+    wc_fixtures = []
+    for slug in ("FIFA.WC.2026", "FIFA.WC", "FIFA.WWQ.CONMEBOL"):
+        try:
+            wc_fixtures = ac.get_espn_fixtures(slug, next_n=16)
+            if wc_fixtures:
+                break
         except Exception:
-            pass  # Best-effort; predictions fall back to defaults without standings
-        for f in upcoming:
-            home_id = f["teams"]["home"]["id"]
-            away_id = f["teams"]["away"]["id"]
-            prediction = pred.quick_predict_from_standings(home_id, away_id, standings_list)
-            fixtures_with_pred.append({**f, "prediction": prediction})
-    except Exception as e:
-        load_error = str(e)
-        app.logger.error("fixtures fetch error: %s", e)
-    return render_template("fixtures.html", fixtures=fixtures_with_pred, load_error=load_error)
+            continue
+
+    if request.method == "POST" and team_a and team_b:
+        if team_a == team_b:
+            wc_error = "Please select two different teams."
+        else:
+            result = pred.wc_predict(team_a, team_b)
+            if result is None:
+                wc_error = "Unknown team name — pick from the list."
+
+    return render_template(
+        "worldcup.html",
+        teams=teams,
+        team_a=team_a,
+        team_b=team_b,
+        result=result,
+        wc_error=wc_error,
+        wc_fixtures=wc_fixtures,
+    )
 
 
 # ── Error page ────────────────────────────────────────────────────────────────

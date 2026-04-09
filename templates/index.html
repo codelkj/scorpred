@@ -82,26 +82,42 @@
 </div>
 
 <div class="features-grid">
-  <div class="feature-card">
+  <a href="/fixtures" class="feature-card feature-link">
+    <div class="feature-icon">📅</div>
+    <h3>Fixtures</h3>
+    <p>Upcoming Premier League matches with AI-predicted winners.</p>
+    <span class="feature-cta">View Fixtures →</span>
+  </a>
+  <a href="/worldcup" class="feature-card feature-link">
+    <div class="feature-icon">🏆</div>
+    <h3>World Cup 2026</h3>
+    <p>Predict any national team match using FIFA ranking strengths.</p>
+    <span class="feature-cta">Open Predictor →</span>
+  </a>
+  <a href="#teamForm" class="feature-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
     <div class="feature-icon">📊</div>
     <h3>Head-to-Head</h3>
     <p>Last 5 meetings with goals, cards, corners and shots data.</p>
-  </div>
-  <div class="feature-card">
+    <span class="feature-cta">Select Teams →</span>
+  </a>
+  <a href="#teamForm" class="feature-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
     <div class="feature-icon">📈</div>
     <h3>Form Analysis</h3>
     <p>Recent 5-game form strings with goals scored &amp; conceded.</p>
-  </div>
-  <div class="feature-card">
+    <span class="feature-cta">Select Teams →</span>
+  </a>
+  <a href="#teamForm" class="feature-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
     <div class="feature-icon">🧬</div>
     <h3>Poisson Model</h3>
     <p>Statistically modelled correct-score &amp; over/under predictions.</p>
-  </div>
-  <div class="feature-card">
+    <span class="feature-cta">Select Teams →</span>
+  </a>
+  <a href="#teamForm" class="feature-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
     <div class="feature-icon">🩺</div>
     <h3>Injury Report</h3>
     <p>Live injury &amp; suspension data factored into every prediction.</p>
-  </div>
+    <span class="feature-cta">Select Teams →</span>
+  </a>
 </div>
 {% endblock %}
 

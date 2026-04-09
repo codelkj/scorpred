@@ -5,7 +5,30 @@
 
 <div class="page-header">
   <h1>Upcoming <span class="accent">Fixtures</span></h1>
-  <p class="page-sub">Premier League · Next 20 matches · AI-predicted winner per game</p>
+  <p class="page-sub">Next 20 matches · AI-predicted winner per game</p>
+</div>
+
+<!-- League switcher (ESPN free data) -->
+<div class="card" style="padding:1rem 1.5rem;">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <span style="font-size:.82rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Competition</span>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+      {% set slugs = [
+        ("eng.1",   "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League"),
+        ("esp.1",   "🇪🇸 La Liga"),
+        ("ger.1",   "🇩🇪 Bundesliga"),
+        ("ita.1",   "🇮🇹 Serie A"),
+        ("fra.1",   "🇫🇷 Ligue 1"),
+        ("UEFA.CL", "⭐ Champions League"),
+      ] %}
+      {% for slug, label in slugs %}
+      <a href="/fixtures?espn_slug={{ slug }}" class="btn btn-sm {{ 'btn-primary' if espn_slug == slug else 'btn-secondary' }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <span class="source-badge {{ 'source-espn' if data_source == 'espn' else 'source-api' }}">
+      {{ '📡 ESPN (free)' if data_source == 'espn' else '🔑 API data' }}
+    </span>
+  </div>
 </div>
 
 {% if load_error %}

@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}World Cup 2026 Predictor{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h1>World Cup <span class="accent">2026</span> Predictor</h1>
+  <p class="page-sub">USA · Canada · Mexico · 48 nations · June–July 2026</p>
+</div>
+
+<!-- Match predictor card -->
+<div class="card">
+  <h2 class="card-title">Match Predictor</h2>
+  <p class="model-note">Predictions use FIFA ranking-calibrated attack/defense strengths fed into a Poisson model — same engine as Premier League predictions.</p>
+
+  <form method="POST" action="/worldcup" id="wcForm">
+    <div class="team-pickers" style="margin-bottom:1.25rem;">
+      <div class="picker-group">
+        <label class="picker-label">Team A</label>
+        <select name="team_a" id="wcTeamA" class="player-select" required>
+          <option value="">— Select nation —</option>
+          {% for t in teams %}
+          <option value="{{ t }}" {% if t == team_a %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="vs-badge">VS</div>
+
+      <div class="picker-group">
+        <label class="picker-label">Team B</label>
+        <select name="team_b" id="wcTeamB" class="player-select" required>
+          <option value="">— Select nation —</option>
+          {% for t in teams %}
+          <option value="{{ t }}" {% if t == team_b %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {% if wc_error %}
+    <div class="alert alert-error">{{ wc_error }}</div>
+    {% endif %}
+
+    <button type="submit" class="btn btn-primary btn-lg btn-full">Predict Match →</button>
+  </form>
+</div>
+
+<!-- Prediction result -->
+{% if result %}
+<div class="section-title">Match Winner (1X2)</div>
+<div class="card prediction-card">
+  <div class="model-note">
+    Poisson model · λ{{ result.team_a }} = {{ result.lam_a }} goals/game · λ{{ result.team_b }} = {{ result.lam_b }} goals/game · Neutral venue
+  </div>
+
+  <div class="win-probs">
+    <div class="win-block">
+      <div class="win-pct accent">{{ result.a_pct }}%</div>
+      <div class="win-label">{{ result.team_a }}</div>
+      <div class="win-bar"><div class="win-fill" style="width:{{ result.a_pct }}%;background:#00ff87"></div></div>
+    </div>
+    <div class="win-block">
+      <div class="win-pct">{{ result.draw_pct }}%</div>
+      <div class="win-label">Draw</div>
+      <div class="win-bar"><div class="win-fill" style="width:{{ result.draw_pct }}%;background:#f59e0b"></div></div>
+    </div>
+    <div class="win-block">
+      <div class="win-pct">{{ result.b_pct }}%</div>
+      <div class="win-label">{{ result.team_b }}</div>
+      <div class="win-bar"><div class="win-fill" style="width:{{ result.b_pct }}%;background:#3b82f6"></div></div>
+    </div>
+  </div>
+
+  <div class="recommended-bet" style="margin-top:.75rem;">
+    Predicted winner:
+    <span class="accent">{{ result.winner }}</span>
+    <span class="confidence-badge conf-{{ result.confidence | lower }}">{{ result.confidence }}</span>
+  </div>
+</div>
+
+<div class="pred-row">
+  <!-- Correct scores -->
+  <div class="card pred-half">
+    <div class="section-title-sm">Top Correct Scores (Poisson)</div>
+    <div class="score-predictions">
+      {% for s in result.top_scores %}
+      <div class="score-pred-card rank-{{ loop.index }}">
+        <div class="score-pred-rank">#{{ loop.index }}</div>
+        <div class="score-pred-score">{{ s.score }}</div>
+        <div class="score-pred-prob">{{ s.prob }}%</div>
+        <div class="score-pred-bar">
+          <div class="score-pred-fill" style="width:{{ [s.prob * 5, 100] | min }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Over/Under -->
+  <div class="card pred-half">
+    <div class="section-title-sm">Total Goals</div>
+    <div class="model-note">Expected total: {{ result.avg_total }} goals</div>
+    <div class="ou-blocks">
+      <div class="ou-block">
+        <div class="ou-pct accent">{{ result.over25 }}%</div>
+        <div class="ou-label">Over 2.5</div>
+      </div>
+      <div class="ou-block">
+        <div class="ou-pct">{{ result.under25 }}%</div>
+        <div class="ou-label">Under 2.5</div>
+      </div>
+    </div>
+    <canvas id="wcOuChart" width="300" height="160"></canvas>
+  </div>
+</div>
+{% endif %}
+
+<!-- Upcoming WC fixtures from ESPN -->
+{% if wc_fixtures %}
+<div class="section-title">Upcoming FIFA World Cup 2026 Fixtures</div>
+<div class="model-note" style="margin-bottom:1rem;">Live data via ESPN · {{ wc_fixtures | length }} fixtures found</div>
+{% for f in wc_fixtures %}
+{% set p = none %}
+<div class="card fpred-card">
+  <div class="fpred-meta">
+    <span>📅 {{ f.fixture.date[:10] }}</span>
+    {% if f.fixture.date | length > 10 %}<span>🕐 {{ f.fixture.date[11:16] }} UTC</span>{% endif %}
+    {% if f.fixture.venue and f.fixture.venue.name %}<span>🏟 {{ f.fixture.venue.name }}</span>{% endif %}
+    {% if f.league and f.league.round %}<span>{{ f.league.round }}</span>{% endif %}
+  </div>
+  <div class="fpred-teams-row">
+    <div class="fpred-team">
+      {% if f.teams.home.logo %}<img src="{{ f.teams.home.logo }}" class="team-logo-sm" alt="" />{% endif %}
+      <span class="fpred-team-name">{{ f.teams.home.name }}</span>
+    </div>
+    <div class="fpred-centre"><span class="fpred-vs">vs</span></div>
+    <div class="fpred-team right">
+      <span class="fpred-team-name">{{ f.teams.away.name }}</span>
+      {% if f.teams.away.logo %}<img src="{{ f.teams.away.logo }}" class="team-logo-sm" alt="" />{% endif %}
+    </div>
+  </div>
+  <div class="fpred-footer" style="border-top:none;padding-top:0;">
+    <form method="POST" action="/worldcup" style="display:inline">
+      <input type="hidden" name="team_a" value="{{ f.teams.home.name }}" />
+      <input type="hidden" name="team_b" value="{{ f.teams.away.name }}" />
+      <button type="submit" class="btn btn-primary btn-sm">Predict →</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    WC 2026 fixtures not yet available from ESPN · Tournament starts June 2026<br>
+    <small style="margin-top:.5rem;display:block;">Use the predictor above to simulate any match-up.</small>
+  </div>
+</div>
+{% endif %}
+
+<!-- Team strength reference -->
+<div class="section-title">Team Strength Reference</div>
+<div class="card">
+  <p class="model-note" style="margin-bottom:1rem;">Strengths are derived from FIFA world rankings and recent tournament performance. Attack = avg goals scored/game · Defense = avg goals conceded/game (lower = better).</p>
+  <div class="wc-strength-grid">
+    {% set tiers = [
+      ("Elite", ["Argentina","France","Brazil","Spain","England"]),
+      ("Strong", ["Germany","Portugal","Netherlands","Belgium","Croatia","Italy","Morocco"]),
+      ("Competitive", ["Colombia","Uruguay","Japan","Denmark","Switzerland","USA","South Korea","Senegal"]),
+    ] %}
+    {% for tier_name, tier_teams in tiers %}
+    <div class="wc-tier">
+      <div class="wc-tier-label">{{ tier_name }}</div>
+      <div class="wc-tier-teams">
+        {% for t in tier_teams %}
+        <button type="button" class="wc-team-chip" onclick="prefillTeam('{{ t }}')">{{ t }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{% if result %}
+<script>
+  new Chart(document.getElementById('wcOuChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Over 2.5', 'Under 2.5'],
+      datasets: [{
+        data: [{{ result.over25 }}, {{ result.under25 }}],
+        backgroundColor: ['#00ff87', '#3b82f6'],
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: '#21262d' }, ticks: { color: '#8b949e', callback: v => v + '%' } },
+        x: { grid: { display: false }, ticks: { color: '#8b949e' } }
+      }
+    }
+  });
+</script>
+{% endif %}
+<script>
+  function prefillTeam(name) {
+    const a = document.getElementById('wcTeamA');
+    const b = document.getElementById('wcTeamB');
+    // Fill whichever slot is empty, or Team A if both are filled
+    if (!a.value) { a.value = name; }
+    else if (!b.value && b.value !== name) { b.value = name; }
+    else { a.value = name; }
+  }
+</script>
+{% endblock %}
