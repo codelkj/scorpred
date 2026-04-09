@@ -124,6 +124,10 @@ def get_standings(league: int = 39, season: int = 2024) -> list:
     return api_get("standings", {"league": league, "season": season}).get("response", [])
 
 
+def get_upcoming_fixtures(league: int = 39, season: int = 2024, next_n: int = 20) -> list:
+    return api_get("fixtures", {"league": league, "season": season, "next": next_n}).get("response", [])
+
+
 # ── Enrichment helpers ─────────────────────────────────────────────────────────
 
 def enrich_fixture(fixture: dict) -> dict:

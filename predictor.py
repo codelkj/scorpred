@@ -162,6 +162,66 @@ def top_scorer_candidates(squad: list, injuries: list, team_lambda: float) -> li
     return candidates[:3]
 
 
+# ── Fixtures page: standings-based quick prediction ───────────────────────────
+
+def quick_predict_from_standings(home_id: int, away_id: int, standings: list) -> dict:
+    """
+    Fast 1X2 prediction using only league standings — no extra API calls.
+    Weights: form 40% | lambda share 40% | home advantage 20%
+    """
+    home_s = next((s for s in standings if s["team"]["id"] == home_id), None)
+    away_s = next((s for s in standings if s["team"]["id"] == away_id), None)
+
+    if not home_s or not away_s:
+        return {
+            "home_pct": 40.0, "draw_pct": 25.0, "away_pct": 35.0,
+            "confidence": "Low", "winner_label": "Home Win",
+            "lam_home": 1.2, "lam_away": 1.0,
+        }
+
+    def _form_ratio(form_str: str) -> float:
+        pts = sum(3 if c == "W" else 1 if c == "D" else 0 for c in (form_str or "")[-5:])
+        return pts / 15.0
+
+    played_h = home_s["all"]["played"] or 1
+    played_a = away_s["all"]["played"] or 1
+    gf_h = home_s["all"]["goals"]["for"] / played_h
+    ga_h = home_s["all"]["goals"]["against"] / played_h
+    gf_a = away_s["all"]["goals"]["for"] / played_a
+    ga_a = away_s["all"]["goals"]["against"] / played_a
+
+    lam_h = max(0.3, (gf_h + ga_a) / 2)
+    lam_a = max(0.3, (gf_a + ga_h) / 2)
+    lam_tot = lam_h + lam_a or 1
+
+    fs_h = _form_ratio(home_s.get("form", ""))
+    fs_a = _form_ratio(away_s.get("form", ""))
+    f_tot = fs_h + fs_a or 1
+
+    raw_h = (fs_h / f_tot) * 0.40 + 0.55 * 0.20 + (lam_h / lam_tot) * 0.40
+    raw_a = (fs_a / f_tot) * 0.40 + 0.45 * 0.20 + (lam_a / lam_tot) * 0.40
+    raw_d = max(0.10, 1.0 - raw_h - raw_a)
+    total = raw_h + raw_d + raw_a
+
+    p_h = raw_h / total
+    p_d = raw_d / total
+    p_a = raw_a / total
+
+    best = max(p_h, p_d, p_a)
+    confidence = "High" if best > 0.55 else "Medium" if best > 0.42 else "Low"
+    winner_label = "Home Win" if p_h == best else ("Away Win" if p_a == best else "Draw")
+
+    return {
+        "home_pct": round(p_h * 100, 1),
+        "draw_pct": round(p_d * 100, 1),
+        "away_pct": round(p_a * 100, 1),
+        "confidence": confidence,
+        "winner_label": winner_label,
+        "lam_home": round(lam_h, 2),
+        "lam_away": round(lam_a, 2),
+    }
+
+
 # ── Main prediction ────────────────────────────────────────────────────────────
 
 def predict(

@@ -834,6 +834,32 @@ def get_standings(league: int = 39, season: int = 2024) -> list:
     )
 
 
+def get_upcoming_fixtures(league: int = 39, season: int = 2024, next_n: int = 20) -> list:
+    if PROVIDER == "sportmonks":
+        today = datetime.now().strftime("%Y-%m-%d")
+        _, end_date = _sportmonks_season_dates()
+        response = _sportmonks_request(
+            f"fixtures/between/{today}/{end_date}",
+            {
+                "include": _sportmonks_includes("league", "participants", "scores.participant"),
+                "per_page": next_n * 2,
+            },
+        )
+        season_id = _sportmonks_season_id()
+        raw_fixtures = [
+            f
+            for f in _as_list(_sportmonks_data(response))
+            if f.get("season_id") == season_id
+        ]
+        normalized = [_normalize_sportmonks_fixture(f) for f in raw_fixtures]
+        normalized.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""))
+        return normalized[:next_n]
+
+    return _api_football_request(
+        "fixtures", {"league": league, "season": season, "next": next_n}
+    ).get("response", [])
+
+
 def enrich_fixture(fixture: dict) -> dict:
     fixture_id = fixture["fixture"]["id"]
     if PROVIDER == "sportmonks":

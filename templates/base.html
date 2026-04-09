@@ -19,6 +19,7 @@
     </a>
     <div class="nav-links">
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">Teams</a>
+      <a href="/fixtures" class="{% if request.path == '/fixtures' %}active{% endif %}">Fixtures</a>
       {% if session.get('team_a_id') %}
       <a href="/matchup" class="{% if request.path == '/matchup' %}active{% endif %}">Matchup</a>
       <a href="/player"  class="{% if request.path == '/player'  %}active{% endif %}">Players</a>

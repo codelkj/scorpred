@@ -183,6 +183,30 @@ def prediction():
     )
 
 
+@app.route("/fixtures")
+def fixtures():
+    load_error = None
+    fixtures_with_pred = []
+    try:
+        upcoming = ac.get_upcoming_fixtures(LEAGUE, SEASON, next_n=20)
+        standings_list = []
+        try:
+            standings_resp = ac.get_standings(LEAGUE, SEASON)
+            if standings_resp:
+                standings_list = standings_resp[0]["league"]["standings"][0]
+        except Exception:
+            pass  # Best-effort; predictions fall back to defaults without standings
+        for f in upcoming:
+            home_id = f["teams"]["home"]["id"]
+            away_id = f["teams"]["away"]["id"]
+            prediction = pred.quick_predict_from_standings(home_id, away_id, standings_list)
+            fixtures_with_pred.append({**f, "prediction": prediction})
+    except Exception as e:
+        load_error = str(e)
+        app.logger.error("fixtures fetch error: %s", e)
+    return render_template("fixtures.html", fixtures=fixtures_with_pred, load_error=load_error)
+
+
 # ── Error page ────────────────────────────────────────────────────────────────
 
 @app.errorhandler(404)
