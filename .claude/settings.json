@@ -4,7 +4,15 @@
       "Bash(python -c ':*)",
       "Bash(python3 -c ':*)",
       "Bash(py -c ':*)",
-      "Bash(py -m pip show requests python-dotenv)"
+      "Bash(py -m pip show requests python-dotenv)",
+      "Bash(python -m py_compile nba_client.py)",
+      "Bash(python -m py_compile nba_predictor.py)",
+      "Bash(python -m py_compile nba_routes.py)",
+      "Bash(python -m py_compile app.py)",
+      "WebFetch(domain:nba-api-free-data.p.rapidapi.com)",
+      "Bash(curl -s --max-time 8 -H 'x-rapidapi-key: 140f876486msh112ff91f3acbe80p1256fbjsn30665df1f89b' -H 'x-rapidapi-host: nba-api-free-data.p.rapidapi.com' https://nba-api-free-data.p.rapidapi.com/nba-player-stats)",
+      "Bash(curl -s --max-time 8 -H 'x-rapidapi-key: 140f876486msh112ff91f3acbe80p1256fbjsn30665df1f89b' -H 'x-rapidapi-host: nba-api-free-data.p.rapidapi.com' https://nba-api-free-data.p.rapidapi.com/nba-player-info)",
+      "Bash(curl -s --max-time 6 -H 'x-rapidapi-key: 140f876486msh112ff91f3acbe80p1256fbjsn30665df1f89b' -H 'x-rapidapi-host: nba-api-free-data.p.rapidapi.com' https://nba-api-free-data.p.rapidapi.com/__TRACKED_VAR__)"
     ]
   }
 }

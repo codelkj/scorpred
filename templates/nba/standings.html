@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}NBA Standings — {% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nba/nba.css') }}" />
+{% endblock %}
+{% block content %}
+<div class="nba-page">
+  <div class="nba-hero">
+    <div class="nba-hero-icon">🏀</div>
+    <h1>NBA Standings</h1>
+  </div>
+
+  {% if error %}
+  <div class="nba-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ {{ error }}</p></div>
+  {% endif %}
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+    {% for conf, rows in [('Eastern Conference', standings.east), ('Western Conference', standings.west)] %}
+    <div class="nba-card">
+      <div class="nba-card-title">{{ conf }}</div>
+      {% if rows %}
+      <div class="nba-table-wrap">
+        <table class="nba-table">
+          <thead>
+            <tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>PCT</th><th>Last 10</th></tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+            {% set c = r.conference %}
+            {% set w = r.win %}
+            {% set l = r.loss %}
+            <tr>
+              <td style="color:var(--nba-muted);">{{ c.rank }}</td>
+              <td>
+                {% if r.team.logo %}<img src="{{ r.team.logo }}" style="width:16px;height:16px;object-fit:contain;vertical-align:middle;margin-right:.3rem;"/>{% endif %}
+                {{ r.team.nickname or r.team.name }}
+              </td>
+              <td style="font-weight:600; color:var(--nba-green);">{{ w.total }}</td>
+              <td style="color:var(--nba-muted);">{{ l.total }}</td>
+              <td>{{ w.percentage }}</td>
+              <td style="font-size:.82rem; color:var(--nba-muted);">{{ w.lastTen.win }}-{{ w.lastTen.loss }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p style="color:var(--nba-muted);">No standings data available.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

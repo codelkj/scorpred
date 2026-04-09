@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+
+{% block title %}NBA Matchup — {% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nba/nba.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="nba-page">
+
+  <!-- ── Matchup Header ────────────────────────────────────────────────────── -->
+  <div class="nba-matchup-header">
+    <div class="nba-team-block">
+      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      <span class="nba-team-name">{{ team_a.city or '' }} {{ team_a.nickname or team_a.name }}</span>
+      <span style="font-size:.78rem;color:var(--nba-muted);">Home</span>
+    </div>
+    <div class="nba-vs-badge">VS</div>
+    <div class="nba-team-block">
+      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      <span class="nba-team-name">{{ team_b.city or '' }} {{ team_b.nickname or team_b.name }}</span>
+      <span style="font-size:.78rem;color:var(--nba-muted);">Away</span>
+    </div>
+  </div>
+
+  <!-- ── Nav links ─────────────────────────────────────────────────────────── -->
+  <div style="display:flex; gap:.75rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+    <a href="{{ url_for('nba.index') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">← Teams</a>
+    <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Players &amp; Props</a>
+    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary" style="font-size:.85rem;padding:.4rem .9rem;">Full Prediction →</a>
+  </div>
+
+  {# Data-source banner #}
+  {% if route_support %}
+  <div style="display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1rem;">
+    {% for key, info in route_support.items() %}
+    <span title="{{ info.detail }}" style="font-size:.75rem; padding:.18rem .6rem; border-radius:4px; font-weight:600; cursor:help;
+      {% if info.state == 'live' %}background:rgba(34,197,94,.15);color:#22c55e;
+      {% elif info.state == 'mock' %}background:rgba(245,158,11,.15);color:#f59e0b;
+      {% else %}background:rgba(107,114,128,.15);color:#9ca3af;{% endif %}">
+      {{ info.title }}
+    </span>
+    {% endfor %}
+    <span style="font-size:.72rem; color:var(--nba-muted); align-self:center;">Hover pill for detail</span>
+  </div>
+  {% endif %}
+
+  {# Mock data notice #}
+  <div style="background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:8px; padding:.65rem 1rem; font-size:.81rem; color:#f59e0b; margin-bottom:1rem;">
+    🟡 H2H history and recent form are <strong>simulated</strong> from live standings signals — no game-log endpoint is available on this provider. Team stats and records are <strong>live</strong>.
+  </div>
+
+  {% if error %}
+  <div class="nba-card" style="border-color:#ef4444;">
+    <p style="color:#ef4444;">⚠ {{ error }}</p>
+  </div>
+  {% endif %}
+
+  <!-- ── Tabs ──────────────────────────────────────────────────────────────── -->
+  <div class="nba-card" style="padding-bottom:0;">
+    <div class="nba-tabs" id="matchupTabs">
+      <button class="nba-tab active" data-tab="h2h">H2H Meetings</button>
+      <button class="nba-tab" data-tab="form">Recent Form</button>
+      <button class="nba-tab" data-tab="stats">Team Stats</button>
+      <button class="nba-tab" data-tab="splits">Home/Away Splits</button>
+      <button class="nba-tab" data-tab="injuries">Injury Report</button>
+    </div>
+  </div>
+
+  <!-- ── Tab 1: H2H ────────────────────────────────────────────────────────── -->
+  <div class="nba-tab-panel active" id="tab-h2h">
+    <div class="nba-card">
+      <div class="nba-card-title">⚔️ Last 10 H2H Meetings</div>
+      {% if h2h_rows %}
+      <div class="nba-table-wrap">
+        <table class="nba-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Venue</th>
+              <th>{{ team_a.nickname or team_a.name }}</th>
+              <th>{{ team_b.nickname or team_b.name }}</th>
+              <th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th>
+              <th>Winner</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in h2h_rows %}
+            <tr>
+              <td>{{ g.date }}</td>
+              <td style="color:var(--nba-muted);">{{ g.venue }}</td>
+              <td style="font-weight:600;{% if g.a_pts > g.b_pts %}color:var(--nba-gold);{% endif %}">{{ g.a_pts }}</td>
+              <td style="font-weight:600;{% if g.b_pts > g.a_pts %}color:var(--nba-gold);{% endif %}">{{ g.b_pts }}</td>
+              {% set a_qs = g.a_qs %}
+              {% set b_qs = g.b_qs %}
+              {% for i in range(4) %}
+              <td style="font-size:.8rem;color:var(--nba-muted);">
+                {{ a_qs[i] if i < a_qs|length else '-' }}–{{ b_qs[i] if i < b_qs|length else '-' }}
+              </td>
+              {% endfor %}
+              <td>
+                {% if g.a_pts > g.b_pts %}
+                <span class="nba-badge nba-badge-w">{{ team_a.nickname or team_a.name }}</span>
+                {% else %}
+                <span class="nba-badge nba-badge-l">{{ team_b.nickname or team_b.name }}</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <!-- H2H summary -->
+      {% set ns = namespace(wins_a=0, wins_b=0) %}
+      {% for g in h2h_rows %}
+        {% if g.a_pts > g.b_pts %}{% set ns.wins_a = ns.wins_a + 1 %}
+        {% elif g.b_pts > g.a_pts %}{% set ns.wins_b = ns.wins_b + 1 %}{% endif %}
+      {% endfor %}
+      <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--nba-border); display:flex; gap:2rem; flex-wrap:wrap;">
+        <div>
+          <span style="color:var(--nba-muted); font-size:.85rem;">{{ team_a.nickname or team_a.name }} wins: </span>
+          <strong style="color:var(--nba-gold);">{{ ns.wins_a }}</strong>
+        </div>
+        <div>
+          <span style="color:var(--nba-muted); font-size:.85rem;">{{ team_b.nickname or team_b.name }} wins: </span>
+          <strong style="color:var(--nba-gold);">{{ ns.wins_b }}</strong>
+        </div>
+        <div>
+          <span style="color:var(--nba-muted); font-size:.85rem;">Games played: </span>
+          <strong style="color:var(--nba-text);">{{ h2h_rows | length }}</strong>
+        </div>
+      </div>
+      {% else %}
+      <p style="color:var(--nba-muted);">No H2H data available for this season.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Tab 2: Recent Form ─────────────────────────────────────────────────── -->
+  <div class="nba-tab-panel" id="tab-form">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+      {% for side, team, form_list in [('A', team_a, form_a), ('B', team_b, form_b)] %}
+      <div class="nba-card">
+        <div class="nba-card-title">
+          {% if team.logo %}<img src="{{ team.logo }}" style="width:20px;height:20px;object-fit:contain;" />{% endif %}
+          {{ team.nickname or team.name }} — Last {{ form_list|length }} Games
+        </div>
+        {% if form_list %}
+        <!-- Streak pill -->
+        {% set streak_count = namespace(val=0) %}
+        {% set streak_res = namespace(val='') %}
+        {% for g in form_list %}
+          {% if loop.first %}{% set streak_res.val = g.result %}{% set streak_count.val = 1 %}
+          {% elif g.result == streak_res.val %}{% set streak_count.val = streak_count.val + 1 %}
+          {% endif %}
+        {% endfor %}
+        <div style="margin-bottom:.75rem;">
+          <span class="nba-badge {% if streak_res.val == 'W' %}nba-badge-w{% else %}nba-badge-l{% endif %}">
+            {{ streak_count.val }}{{ streak_res.val }} Streak
+          </span>
+        </div>
+        <div class="nba-table-wrap">
+          <table class="nba-table">
+            <thead>
+              <tr><th>Date</th><th>Venue</th><th>Opponent</th><th>Score</th><th>Res</th></tr>
+            </thead>
+            <tbody>
+              {% for g in form_list %}
+              <tr>
+                <td>{{ g.date }}</td>
+                <td style="color:var(--nba-muted);">{{ g.venue }}</td>
+                <td>{{ g.opponent }}</td>
+                <td style="font-weight:600;">{{ g.score }}</td>
+                <td><span class="nba-badge {% if g.result == 'W' %}nba-badge-w{% else %}nba-badge-l{% endif %}">{{ g.result }}</span></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p style="color:var(--nba-muted);">No recent form data available.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Tab 3: Team Stats Comparison ──────────────────────────────────────── -->
+  <div class="nba-tab-panel" id="tab-stats">
+    <div class="nba-card">
+      <div class="nba-card-title">📊 Season Stats Comparison</div>
+      {% if stats_a or stats_b %}
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
+        {% for side, team, stats in [('A', team_a, stats_a), ('B', team_b, stats_b)] %}
+        <div>
+          <div style="font-weight:600; color:var(--nba-gold); margin-bottom:.75rem; font-size:.9rem;">
+            {{ team.nickname or team.name }}
+          </div>
+          {% if stats %}
+          <div class="nba-stat-row"><span class="nba-stat-label">PPG</span><span class="nba-stat-val">{{ stats.ppg }}</span></div>
+          <div class="nba-stat-row"><span class="nba-stat-label">Opp PPG</span><span class="nba-stat-val">{{ stats.opp_ppg }}</span></div>
+          <div class="nba-stat-row"><span class="nba-stat-label">Net Rating</span><span class="nba-stat-val {% if stats.net_rtg > 0 %}better{% endif %}">{{ stats.net_rtg }}</span></div>
+          <div class="nba-stat-row"><span class="nba-stat-label">W-L</span><span class="nba-stat-val">{{ stats.wins }}-{{ stats.losses }}</span></div>
+          {% else %}
+          <p style="color:var(--nba-muted); font-size:.85rem;">Stats unavailable</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Bar chart -->
+      <canvas id="statsChart" height="120"></canvas>
+      {% else %}
+      <p style="color:var(--nba-muted);">Stats data unavailable.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Tab 4: Home/Away Splits ────────────────────────────────────────────── -->
+  <div class="nba-tab-panel" id="tab-splits">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+      {% for side, team, split in [('A', team_a, split_a), ('B', team_b, split_b)] %}
+      <div class="nba-card">
+        <div class="nba-card-title">
+          {% if team.logo %}<img src="{{ team.logo }}" style="width:20px;height:20px;object-fit:contain;"/>{% endif %}
+          {{ team.nickname or team.name }}
+        </div>
+        {% if split %}
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+          {% for loc, data in [('Home', split.home), ('Away', split.away)] %}
+          <div>
+            <div style="font-size:.8rem; font-weight:600; color:var(--nba-gold); margin-bottom:.5rem; text-transform:uppercase; letter-spacing:.4px;">{{ loc }}</div>
+            <div class="nba-stat-row"><span class="nba-stat-label">Record</span><span class="nba-stat-val">{{ data.w }}-{{ data.l }}</span></div>
+            <div class="nba-stat-row"><span class="nba-stat-label">PPG</span><span class="nba-stat-val">{{ data.ppg }}</span></div>
+            <div class="nba-stat-row"><span class="nba-stat-label">Opp PPG</span><span class="nba-stat-val">{{ data.opp_ppg }}</span></div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p style="color:var(--nba-muted);">No split data.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Tab 5: Injury Report ───────────────────────────────────────────────── -->
+  <div class="nba-tab-panel" id="tab-injuries">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+      {% for side, team, inj_list in [('A', team_a, injuries_a), ('B', team_b, injuries_b)] %}
+      <div class="nba-card">
+        <div class="nba-card-title">
+          🏥 {{ team.nickname or team.name }} Injuries
+        </div>
+        {% if inj_list %}
+        <div class="nba-table-wrap">
+          <table class="nba-table">
+            <thead>
+              <tr><th>Player</th><th>Status</th><th>Injury</th></tr>
+            </thead>
+            <tbody>
+              {% for inj in inj_list %}
+              {% set status = inj.status | lower %}
+              <tr>
+                <td>{{ inj.player.firstname }} {{ inj.player.lastname }}</td>
+                <td>
+                  <span class="{% if status == 'out' %}inj-out{% elif status == 'doubtful' %}inj-doubtful{% elif status == 'questionable' %}inj-question{% else %}inj-day-to-day{% endif %}">
+                    {{ inj.status }}
+                  </span>
+                </td>
+                <td style="color:var(--nba-muted); font-size:.85rem;">{{ inj.description or '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p style="color:var(--nba-muted);">✅ No current injuries reported.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Tab switching
+document.querySelectorAll('.nba-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nba-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.nba-tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// Stats bar chart
+{% if stats_a and stats_b %}
+const ctx = document.getElementById('statsChart');
+if (ctx) {
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['PPG', 'Opp PPG', 'Net Rating'],
+      datasets: [
+        {
+          label: '{{ team_a.nickname or team_a.name }}',
+          data: [{{ stats_a.ppg }}, {{ stats_a.opp_ppg }}, {{ stats_a.net_rtg }}],
+          backgroundColor: 'rgba(245,158,11,.7)',
+          borderColor: '#f59e0b',
+          borderWidth: 1,
+        },
+        {
+          label: '{{ team_b.nickname or team_b.name }}',
+          data: [{{ stats_b.ppg }}, {{ stats_b.opp_ppg }}, {{ stats_b.net_rtg }}],
+          backgroundColor: 'rgba(59,130,246,.5)',
+          borderColor: '#3b82f6',
+          borderWidth: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: '#e8edf5', font: { family: 'Inter' } } }
+      },
+      scales: {
+        x: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' } },
+        y: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' } }
+      }
+    }
+  });
+}
+{% endif %}
+</script>
+{% endblock %}

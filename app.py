@@ -10,11 +10,15 @@ from flask import (
 from dotenv import load_dotenv
 import api_client_provider as ac
 import predictor as pred
+from nba_routes import nba_bp
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "scorpred-dev-secret")
+
+# ── Blueprints ─────────────────────────────────────────────────────────────────
+app.register_blueprint(nba_bp)
 
 LEAGUE = 39   # Premier League
 SEASON = 2024

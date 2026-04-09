@@ -1,0 +1,431 @@
+{% extends "base.html" %}
+
+{% block title %}NBA Prediction — {% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nba/nba.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="nba-page">
+
+  <!-- ── Header ───────────────────────────────────────────────────────────── -->
+  <div class="nba-matchup-header">
+    <div class="nba-team-block">
+      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      <span class="nba-team-name">{{ team_a.city or '' }} {{ team_a.nickname or team_a.name }}</span>
+      <span style="font-size:.78rem;color:var(--nba-muted);">Home</span>
+    </div>
+    <div class="nba-vs-badge">VS</div>
+    <div class="nba-team-block">
+      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      <span class="nba-team-name">{{ team_b.city or '' }} {{ team_b.nickname or team_b.name }}</span>
+      <span style="font-size:.78rem;color:var(--nba-muted);">Away</span>
+    </div>
+  </div>
+
+  <!-- ── Nav ──────────────────────────────────────────────────────────────── -->
+  <div style="display:flex; gap:.75rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+    <a href="{{ url_for('nba.index') }}"   class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">← Teams</a>
+    <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Matchup</a>
+    <a href="{{ url_for('nba.player') }}"  class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Player Props</a>
+  </div>
+
+  {# Data-source banner #}
+  {% if route_support %}
+  <div style="display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.75rem;">
+    {% for key, info in route_support.items() %}
+    <span title="{{ info.detail }}" style="font-size:.75rem; padding:.18rem .6rem; border-radius:4px; font-weight:600; cursor:help;
+      {% if info.state == 'live' %}background:rgba(34,197,94,.15);color:#22c55e;
+      {% elif info.state == 'mock' %}background:rgba(245,158,11,.15);color:#f59e0b;
+      {% else %}background:rgba(107,114,128,.15);color:#9ca3af;{% endif %}">
+      {{ info.title }}
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if data_notes %}
+  <div style="background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:8px; padding:.65rem 1rem; font-size:.81rem; color:#f59e0b; margin-bottom:1rem;">
+    <strong>Data notes:</strong>
+    <ul style="margin:.3rem 0 0 1.1rem; padding:0;">
+      {% for note in data_notes %}<li>{{ note }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="nba-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ Prediction error: {{ error }}</p></div>
+  {% endif %}
+
+  {% if result %}
+
+  <!-- ── Win Probability ───────────────────────────────────────────────────── -->
+  <div class="nba-card">
+    <div class="nba-card-title">🏆 Match Winner Prediction</div>
+
+    <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:1rem; align-items:center; margin-bottom:1rem;">
+      <div style="text-align:center;">
+        <div style="font-size:2.5rem; font-weight:700; color:{% if result.winner == 'A' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+          {{ result.prob_a }}%
+        </div>
+        <div style="color:var(--nba-muted); font-size:.85rem;">{{ team_a.nickname or team_a.name }}</div>
+      </div>
+      <div style="text-align:center;">
+        <span class="nba-badge {% if result.confidence == 'High' %}nba-badge-high{% elif result.confidence == 'Medium' %}nba-badge-med{% else %}nba-badge-low{% endif %}">
+          {{ result.confidence }} Confidence
+        </span>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:2.5rem; font-weight:700; color:{% if result.winner == 'B' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+          {{ result.prob_b }}%
+        </div>
+        <div style="color:var(--nba-muted); font-size:.85rem;">{{ team_b.nickname or team_b.name }}</div>
+      </div>
+    </div>
+
+    <!-- Win probability bar -->
+    <div class="nba-prob-bar-wrap">
+      <div class="nba-prob-a" style="width:{{ result.prob_a }}%;">
+        {% if result.prob_a > 15 %}{{ result.prob_a }}%{% endif %}
+      </div>
+      <div class="nba-prob-b">
+        {% if result.prob_b > 15 %}{{ result.prob_b }}%{% endif %}
+      </div>
+    </div>
+
+    <!-- Recommended winner -->
+    <div style="text-align:center; margin-top:1rem;">
+      <div style="font-size:.85rem; color:var(--nba-muted); margin-bottom:.3rem;">Recommended Winner</div>
+      <div style="font-size:1.3rem; font-weight:700; color:var(--nba-gold);">
+        {{ team_a.nickname or team_a.name if result.winner == 'A' else team_b.nickname or team_b.name }}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Score Projections ─────────────────────────────────────────────────── -->
+  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+    <div class="nba-card" style="text-align:center; padding:1.25rem;">
+      <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Projected Score</div>
+      <div style="font-size:1.6rem; font-weight:700; color:var(--nba-text);">
+        {{ result.proj_a_pts }} – {{ result.proj_b_pts }}
+      </div>
+      <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
+        {{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}
+      </div>
+    </div>
+    <div class="nba-card" style="text-align:center; padding:1.25rem;">
+      <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Total Points O/U</div>
+      <div style="font-size:1.6rem; font-weight:700; color:var(--nba-gold);">{{ result.over_under_line }}</div>
+      <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
+        Projected: {{ result.proj_total }}
+        <span class="nba-badge {% if result.proj_total > result.over_under_line %}nba-badge-over{% else %}nba-badge-under{% endif %}" style="margin-left:.4rem; font-size:.75rem;">
+          {{ 'OVER' if result.proj_total > result.over_under_line else 'UNDER' }}
+        </span>
+      </div>
+    </div>
+    <div class="nba-card" style="text-align:center; padding:1.25rem;">
+      <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Spread</div>
+      <div style="font-size:1.6rem; font-weight:700; color:var(--nba-text);">-{{ result.spread_line }}</div>
+      <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
+        Favours: {{ team_a.nickname or team_a.name if result.spread_favoured == 'A' else team_b.nickname or team_b.name }}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Best Bets Slip ────────────────────────────────────────────────────── -->
+  {% if best_bets %}
+  <div class="nba-bets-slip">
+    <div class="nba-bets-slip-title">⭐ Top Recommended Bets</div>
+    {% for bet in best_bets %}
+    <div class="nba-bet-row">
+      <div class="nba-stars">{{ '★' * bet.stars }}{{ '☆' * (5 - bet.stars) }}</div>
+      <div class="nba-bet-info">
+        <div class="nba-bet-title">{{ bet.bet }}</div>
+        <div class="nba-bet-market">{{ bet.market }} · {{ bet.line }}</div>
+        <div class="nba-bet-reason">{{ bet.reason }}</div>
+      </div>
+      <div class="nba-bet-conf {% if bet.confidence >= 75 %}nba-badge-high{% elif bet.confidence >= 62 %}nba-badge-med{% else %}nba-badge-low{% endif %}" style="background:transparent;">
+        {{ bet.confidence }}%
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ── Key Factors ───────────────────────────────────────────────────────── -->
+  <div class="nba-card">
+    <div class="nba-card-title">📋 Key Prediction Factors</div>
+    <div class="nba-factors">
+
+      <!-- H2H -->
+      {% set h2h_c = result.components.h2h %}
+      <div class="nba-factor-card">
+        <div class="nba-factor-name">H2H Record (20%)</div>
+        <div class="nba-factor-vals">
+          <div>
+            <div class="nba-factor-val" style="color:{% if h2h_c.team_a_pct >= h2h_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ h2h_c.team_a_pct }}%
+            </div>
+            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
+          </div>
+          <div>
+            <div class="nba-factor-val" style="color:{% if h2h_c.team_b_pct > h2h_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ h2h_c.team_b_pct }}%
+            </div>
+            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
+          </div>
+        </div>
+        <div style="font-size:.75rem;color:var(--nba-muted);margin-top:.4rem;">
+          {{ h2h_c.record.wins_a }}W – {{ h2h_c.record.wins_b }}W in {{ h2h_c.record.total }} games
+        </div>
+      </div>
+
+      <!-- Form -->
+      {% set form_c = result.components.form %}
+      <div class="nba-factor-card">
+        <div class="nba-factor-name">Recent Form (25%)</div>
+        <div class="nba-factor-vals">
+          <div>
+            <div class="nba-factor-val" style="color:{% if form_c.team_a_pct >= form_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ form_c.team_a_pct }}%
+            </div>
+            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
+          </div>
+          <div>
+            <div class="nba-factor-val" style="color:{% if form_c.team_b_pct > form_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ form_c.team_b_pct }}%
+            </div>
+            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Home/Away -->
+      {% set home_c = result.components.home_away %}
+      <div class="nba-factor-card">
+        <div class="nba-factor-name">Home Advantage (20%)</div>
+        <div class="nba-factor-vals">
+          <div>
+            <div class="nba-factor-val" style="color:var(--nba-gold);">{{ home_c.team_a_pct }}%</div>
+            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
+          </div>
+          <div>
+            <div class="nba-factor-val">{{ home_c.team_b_pct }}%</div>
+            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
+          </div>
+        </div>
+        <div style="font-size:.75rem;color:var(--nba-muted);margin-top:.4rem;">
+          Home court advantage applied to {{ team_a.nickname or team_a.name }}
+        </div>
+      </div>
+
+      <!-- Injuries -->
+      {% set inj_c = result.components.injuries %}
+      <div class="nba-factor-card">
+        <div class="nba-factor-name">Injury Impact (15%)</div>
+        <div class="nba-factor-vals">
+          <div>
+            <div class="nba-factor-val" style="color:{% if inj_c.team_a_pct >= inj_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ inj_c.team_a_pct }}%
+            </div>
+            <div style="font-size:.75rem;color:var(--nba-muted);">{{ inj_c.team_a_count }} injuries</div>
+          </div>
+          <div>
+            <div class="nba-factor-val" style="color:{% if inj_c.team_b_pct > inj_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ inj_c.team_b_pct }}%
+            </div>
+            <div style="font-size:.75rem;color:var(--nba-muted);">{{ inj_c.team_b_count }} injuries</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ratings -->
+      {% set rtg_c = result.components.ratings %}
+      <div class="nba-factor-card">
+        <div class="nba-factor-name">Net Rating (20%)</div>
+        <div class="nba-factor-vals">
+          <div>
+            <div class="nba-factor-val" style="color:{% if rtg_c.team_a_pct >= rtg_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ rtg_c.team_a_pct }}%
+            </div>
+            <div style="font-size:.75rem;color:{% if rtg_c.team_a_net >= 0 %}#22c55e{% else %}#ef4444{% endif %};">
+              {{ '+' if rtg_c.team_a_net >= 0 else '' }}{{ rtg_c.team_a_net }}
+            </div>
+          </div>
+          <div>
+            <div class="nba-factor-val" style="color:{% if rtg_c.team_b_pct > rtg_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+              {{ rtg_c.team_b_pct }}%
+            </div>
+            <div style="font-size:.75rem;color:{% if rtg_c.team_b_net >= 0 %}#22c55e{% else %}#ef4444{% endif %};">
+              {{ '+' if rtg_c.team_b_net >= 0 else '' }}{{ rtg_c.team_b_net }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /nba-factors -->
+  </div>
+
+  <!-- ── Plain-English Explanation ──────────────────────────────────────────── -->
+  <div class="nba-card">
+    <div class="nba-card-title">💡 What's Driving This Prediction</div>
+    <div style="line-height:1.9; color:var(--nba-text); font-size:.93rem;">
+      <p style="margin-bottom:.75rem;">
+        <strong style="color:var(--nba-gold);">{{ team_a.nickname or team_a.name }}</strong> are playing at home, which adds a base {{ result.components.home_away.team_a_pct }}% edge from the home-court advantage component.
+      </p>
+      <p style="margin-bottom:.75rem;">
+        In <strong>head-to-head history</strong>, {{ team_a.nickname or team_a.name }} have won {{ result.components.h2h.record.wins_a }} of the last {{ result.components.h2h.record.total }} meetings
+        ({{ result.components.h2h.team_a_pct }}% H2H edge).
+      </p>
+      <p style="margin-bottom:.75rem;">
+        <strong>Recent form</strong> (last 10 games) gives {{ team_a.nickname or team_a.name }} a {{ result.components.form.team_a_pct }}% advantage
+        vs {{ team_b.nickname or team_b.name }}'s {{ result.components.form.team_b_pct }}%.
+      </p>
+      {% if result.components.injuries.team_a_count > 0 or result.components.injuries.team_b_count > 0 %}
+      <p style="margin-bottom:.75rem;">
+        <strong>Injury report:</strong>
+        {{ team_a.nickname or team_a.name }} has {{ result.components.injuries.team_a_count }} injury(-ies) —
+        {{ team_b.nickname or team_b.name }} has {{ result.components.injuries.team_b_count }}.
+        This is factored into the 15% injury component.
+      </p>
+      {% endif %}
+      <p>
+        <strong>Net rating differential:</strong>
+        {{ team_a.nickname or team_a.name }} carries a {{ '+' if result.components.ratings.team_a_net >= 0 else '' }}{{ result.components.ratings.team_a_net }} net rating
+        vs {{ team_b.nickname or team_b.name }}'s {{ '+' if result.components.ratings.team_b_net >= 0 else '' }}{{ result.components.ratings.team_b_net }}.
+        This drives the 20% rating component.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Team Stats Side-by-side ─────────────────────────────────────────────── -->
+  {% if stats_a or stats_b %}
+  <div class="nba-card">
+    <div class="nba-card-title">📊 Team Stats</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+      {% for team, stats in [(team_a, stats_a), (team_b, stats_b)] %}
+      <div>
+        <div style="font-weight:600; color:var(--nba-gold); margin-bottom:.75rem;">{{ team.nickname or team.name }}</div>
+        {% if stats %}
+        <div class="nba-stat-row"><span class="nba-stat-label">PPG</span><span class="nba-stat-val">{{ stats.ppg }}</span></div>
+        <div class="nba-stat-row"><span class="nba-stat-label">Opp PPG</span><span class="nba-stat-val">{{ stats.opp_ppg }}</span></div>
+        <div class="nba-stat-row"><span class="nba-stat-label">Net Rating</span>
+          <span class="nba-stat-val {% if stats.net_rtg > 0 %}better{% endif %}">
+            {{ '+' if stats.net_rtg > 0 else '' }}{{ stats.net_rtg }}
+          </span>
+        </div>
+        <div class="nba-stat-row"><span class="nba-stat-label">Record</span><span class="nba-stat-val">{{ stats.wins }}-{{ stats.losses }}</span></div>
+        <div class="nba-stat-row"><span class="nba-stat-label">Home</span><span class="nba-stat-val">{{ stats.home_record }}</span></div>
+        <div class="nba-stat-row"><span class="nba-stat-label">Away</span><span class="nba-stat-val">{{ stats.away_record }}</span></div>
+        {% else %}
+        <p style="color:var(--nba-muted); font-size:.85rem;">Stats unavailable</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Injury Reports ─────────────────────────────────────────────────────── -->
+  {% if injuries_a or injuries_b %}
+  <div class="nba-card">
+    <div class="nba-card-title">🏥 Injury Report</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+      {% for team, inj_list in [(team_a, injuries_a), (team_b, injuries_b)] %}
+      <div>
+        <div style="font-weight:600; color:var(--nba-gold); margin-bottom:.5rem;">{{ team.nickname or team.name }}</div>
+        {% if inj_list %}
+        {% for inj in inj_list[:5] %}
+        <div style="display:flex; justify-content:space-between; padding:.3rem 0; border-bottom:1px solid var(--nba-border); font-size:.87rem;">
+          <span>{{ inj.player.firstname }} {{ inj.player.lastname }}</span>
+          <span class="{% if (inj.status or '') | lower == 'out' %}inj-out{% elif (inj.status or '') | lower == 'doubtful' %}inj-doubtful{% else %}inj-question{% endif %}">
+            {{ inj.status }}
+          </span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p style="color:#22c55e; font-size:.85rem;">✅ No injuries reported</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Probability Chart ─────────────────────────────────────────────────── -->
+  <div class="nba-card">
+    <div class="nba-card-title">📈 Probability Breakdown</div>
+    <canvas id="probChart" height="80"></canvas>
+  </div>
+
+  {% else %}
+  <div class="nba-card">
+    <p style="color:var(--nba-muted); text-align:center; padding:2rem;">
+      Prediction data could not be generated. Please try selecting different teams.
+    </p>
+  </div>
+  {% endif %}
+
+  <!-- ── Responsible Gambling Disclaimer ────────────────────────────────────── -->
+  <div class="nba-disclaimer">
+    ⚠ <strong>Responsible Gambling Notice:</strong> All predictions on this page are generated by a statistical model for informational and entertainment purposes only. They do not constitute financial or betting advice. Past performance does not guarantee future results. Always gamble within your means. If gambling is causing you harm, please seek help at your national gambling support service. You must be 18+ to gamble.
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if result %}
+<script>
+const ctx = document.getElementById('probChart');
+if (ctx) {
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['H2H (20%)', 'Form (25%)', 'Home Adv (20%)', 'Injuries (15%)', 'Net Rating (20%)'],
+      datasets: [
+        {
+          label: '{{ team_a.nickname or team_a.name }}',
+          data: [
+            {{ result.components.h2h.team_a_pct }},
+            {{ result.components.form.team_a_pct }},
+            {{ result.components.home_away.team_a_pct }},
+            {{ result.components.injuries.team_a_pct }},
+            {{ result.components.ratings.team_a_pct }}
+          ],
+          backgroundColor: 'rgba(245,158,11,.7)',
+          borderColor: '#f59e0b',
+          borderWidth: 1,
+        },
+        {
+          label: '{{ team_b.nickname or team_b.name }}',
+          data: [
+            {{ result.components.h2h.team_b_pct }},
+            {{ result.components.form.team_b_pct }},
+            {{ result.components.home_away.team_b_pct }},
+            {{ result.components.injuries.team_b_pct }},
+            {{ result.components.ratings.team_b_pct }}
+          ],
+          backgroundColor: 'rgba(59,130,246,.5)',
+          borderColor: '#3b82f6',
+          borderWidth: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      indexAxis: 'y',
+      plugins: {
+        legend: { labels: { color: '#e8edf5', font: { family: 'Inter' } } }
+      },
+      scales: {
+        x: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' }, max: 100 },
+        y: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' } }
+      }
+    }
+  });
+}
+</script>
+{% endif %}
+{% endblock %}

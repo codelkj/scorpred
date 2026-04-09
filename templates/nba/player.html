@@ -1,0 +1,371 @@
+{% extends "base.html" %}
+
+{% block title %}NBA Player Props — {% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nba/nba.css') }}" />
+{% endblock %}
+
+{% block content %}
+<div class="nba-page">
+
+  <!-- ── Header ───────────────────────────────────────────────────────────── -->
+  <div class="nba-matchup-header">
+    <div class="nba-team-block">
+      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      <span class="nba-team-name">{{ team_a.nickname or team_a.name }}</span>
+    </div>
+    <div class="nba-vs-badge">🏀</div>
+    <div class="nba-team-block">
+      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="nba-team-logo" onerror="this.style.display='none'"/>{% endif %}
+      <span class="nba-team-name">{{ team_b.nickname or team_b.name }}</span>
+    </div>
+  </div>
+
+  <!-- ── Nav ──────────────────────────────────────────────────────────────── -->
+  <div style="display:flex; gap:.75rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+    <a href="{{ url_for('nba.index') }}"      class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">← Teams</a>
+    <a href="{{ url_for('nba.matchup') }}"    class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Matchup</a>
+    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary"   style="font-size:.85rem;padding:.4rem .9rem;">Full Prediction →</a>
+  </div>
+
+  {# Data-source banner #}
+  {% if route_support %}
+  <div style="display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.75rem;">
+    {% for key, info in route_support.items() %}
+    <span title="{{ info.detail }}" style="font-size:.75rem; padding:.18rem .6rem; border-radius:4px; font-weight:600; cursor:help;
+      {% if info.state == 'live' %}background:rgba(34,197,94,.15);color:#22c55e;
+      {% elif info.state == 'mock' %}background:rgba(245,158,11,.15);color:#f59e0b;
+      {% else %}background:rgba(107,114,128,.15);color:#9ca3af;{% endif %}">
+      {{ info.title }}
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div style="background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:8px; padding:.65rem 1rem; font-size:.81rem; color:#f59e0b; margin-bottom:1rem;">
+    🟡 Player rosters and stats are <strong>simulated</strong> — this provider does not expose working player or roster endpoints. Prop lines are built from realistic statistical templates and are for demonstration purposes only.
+  </div>
+
+  {% if error %}
+  <div class="nba-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ {{ error }}</p></div>
+  {% endif %}
+
+  <!-- ── Player Selectors ──────────────────────────────────────────────────── -->
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
+    {% for side, team, roster in [('A', team_a, roster_a), ('B', team_b, roster_b)] %}
+    <div class="nba-card" style="padding:1.25rem;">
+      <div class="nba-card-title" style="margin-bottom:.75rem;">
+        {% if team.logo %}<img src="{{ team.logo }}" style="width:18px;height:18px;object-fit:contain;"/>{% endif %}
+        {{ team.nickname or team.name }} — Select Player
+      </div>
+      <select id="playerSelect{{ side }}" class="nba-select" onchange="loadPlayer('{{ side }}')">
+        <option value="" disabled selected>Choose a player…</option>
+        {% for p in roster %}
+        <option value="{{ p.id }}"
+          data-team="{{ team.id }}"
+          data-opp="{% if side == 'A' %}{{ team_b.id }}{% else %}{{ team_a.id }}{% endif %}"
+          data-name="{{ p.firstname }} {{ p.lastname }}">
+          {{ p.firstname }} {{ p.lastname }}{% if p.leagues and p.leagues.standard %} — {{ p.leagues.standard.pos or '' }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <div id="loadingIndicator{{ side }}" style="display:none; margin-top:.5rem; font-size:.85rem; color:var(--nba-muted);">
+        Loading data…
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ── Player Analysis Panels ───────────────────────────────────────────── -->
+  <div class="nba-player-grid" id="playerAnalysis" style="display:none;">
+
+    {% for side in ['A', 'B'] %}
+    <div id="playerPanel{{ side }}">
+      <!-- populated by JS -->
+    </div>
+    {% endfor %}
+
+  </div>
+
+  <!-- ── Radar Chart (both players) ──────────────────────────────────────── -->
+  <div class="nba-card" id="radarSection" style="display:none;">
+    <div class="nba-card-title">🕸 Player Comparison Radar</div>
+    <div style="max-width:500px; margin:0 auto;">
+      <canvas id="radarChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Prop Cards Grid ───────────────────────────────────────────────────── -->
+  <div id="propsSection" style="display:none;">
+    <div class="nba-card">
+      <div class="nba-card-title">🎯 Player Prop Lines</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;" id="bothProps">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Templates for JS rendering ──────────────────────────────────────────── -->
+<template id="tmplPlayerPanel">
+  <div class="nba-player-panel">
+    <div class="nba-player-name" data-bind="name"></div>
+    <div class="nba-player-meta" data-bind="meta"></div>
+
+    <!-- Section A: Season Profile -->
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:.8rem; font-weight:600; color:var(--nba-gold); text-transform:uppercase; letter-spacing:.4px; margin-bottom:.5rem;">Season Averages</div>
+      <div class="nba-table-wrap">
+        <table class="nba-table" data-bind="seasonTable"></table>
+      </div>
+    </div>
+
+    <!-- Last 5 games log -->
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:.8rem; font-weight:600; color:var(--nba-gold); text-transform:uppercase; letter-spacing:.4px; margin-bottom:.5rem;">Last 5 Games</div>
+      <div class="nba-table-wrap">
+        <table class="nba-table" data-bind="last5Table"></table>
+      </div>
+    </div>
+
+    <!-- Section B: vs Opponent -->
+    <div>
+      <div style="font-size:.8rem; font-weight:600; color:var(--nba-gold); text-transform:uppercase; letter-spacing:.4px; margin-bottom:.5rem;">
+        vs Opponent <span data-bind="vsNote" style="font-weight:400; color:var(--nba-muted);"></span>
+      </div>
+      <div class="nba-table-wrap">
+        <table class="nba-table" data-bind="vsTable"></table>
+      </div>
+    </div>
+  </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const playerData = { A: null, B: null };
+let radarChart = null;
+
+function loadPlayer(side) {
+  const sel = document.getElementById('playerSelect' + side);
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt.value) return;
+
+  const playerId   = opt.value;
+  const teamId     = opt.dataset.team;
+  const oppId      = opt.dataset.opp;
+  const playerName = opt.dataset.name;
+
+  document.getElementById('loadingIndicator' + side).style.display = 'block';
+
+  fetch(`/nba/api/player-analysis?player_id=${playerId}&player_team_id=${teamId}&opponent_team_id=${oppId}`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('loadingIndicator' + side).style.display = 'none';
+      if (data.error) {
+        alert('Error: ' + data.error);
+        return;
+      }
+      data._name   = playerName;
+      data._teamId = teamId;
+      data._oppId  = oppId;
+      playerData[side] = data;
+      renderPlayerPanel(side, data);
+      renderPropsSection();
+      updateRadar();
+      document.getElementById('playerAnalysis').style.display = 'grid';
+    })
+    .catch(err => {
+      document.getElementById('loadingIndicator' + side).style.display = 'none';
+      console.error(err);
+      alert('Failed to load player data.');
+    });
+}
+
+function renderPlayerPanel(side, d) {
+  const tmpl = document.getElementById('tmplPlayerPanel');
+  const clone = tmpl.content.cloneNode(true);
+  const el = document.createElement('div');
+  el.appendChild(clone);
+
+  el.querySelector('[data-bind="name"]').textContent = d._name;
+  el.querySelector('[data-bind="meta"]').textContent =
+    d.season_avgs ? `${d.season_avgs.games || '—'} GP this season` : 'No season data';
+
+  // Season averages table
+  const sa = d.season_avgs || {};
+  const seasonTbl = el.querySelector('[data-bind="seasonTable"]');
+  seasonTbl.innerHTML = `
+    <thead><tr>
+      <th>PTS</th><th>REB</th><th>AST</th><th>3PM</th><th>STL</th><th>BLK</th><th>TOV</th><th>MIN</th><th>FG%</th><th>3P%</th><th>FT%</th>
+    </tr></thead>
+    <tbody><tr>
+      <td>${sa.points||'-'}</td><td>${sa.rebounds||'-'}</td><td>${sa.assists||'-'}</td>
+      <td>${sa.tpm||'-'}</td><td>${sa.steals||'-'}</td><td>${sa.blocks||'-'}</td>
+      <td>${sa.turnovers||'-'}</td><td>${sa.min||'-'}</td>
+      <td>${sa.fgp||'-'}%</td><td>${sa.tpp||'-'}%</td><td>${sa.ftp||'-'}%</td>
+    </tr></tbody>`;
+
+  // Last 5 games log
+  const l5Tbl = el.querySelector('[data-bind="last5Table"]');
+  if (d.last5_log && d.last5_log.length) {
+    const rows = d.last5_log.map(g =>
+      `<tr>
+        <td>${g.date||'—'}</td>
+        <td style="font-weight:600;">${g.points}</td>
+        <td>${g.rebounds}</td><td>${g.assists}</td>
+        <td>${g.tpm}</td><td>${g.steals}</td><td>${g.blocks}</td>
+        <td style="color:var(--nba-gold);">${g.pra}</td>
+        <td style="color:var(--nba-muted);">${g.min}</td>
+        <td>${g.fgm}/${g.fga} (${g.fgp}%)</td>
+      </tr>`
+    ).join('');
+    l5Tbl.innerHTML = `<thead><tr><th>Date</th><th>PTS</th><th>REB</th><th>AST</th><th>3PM</th><th>STL</th><th>BLK</th><th>PRA</th><th>MIN</th><th>FG</th></tr></thead><tbody>${rows}</tbody>`;
+  } else {
+    l5Tbl.innerHTML = '<tbody><tr><td colspan="10" style="color:var(--nba-muted);">No game log available</td></tr></tbody>';
+  }
+
+  // Vs opponent
+  const vsTbl  = el.querySelector('[data-bind="vsTable"]');
+  const vsNote = el.querySelector('[data-bind="vsNote"]');
+  if (d.vs_opp_limited) {
+    vsNote.textContent = '⚠ Limited H2H sample — using season avg as fallback';
+  } else {
+    vsNote.textContent = `(${d.vs_opp_games} games)`;
+  }
+  if (d.vs_opp_records && d.vs_opp_records.length) {
+    const rows = d.vs_opp_records.map(g =>
+      `<tr>
+        <td>${g.date||'—'}</td>
+        <td style="font-weight:600;">${g.points}</td>
+        <td>${g.rebounds}</td><td>${g.assists}</td>
+        <td>${g.tpm}</td><td>${g.steals}</td><td>${g.blocks}</td>
+        <td style="color:var(--nba-gold);">${g.pra}</td>
+      </tr>`
+    ).join('');
+    vsTbl.innerHTML = `<thead><tr><th>Date</th><th>PTS</th><th>REB</th><th>AST</th><th>3PM</th><th>STL</th><th>BLK</th><th>PRA</th></tr></thead><tbody>${rows}</tbody>`;
+    if (d.vs_opp_avgs) {
+      const va = d.vs_opp_avgs;
+      vsTbl.innerHTML += `<tfoot><tr style="font-weight:600;color:var(--nba-gold);">
+        <td>Avg</td><td>${va.points}</td><td>${va.rebounds}</td><td>${va.assists}</td>
+        <td>${va.tpm}</td><td>${va.steals}</td><td>${va.blocks}</td><td>${va.pra}</td>
+      </tr></tfoot>`;
+    }
+  } else {
+    vsTbl.innerHTML = '<tbody><tr><td colspan="8" style="color:var(--nba-muted);">No H2H game data found</td></tr></tbody>';
+  }
+
+  document.getElementById('playerPanel' + side).innerHTML = '';
+  document.getElementById('playerPanel' + side).appendChild(el);
+}
+
+function renderPropsSection() {
+  const container = document.getElementById('bothProps');
+  container.innerHTML = '';
+  document.getElementById('propsSection').style.display = 'none';
+
+  ['A', 'B'].forEach(side => {
+    const d = playerData[side];
+    if (!d || !d.props || !d.props.length) return;
+
+    const teamSel = document.getElementById('playerSelect' + side);
+    const teamName = teamSel ? teamSel.closest('.nba-card').querySelector('.nba-card-title').textContent.trim() : '';
+
+    const col = document.createElement('div');
+    col.innerHTML = `<div style="font-weight:600; color:var(--nba-gold); margin-bottom:.75rem; font-size:.9rem;">${d._name}</div>`;
+
+    const grid = document.createElement('div');
+    grid.className = 'nba-props-grid';
+
+    d.props.forEach(p => {
+      const leanClass = p.lean === 'OVER' ? 'over-lean' : p.lean === 'UNDER' ? 'under-lean' : 'push-lean';
+      const leanBadge = p.lean === 'OVER' ? 'over' : p.lean === 'UNDER' ? 'under' : 'push';
+      const confClass = p.confidence >= 80 ? 'conf-high' : p.confidence >= 65 ? 'conf-medium' : 'conf-low';
+
+      grid.innerHTML += `
+        <div class="nba-prop-card ${leanClass}">
+          <div class="nba-prop-header">
+            <span class="nba-prop-label">${p.label}</span>
+            <span style="font-size:.75rem;color:var(--nba-muted);">${p.confidence}%</span>
+          </div>
+          <div class="nba-prop-line">${p.line}</div>
+          <div class="nba-prop-lean ${leanBadge}">⬆ ${p.lean}</div>
+          <div class="nba-conf-bar"><div class="nba-conf-bar-fill ${confClass}" style="width:${p.confidence}%;"></div></div>
+          <div class="nba-prop-breakdown">
+            Season: ${p.season_avg} × 40%<br/>
+            Last 5: ${p.last5_avg} × 35%<br/>
+            vs Opp: ${p.opp_avg} × 25%<br/>
+            <strong>Projection: ${p.projection}</strong>
+          </div>
+          ${p.opp_note ? `<div style="font-size:.73rem;color:var(--nba-gold);margin-top:.3rem;">${p.opp_note}</div>` : ''}
+        </div>`;
+    });
+
+    col.appendChild(grid);
+    container.appendChild(col);
+    document.getElementById('propsSection').style.display = 'block';
+  });
+}
+
+function updateRadar() {
+  const dA = playerData['A'];
+  const dB = playerData['B'];
+  if (!dA || !dB) return;
+
+  document.getElementById('radarSection').style.display = 'block';
+  const saA = dA.season_avgs || {};
+  const saB = dB.season_avgs || {};
+
+  const labels = ['PTS', 'REB', 'AST', '3PM', 'STL', 'BLK'];
+  const dataA  = [saA.points||0, saA.rebounds||0, saA.assists||0, saA.tpm||0, saA.steals||0, saA.blocks||0];
+  const dataB  = [saB.points||0, saB.rebounds||0, saB.assists||0, saB.tpm||0, saB.steals||0, saB.blocks||0];
+
+  // Normalise to 0-100 range
+  const max = Math.max(...dataA, ...dataB, 1);
+  const normA = dataA.map(v => Math.round(v / max * 100));
+  const normB = dataB.map(v => Math.round(v / max * 100));
+
+  const ctx = document.getElementById('radarChart');
+  if (radarChart) radarChart.destroy();
+  radarChart = new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: dA._name,
+          data: normA,
+          backgroundColor: 'rgba(245,158,11,.2)',
+          borderColor: '#f59e0b',
+          pointBackgroundColor: '#f59e0b',
+        },
+        {
+          label: dB._name,
+          data: normB,
+          backgroundColor: 'rgba(59,130,246,.2)',
+          borderColor: '#3b82f6',
+          pointBackgroundColor: '#3b82f6',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: '#e8edf5', font: { family: 'Inter' } } }
+      },
+      scales: {
+        r: {
+          ticks: { color: '#7a90b0', backdropColor: 'transparent' },
+          grid:  { color: '#1e2f4a' },
+          pointLabels: { color: '#e8edf5', font: { size: 12 } },
+          suggestedMin: 0,
+          suggestedMax: 100,
+        }
+      }
+    }
+  });
+}
+</script>
+{% endblock %}

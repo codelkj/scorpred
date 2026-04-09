@@ -26,6 +26,7 @@
       <a href="/player"  class="{% if request.path == '/player'  %}active{% endif %}">Players</a>
       <a href="/prediction" class="{% if request.path == '/prediction' %}active{% endif %}">Prediction</a>
       {% endif %}
+      <a href="/nba" class="{% if request.path.startswith('/nba') %}active{% endif %}" style="color:{% if not request.path.startswith('/nba') %}#f59e0b{% else %}var(--text){% endif %};">🏀 NBA</a>
     </div>
     <div class="nav-mobile-toggle" id="navToggle">&#9776;</div>
   </nav>
