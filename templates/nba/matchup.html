@@ -26,9 +26,9 @@
 
   <!-- ── Nav links ─────────────────────────────────────────────────────────── -->
   <div style="display:flex; gap:.75rem; margin-bottom:1.5rem; flex-wrap:wrap;">
-    <a href="{{ url_for('nba.index') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">← Teams</a>
-    <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Players &amp; Props</a>
-    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem;padding:.4rem .9rem;">Full Prediction →</a>
+    <a href="{{ url_for('nba.index') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Back to games</a>
+    <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Rosters and leaders</a>
+    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem;padding:.4rem .9rem;">Full prediction</a>
   </div>
 
   {# Data-source banner #}
@@ -37,19 +37,40 @@
     {% for key, info in route_support.items() %}
     <span title="{{ info.detail }}" style="font-size:.75rem; padding:.18rem .6rem; border-radius:4px; font-weight:600; cursor:help;
       {% if info.state == 'live' %}background:rgba(34,197,94,.15);color:#22c55e;
-      {% elif info.state == 'mock' %}background:rgba(245,158,11,.15);color:#f59e0b;
+      {% elif info.state in ('fallback', 'mock') %}background:rgba(245,158,11,.15);color:#f59e0b;
       {% else %}background:rgba(107,114,128,.15);color:#9ca3af;{% endif %}">
       {{ info.title }}
     </span>
     {% endfor %}
-    <span style="font-size:.72rem; color:var(--nba-muted); align-self:center;">Hover pill for detail</span>
+    <span style="font-size:.72rem; color:var(--nba-muted); align-self:center;">Live schedule, form, history, and injury data</span>
   </div>
   {% endif %}
 
   {# Mock data notice #}
-  <div style="background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:8px; padding:.65rem 1rem; font-size:.81rem; color:#f59e0b; margin-bottom:1rem;">
-    🟡 H2H history and recent form are <strong>simulated</strong> from live standings signals — no game-log endpoint is available on this provider. Team stats and records are <strong>live</strong>.
+  {% set status_text = game_snapshot.status.long if game_snapshot else (selected_game.status if selected_game else '') %}
+  {% set status_state = game_snapshot.status.state if game_snapshot else '' %}
+  {% set matchup_name = game_snapshot.short_name if game_snapshot else (selected_game.short_name if selected_game else '') %}
+  {% set tipoff = game_snapshot.date.start if game_snapshot else (selected_game.date if selected_game else '') %}
+  {% set venue_name = game_snapshot.venue.name if game_snapshot and game_snapshot.venue else (selected_game.venue_name if selected_game else '') %}
+  {% if selected_game or game_snapshot %}
+  <div class="nba-card glow-card" style="padding:1rem 1.25rem;">
+    <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center;">
+      <span class="nba-badge {% if status_state == 'in' %}nba-badge-w{% elif status_state == 'post' %}nba-badge-med{% else %}nba-badge-push{% endif %}">
+        {{ status_text or 'Scheduled' }}
+      </span>
+      {% if matchup_name %}<span>{{ matchup_name }}</span>{% endif %}
+      {% if tipoff %}<span>{{ tipoff[:10] }}{% if tipoff|length > 10 %} {{ tipoff[11:16] }} UTC{% endif %}</span>{% endif %}
+      {% if venue_name %}<span>{{ venue_name }}</span>{% endif %}
+      {% if game_snapshot and game_snapshot.scores.home.points is not none and game_snapshot.scores.visitors.points is not none %}
+      <span style="color:var(--nba-gold); font-weight:700;">{{ game_snapshot.scores.home.points }} - {{ game_snapshot.scores.visitors.points }}</span>
+      {% endif %}
+    </div>
   </div>
+  {% else %}
+  <div style="background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:8px; padding:.65rem 1rem; font-size:.81rem; color:#f59e0b; margin-bottom:1rem;">
+    Manual team selection is active. Pick an upcoming NBA game on the home page to attach live fixture context to this analysis.
+  </div>
+  {% endif %}
 
   {% if error %}
   <div class="nba-card glow-card" style="border-color:#ef4444;">
@@ -306,7 +327,8 @@ document.querySelectorAll('.nba-tab').forEach(btn => {
 {% if stats_a and stats_b %}
 const ctx = document.getElementById('statsChart');
 if (ctx) {
-  new Chart(ctx, {
+  if (window.nbaStatsChart) { window.nbaStatsChart.destroy(); }
+  window.nbaStatsChart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: ['PPG', 'Opp PPG', 'Net Rating'],
@@ -321,14 +343,15 @@ if (ctx) {
         {
           label: '{{ team_b.nickname or team_b.name }}',
           data: [{{ stats_b.ppg }}, {{ stats_b.opp_ppg }}, {{ stats_b.net_rtg }}],
-          backgroundColor: 'rgba(59,130,246,.5)',
-          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(0,180,255,.5)',
+          borderColor: '#00b4ff',
           borderWidth: 1,
         }
       ]
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       plugins: {
         legend: { labels: { color: '#e8edf5', font: { family: 'Inter' } } }
       },

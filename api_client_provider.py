@@ -14,8 +14,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import time
+
 import requests
 from dotenv import load_dotenv
+
+from league_config import CURRENT_SEASON, DEFAULT_LEAGUE_ID
 
 load_dotenv()
 
@@ -157,6 +161,28 @@ def _api_football_request(endpoint: str, params: dict[str, Any] | None = None) -
         raise RuntimeError(f"API-Football error for {endpoint}: {data['errors']}")
 
     return data
+
+
+def _api_football_request_retry(
+    endpoint: str,
+    params: dict[str, Any] | None = None,
+    max_retries: int = 2,
+    retry_pause: float = 12.0,
+) -> dict[str, Any]:
+    """
+    Wrapper around _api_football_request that retries on HTTP 429 (rate limit)
+    with a 12-second pause between attempts.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return _api_football_request(endpoint, params)
+        except requests.exceptions.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 429 and attempt < max_retries:
+                time.sleep(retry_pause)
+                continue
+            raise
+    # Should never reach here
+    return _api_football_request(endpoint, params)
 
 
 def _sportmonks_headers() -> dict[str, str]:
@@ -450,6 +476,7 @@ def _normalize_sportmonks_fixture(raw_fixture: dict[str, Any]) -> dict[str, Any]
     }
 
 
+
 def _sort_fixtures_desc(fixtures: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         fixtures,
@@ -735,7 +762,7 @@ def get_fixture_events(fixture_id: int) -> list:
     )
 
 
-def get_squad(team_id: int) -> list:
+def get_squad(team_id: int, season: int = CURRENT_SEASON, league_id: int = DEFAULT_LEAGUE_ID) -> list:
     if PROVIDER == "sportmonks":
         response = _sportmonks_request(
             f"squads/seasons/{_sportmonks_season_id()}/teams/{team_id}",
@@ -770,6 +797,19 @@ def get_player_stats(player_id: int, season: int = 2024) -> list:
     return _api_football_request("players", {"id": player_id, "season": season}).get(
         "response", []
     )
+
+
+def get_fixture_player_stats(fixture_id: int, team_id: int | None = None) -> list:
+    """
+    Per-player statistics for a specific fixture.
+    Returns a list of team entries, each containing a 'players' list.
+    Optionally filter to a specific team_id.
+    Used by props_engine to build per-game soccer player game logs.
+    """
+    params: dict = {"fixture": fixture_id}
+    if team_id is not None:
+        params["team"] = team_id
+    return _api_football_request("fixtures/players", params).get("response", [])
 
 
 def get_injuries(team_id: int, league: int = 39, season: int = 2024) -> list:
@@ -1009,3 +1049,193 @@ def get_espn_fixtures(league_slug: str = "eng.1", next_n: int = 20) -> list:
 
     all_events.sort(key=lambda e: e["fixture"]["date"])
     return all_events[:next_n]
+
+
+# ── Multi-league / Props API methods ──────────────────────────────────────────
+
+def get_top_scorers(league_id: int, season: int = 2024) -> list:
+    """Top scorers for a competition. Returns API-Football response list."""
+    return _api_football_request_retry(
+        "players/topscorers", {"league": league_id, "season": season}
+    ).get("response", [])
+
+
+def get_top_assisters(league_id: int, season: int = 2024) -> list:
+    """Top assist providers for a competition."""
+    return _api_football_request_retry(
+        "players/topassists", {"league": league_id, "season": season}
+    ).get("response", [])
+
+
+def get_player_game_log(
+    player_id: int,
+    team_id: int,
+    league_id: int,
+    season: int = 2024,
+    last: int = 38,
+) -> list:
+    """
+    Return completed fixtures for a team in a league (used by props engine to
+    build per-game logs by fetching fixture/players for each fixture).
+    """
+    return _api_football_request_retry(
+        "fixtures",
+        {"team": team_id, "league": league_id, "season": season, "status": "FT"},
+    ).get("response", [])[:last]
+
+
+def get_player_vs_team(
+    player_id: int,
+    player_team_id: int,
+    opponent_team_id: int,
+    league_ids: list[int] | None = None,
+    season: int = 2024,
+) -> list:
+    """
+    Return fixtures where player's team faced the opponent, across multiple leagues.
+    Annotates each fixture with _league_id for downstream use.
+    """
+    from league_config import SUPPORTED_LEAGUES, CURRENT_SEASON
+
+    if league_ids is None:
+        league_ids = [cfg["id"] for cfg in SUPPORTED_LEAGUES.values()]
+    if season is None:
+        season = CURRENT_SEASON
+
+    results: list[dict] = []
+    for lid in league_ids:
+        try:
+            fixtures = _api_football_request_retry(
+                "fixtures/headtohead",
+                {"h2h": f"{player_team_id}-{opponent_team_id}", "league": lid, "season": season},
+            ).get("response", [])
+            for f in fixtures:
+                f["_league_id"] = lid
+            results.extend(fixtures)
+        except Exception:
+            pass
+    return results
+
+
+def get_player_season_stats_all_comps(
+    player_id: int,
+    season: int = 2024,
+    league_ids: list[int] | None = None,
+) -> list:
+    """
+    Return player season stats from API-Football across all supported leagues.
+    Each entry is annotated with _league_id and _league_name.
+    """
+    from league_config import SUPPORTED_LEAGUES, CURRENT_SEASON
+
+    if season is None:
+        season = CURRENT_SEASON
+    if league_ids is None:
+        league_ids = [cfg["id"] for cfg in SUPPORTED_LEAGUES.values()]
+
+    all_stats: list[dict] = []
+    for cfg in SUPPORTED_LEAGUES.values():
+        if cfg["id"] not in league_ids:
+            continue
+        try:
+            entries = _api_football_request_retry(
+                "players",
+                {"id": player_id, "season": season, "league": cfg["id"]},
+            ).get("response", [])
+            for entry in entries:
+                entry["_league_id"] = cfg["id"]
+                entry["_league_name"] = cfg["name"]
+                entry["_league_difficulty"] = cfg["difficulty"]
+            all_stats.extend(entries)
+        except Exception:
+            pass
+    return all_stats
+
+
+def get_team_fixtures_all_comps(
+    team_id: int,
+    season: int = 2024,
+    league_ids: list[int] | None = None,
+    last: int = 50,
+) -> list:
+    """
+    Return completed fixtures for a team across all supported leagues (or a subset).
+    Each fixture is annotated with _league_id, _league_name, _league_difficulty.
+    """
+    from league_config import SUPPORTED_LEAGUES, CURRENT_SEASON, COMP_DIFFICULTY
+
+    if season is None:
+        season = CURRENT_SEASON
+    if league_ids is None:
+        league_ids = [cfg["id"] for cfg in SUPPORTED_LEAGUES.values()]
+
+    all_fixtures: list[dict] = []
+    for cfg in SUPPORTED_LEAGUES.values():
+        if cfg["id"] not in league_ids:
+            continue
+        try:
+            fixtures = _api_football_request_retry(
+                "fixtures",
+                {"team": team_id, "league": cfg["id"], "season": season, "status": "FT"},
+            ).get("response", [])
+            for f in fixtures:
+                f["_league_id"] = cfg["id"]
+                f["_league_name"] = cfg["name"]
+                f["_league_difficulty"] = cfg["difficulty"]
+            all_fixtures.extend(fixtures)
+        except Exception:
+            pass
+
+    # Sort most-recent first
+    all_fixtures.sort(
+        key=lambda f: str((f.get("fixture") or {}).get("date") or ""),
+        reverse=True,
+    )
+    return all_fixtures[:last]
+
+
+def get_opponent_defensive_stats(
+    team_id: int,
+    league_id: int,
+    season: int = 2024,
+) -> dict:
+    """
+    Compute defensive profile for the opposing team from completed fixture results:
+    goals_conceded_per_game, clean_sheet_pct, sample size.
+    """
+    try:
+        fixtures = _api_football_request_retry(
+            "fixtures",
+            {"team": team_id, "league": league_id, "season": season, "status": "FT"},
+        ).get("response", [])
+    except Exception:
+        return {}
+
+    if not fixtures:
+        return {}
+
+    conceded: list[int] = []
+    for fixture in fixtures:
+        teams = fixture.get("teams") or {}
+        goals = fixture.get("goals") or {}
+        home_id = (teams.get("home") or {}).get("id")
+        away_id = (teams.get("away") or {}).get("id")
+        home_goals = goals.get("home")
+        away_goals = goals.get("away")
+
+        if home_id == team_id and away_goals is not None:
+            conceded.append(int(away_goals))
+        elif away_id == team_id and home_goals is not None:
+            conceded.append(int(home_goals))
+
+    if not conceded:
+        return {}
+
+    n = len(conceded)
+    clean_sheets = sum(1 for g in conceded if g == 0)
+    return {
+        "games": n,
+        "goals_conceded_per_game": round(sum(conceded) / n, 2),
+        "clean_sheets": clean_sheets,
+        "clean_sheet_pct": round(clean_sheets / n * 100, 1),
+    }

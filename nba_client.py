@@ -23,8 +23,8 @@ NBA_CACHE_HOURS = 6           # hours for historical data
 NBA_LIVE_TTL_SECONDS = 60     # seconds for live/today data
 
 NBA_API_KEY  = os.getenv("NBA_API_KEY", "").strip()
-NBA_API_HOST = os.getenv("NBA_API_HOST", "api-nba-v1.p.rapidapi.com").strip()
-NBA_BASE_URL = os.getenv("NBA_API_BASE_URL", "https://api-nba-v1.p.rapidapi.com").rstrip("/")
+NBA_API_HOST = os.getenv("NBA_API_HOST", "nba-api-free-data.p.rapidapi.com").strip()
+NBA_BASE_URL = os.getenv("NBA_API_BASE_URL", "https://nba-api-free-data.p.rapidapi.com").rstrip("/")
 
 NBA_SEASON = 2024             # current season year
 
@@ -77,7 +77,8 @@ def nba_get(endpoint: str, params: dict = None, ttl_seconds: int = None) -> dict
 
     headers = {
         "x-rapidapi-host": NBA_API_HOST,
-        "x-rapidapi-key": NBA_API_KEY,
+        "x-rapidapi-key":  NBA_API_KEY,
+        "Content-Type":    "application/json",
     }
     url = f"{NBA_BASE_URL}/{endpoint.lstrip('/')}"
     resp = requests.get(url, headers=headers, params=params, timeout=15)
@@ -279,8 +280,41 @@ def get_team_injuries(team_id: int) -> list:
 def get_today_games() -> list:
     """Today's scheduled and live NBA games (60-second cache)."""
     today = datetime.now().strftime("%Y-%m-%d")
-    data = nba_get("games", {"date": today}, ttl_seconds=NBA_LIVE_TTL_SECONDS)
-    return data.get("response", [])
+    try:
+        data = nba_get("games", {"date": today}, ttl_seconds=NBA_LIVE_TTL_SECONDS)
+        return data.get("response", [])
+    except Exception:
+        return []
+
+
+def get_scoreboard() -> dict:
+    """
+    Live scoreboard for today's games.
+    Falls back to estimated data if endpoint unavailable.
+    """
+    games = get_today_games()
+    if games:
+        return {"games": games, "data_source": "live"}
+    return {"games": [], "data_source": "estimated", "note": "No live games or endpoint unavailable"}
+
+
+def get_schedule(team_id: int, season: int = NBA_SEASON) -> list:
+    """
+    Full season schedule for a team.
+    Falls back gracefully if endpoint unavailable on current plan.
+    """
+    try:
+        data = nba_get("games", {"team": team_id, "season": season},
+                       ttl_seconds=NBA_CACHE_HOURS * 3600)
+        games = data.get("response", [])
+        if games:
+            return sorted(games, key=lambda g: g.get("date", {}).get("start", ""))
+        # Endpoint returned empty — not necessarily an error
+        return []
+    except Exception as exc:
+        import logging
+        logging.warning("NBA endpoint /games?team=%s not available on current plan: %s", team_id, exc)
+        return []
 
 
 def get_team_season_stats(team_id: int, season: int = NBA_SEASON) -> dict | None:
@@ -667,34 +701,34 @@ def _stable_int(minimum: int, maximum: int, *parts: Any) -> int:
         return minimum
     span = maximum - minimum + 1
     return minimum + int(_stable_unit(*parts) * span) % span
-
-# -- Standings fetch (internal) -------------------------------------------
-
-def _fetch_standings_entries(season: int = NBA_SEASON) -> list:
-    payload = _request_json("nba-league-standings", {"year": season})
-    return payload.get("response", {}).get("standings", {}).get("entries", [])
-
-def _entry_stats(entry: dict) -> dict:
-    return {s["name"]: s.get("value", 0) for s in entry.get("stats", [])}
-
-def _entry_display_stats(entry: dict) -> dict:
-    return {s["name"]: s.get("displayValue", "") for s in entry.get("stats", [])}
-
-def _team_from_entry(entry: dict, division: str = "", conference: str = "") -> dict:
-    t = entry["team"]
-    logos = t.get("logos", [])
-    logo_url = logos[0]["href"] if logos else ""
-    return {
-        "id":         t["id"],
-        "name":       t.get("displayName", t.get("name", "")),
-        "nickname":   t.get("name", ""),
-        "shortName":  t.get("shortDisplayName", ""),
-        "abbrev":     t.get("abbreviation", ""),
-        "city":       t.get("location", ""),
-        "logo":       logo_url,
-        "division":   division,
-        "conference": conference,
-    }
+
+# -- Standings fetch (internal) -------------------------------------------
+
+def _fetch_standings_entries(season: int = NBA_SEASON) -> list:
+    payload = _request_json("nba-league-standings", {"year": season})
+    return payload.get("response", {}).get("standings", {}).get("entries", [])
+
+def _entry_stats(entry: dict) -> dict:
+    return {s["name"]: s.get("value", 0) for s in entry.get("stats", [])}
+
+def _entry_display_stats(entry: dict) -> dict:
+    return {s["name"]: s.get("displayValue", "") for s in entry.get("stats", [])}
+
+def _team_from_entry(entry: dict, division: str = "", conference: str = "") -> dict:
+    t = entry["team"]
+    logos = t.get("logos", [])
+    logo_url = logos[0]["href"] if logos else ""
+    return {
+        "id":         t["id"],
+        "name":       t.get("displayName", t.get("name", "")),
+        "nickname":   t.get("name", ""),
+        "shortName":  t.get("shortDisplayName", ""),
+        "abbrev":     t.get("abbreviation", ""),
+        "city":       t.get("location", ""),
+        "logo":       logo_url,
+        "division":   division,
+        "conference": conference,
+    }
 
 # -- Teams (live) -----------------------------------------------------------
 

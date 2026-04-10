@@ -116,6 +116,16 @@
     <form method="POST" action="/select" style="display:inline">
       <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
       <input type="hidden" name="team_b" value="{{ f.teams.away.id }}" />
+      <input type="hidden" name="team_a_name" value="{{ f.teams.home.name }}" />
+      <input type="hidden" name="team_a_logo" value="{{ f.teams.home.logo }}" />
+      <input type="hidden" name="team_b_name" value="{{ f.teams.away.name }}" />
+      <input type="hidden" name="team_b_logo" value="{{ f.teams.away.logo }}" />
+      <input type="hidden" name="fixture_id" value="{{ f.fixture.id }}" />
+      <input type="hidden" name="fixture_date" value="{{ f.fixture.date }}" />
+      <input type="hidden" name="league_name" value="{{ f.league.name if f.league else '' }}" />
+      <input type="hidden" name="round" value="{{ f.league.round if f.league else '' }}" />
+      <input type="hidden" name="venue_name" value="{{ f.fixture.venue.name if f.fixture.venue else '' }}" />
+      <input type="hidden" name="data_source" value="{{ data_source }}" />
       <button type="submit" class="btn btn-primary btn-sm btn-glow">Full Analysis →</button>
     </form>
   </div>

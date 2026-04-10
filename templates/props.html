@@ -1,0 +1,958 @@
+{% extends "base.html" %}
+
+{% block title %}Prop Bet Builder — {% endblock %}
+
+{% block head %}
+{% if sport == "nba" %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nba/nba.css') }}" />
+{% endif %}
+<style>
+  /* ── Props page layout ────────────────────────────────────────────── */
+  .props-page { max-width: 960px; margin: 0 auto; padding-bottom: 3rem; }
+
+  .props-header {
+    background: var(--card-bg, #1a1a2e);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+  }
+  .props-header h1 { font-size: 1.4rem; font-weight: 700; margin: 0; }
+  .props-header .subtitle { color: rgba(255,255,255,.55); font-size: .88rem; }
+  .league-pills { display:flex; flex-wrap:wrap; gap:.45rem; margin:1rem 0 0; }
+  .league-pill {
+    padding:.28rem .7rem;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.04);
+    font-size:.78rem;
+    color:rgba(255,255,255,.72);
+  }
+  .selected-player-meta { margin-top:.7rem; font-size:.85rem; color:rgba(255,255,255,.7); }
+  .position-badge-inline {
+    display:inline-flex;
+    align-items:center;
+    padding:.2rem .55rem;
+    border-radius:999px;
+    background:rgba(0,255,135,.12);
+    color:#00ff87;
+    font-weight:700;
+    margin-left:.45rem;
+  }
+  .loading-progress {
+    margin-top:1rem;
+    height:8px;
+    border-radius:999px;
+    overflow:hidden;
+    background:rgba(255,255,255,.08);
+  }
+  .loading-progress-bar {
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg, #00ff87, #00b4ff);
+    transition:width .25s ease;
+  }
+
+  /* ── Builder controls ─────────────────────────────────────────────── */
+  .props-controls {
+    background: var(--card-bg, #1a1a2e);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .props-controls h2 { font-size: 1rem; font-weight: 600; margin: 0 0 1rem; }
+  .controls-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: .75rem;
+    margin-bottom: 1rem;
+  }
+  .ctrl-group label {
+    display: block;
+    font-size: .78rem;
+    color: rgba(255,255,255,.55);
+    margin-bottom: .3rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .ctrl-group select,
+  .ctrl-group input[type="text"],
+  .ctrl-group input[type="number"] {
+    width: 100%;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 6px;
+    color: #fff;
+    padding: .42rem .7rem;
+    font-size: .88rem;
+  }
+  .market-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-bottom: 1rem;
+  }
+  .market-cb {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 6px;
+    padding: .3rem .65rem;
+    cursor: pointer;
+    font-size: .83rem;
+    transition: background .15s, border-color .15s;
+  }
+  .market-cb input[type="checkbox"]:checked + span { color: #60a5fa; }
+  .market-cb:has(input:checked) { background: rgba(96,165,250,.12); border-color: rgba(96,165,250,.4); }
+
+  .btn-generate {
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: .6rem 1.4rem;
+    font-size: .93rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  .btn-generate:hover { opacity: .88; }
+  .btn-generate:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── Spinner ──────────────────────────────────────────────────────── */
+  .spinner {
+    display: none;
+    width: 22px; height: 22px;
+    border: 3px solid rgba(255,255,255,.2);
+    border-top-color: #60a5fa;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    margin-left: .75rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Prop cards area ──────────────────────────────────────────────── */
+  #props-output { display: none; }
+  #props-output.visible { display: block; }
+
+  .props-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+
+  /* ── Individual prop card ─────────────────────────────────────────── */
+  .prop-card {
+    background: var(--card-bg, #1a1a2e);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .prop-card:hover { border-color: rgba(96,165,250,.35); }
+  .prop-card.border-over { border-color: rgba(0,255,135,.45); }
+  .prop-card.border-under { border-color: rgba(255,71,87,.45); }
+  .prop-card.border-push { border-color: rgba(245,158,11,.45); }
+
+  .prop-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: .85rem 1.1rem;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+    background: rgba(255,255,255,.03);
+  }
+  .prop-card-header .player-info { font-weight: 700; font-size: .97rem; }
+  .prop-card-header .market-info { font-size: .78rem; color: rgba(255,255,255,.55); margin-top: .1rem; }
+
+  .lean-badge {
+    padding: .25rem .65rem;
+    border-radius: 20px;
+    font-size: .82rem;
+    font-weight: 700;
+    letter-spacing: .05em;
+  }
+  .lean-over   { background: rgba(34,197,94,.18);  color: #22c55e; }
+  .lean-under  { background: rgba(239,68,68,.18);  color: #ef4444; }
+  .lean-push   { background: rgba(107,114,128,.18);color: #9ca3af; }
+
+  .prop-body { padding: 1rem 1.1rem; }
+
+  .section-title {
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: rgba(255,255,255,.45);
+    margin: .9rem 0 .5rem;
+    font-weight: 600;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  /* ── Stats table ──────────────────────────────────────────────────── */
+  .stats-table { width: 100%; border-collapse: collapse; }
+  .stats-table td {
+    padding: .28rem 0;
+    font-size: .84rem;
+    line-height: 1.4;
+  }
+  .stats-table td:first-child { color: rgba(255,255,255,.55); width: 55%; }
+  .stats-table td:last-child  { text-align: right; font-weight: 500; }
+  .stat-hot   { color: #f59e0b; }
+  .stat-cold  { color: #60a5fa; }
+  .stat-good  { color: #22c55e; }
+
+  /* ── Hit-rate bar ─────────────────────────────────────────────────── */
+  .hit-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin-top: .2rem;
+  }
+  .hit-bar {
+    flex: 1;
+    height: 7px;
+    background: rgba(255,255,255,.08);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .hit-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+    transition: width .5s ease;
+  }
+  .hit-bar-label { font-size: .78rem; color: rgba(255,255,255,.55); min-width: 40px; text-align: right; }
+
+  /* ── Modifier chips ───────────────────────────────────────────────── */
+  .modifiers-list { list-style: none; margin: 0; padding: 0; }
+  .modifier-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: .26rem 0;
+    font-size: .83rem;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .modifier-item:last-child { border-bottom: none; }
+  .modifier-name { color: rgba(255,255,255,.65); }
+  .modifier-val  { font-weight: 600; }
+  .mod-boost { color: #22c55e; }
+  .mod-drag  { color: #f87171; }
+  .mod-neut  { color: #9ca3af; }
+
+  /* ── Final projection box ─────────────────────────────────────────── */
+  .projection-box {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 8px;
+    padding: .75rem 1rem;
+    margin-top: .75rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .5rem;
+  }
+  .proj-item-label { font-size: .74rem; color: rgba(255,255,255,.45); text-transform: uppercase; letter-spacing: .05em; }
+  .proj-item-value { font-size: 1.05rem; font-weight: 700; }
+  .proj-lean-over  { color: #22c55e; }
+  .proj-lean-under { color: #f87171; }
+  .proj-lean-push  { color: #9ca3af; }
+
+  /* ── Confidence bar ───────────────────────────────────────────────── */
+  .confidence-section {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-top: .75rem;
+    padding-top: .75rem;
+    border-top: 1px solid rgba(255,255,255,.06);
+  }
+  .conf-score {
+    font-size: 1.4rem;
+    font-weight: 800;
+    min-width: 48px;
+  }
+  .conf-bar-wrap { flex: 1; }
+  .conf-label { font-size: .83rem; font-weight: 600; margin-bottom: .3rem; }
+  .conf-bar {
+    height: 8px;
+    background: rgba(255,255,255,.08);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .conf-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width .6s ease;
+  }
+  .conf-fill-elite    { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+  .conf-fill-strong   { background: linear-gradient(90deg, #22c55e, #16a34a); }
+  .conf-fill-moderate { background: linear-gradient(90deg, #60a5fa, #2563eb); }
+  .conf-fill-lean     { background: linear-gradient(90deg, #f59e0b, #d97706); }
+  .conf-fill-poor     { background: linear-gradient(90deg, #4b5563, #374151); }
+
+  .conf-components {
+    display: flex;
+    gap: .35rem;
+    margin-top: .4rem;
+    flex-wrap: wrap;
+  }
+  .conf-comp {
+    background: rgba(255,255,255,.05);
+    border-radius: 4px;
+    padding: .2rem .45rem;
+    font-size: .72rem;
+    color: rgba(255,255,255,.5);
+  }
+
+  /* ── Bet Slip ─────────────────────────────────────────────────────── */
+  .bet-slip {
+    background: var(--card-bg, #1a1a2e);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    margin-top: 1.5rem;
+  }
+  .bet-slip-title {
+    font-size: .92rem;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    color: rgba(255,255,255,.75);
+    text-align: center;
+  }
+  .bet-slip-divider { border: none; border-top: 1px solid rgba(255,255,255,.1); margin: .65rem 0; }
+
+  .slip-pick {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: .35rem 0;
+    font-size: .88rem;
+  }
+  .slip-pick-info { flex: 1; }
+  .slip-pick-conf {
+    font-size: .82rem;
+    font-weight: 700;
+    padding: .18rem .55rem;
+    border-radius: 5px;
+  }
+  .slip-conf-elite   { background: rgba(245,158,11,.15); color: #f59e0b; }
+  .slip-conf-strong  { background: rgba(34,197,94,.15);  color: #22c55e; }
+  .slip-conf-moderate{ background: rgba(96,165,250,.15); color: #60a5fa; }
+  .slip-conf-lean    { background: rgba(245,158,11,.12); color: #d97706; }
+  .slip-conf-poor    { background: rgba(107,114,128,.12);color: #6b7280; }
+
+  .slip-footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .5rem;
+    margin-top: .75rem;
+  }
+  .slip-footer-item { font-size: .84rem; }
+  .slip-footer-item .key { color: rgba(255,255,255,.45); font-size: .75rem; }
+  .slip-footer-item .val { font-weight: 600; }
+
+  .parlay-banner {
+    margin-top: .75rem;
+    padding: .55rem .9rem;
+    border-radius: 7px;
+    font-size: .85rem;
+    text-align: center;
+    font-weight: 500;
+  }
+  .parlay-low    { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.3);  color: #22c55e; }
+  .parlay-medium { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); color: #f59e0b; }
+  .parlay-high   { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.3);  color: #ef4444; }
+
+  /* ── Error state ──────────────────────────────────────────────────── */
+  .props-error {
+    background: rgba(239,68,68,.08);
+    border: 1px solid rgba(239,68,68,.3);
+    border-radius: 8px;
+    padding: .75rem 1rem;
+    color: #fca5a5;
+    font-size: .88rem;
+    margin-bottom: 1rem;
+  }
+
+  /* ── Probability cards (DD/TD/MOTM) ──────────────────────────────── */
+  .prob-card-value {
+    font-size: 2.5rem;
+    font-weight: 800;
+    text-align: center;
+    padding: .75rem 0;
+  }
+  .prob-note { font-size: .78rem; color: rgba(255,255,255,.4); text-align: center; margin-top: .25rem; }
+
+  @media (max-width: 600px) {
+    .props-grid { grid-template-columns: 1fr; }
+    .slip-footer { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="props-page">
+
+  <!-- ── Page header ───────────────────────────────────────────────────────── -->
+  <div class="props-header">
+    <div>
+      <h1>
+        {% if sport == "nba" %}🏀{% else %}⚽{% endif %}
+        Prop Bet Builder
+      </h1>
+      {% if team_a and team_b %}
+      <div class="subtitle">
+        {{ team_a.name }} vs {{ team_b.name }}
+        &nbsp;·&nbsp;
+        {% if sport == "nba" %}NBA{% else %}Football{% endif %}
+      </div>
+      {% if sport != "nba" and supported_leagues %}
+      <div class="league-pills">
+        {% for league in supported_leagues %}
+        <span class="league-pill">{{ league.name }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="subtitle">Select a matchup first to get player-specific props</div>
+      {% endif %}
+    </div>
+    <div style="margin-left:auto; display:flex; gap:.6rem; flex-wrap:wrap; align-items:center;">
+      {% if sport == "nba" %}
+        <a href="{{ url_for('nba.prediction') }}" class="btn-generate" style="text-decoration:none; font-size:.83rem; padding:.4rem .9rem;">← Prediction</a>
+      {% else %}
+        <a href="{{ url_for('prediction') }}" class="btn-generate" style="text-decoration:none; font-size:.83rem; padding:.4rem .9rem;">← Prediction</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Builder controls ──────────────────────────────────────────────────── -->
+  {% if sport != "nba" and supported_leagues and not (team_a and team_b) %}
+  <div class="league-pills" style="margin-bottom:1.25rem;">
+    {% for league in supported_leagues %}
+    <span class="league-pill">{{ league.name }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="props-controls">
+    <h2>Build a Prop Card</h2>
+
+    <div class="controls-grid">
+      <div class="ctrl-group">
+        <label>Player (Team A)</label>
+        <select id="player-select">
+          <option value="">— Select player —</option>
+          {% for p in (squad_a or []) %}
+          <option
+            value="{{ p.player.id if p.player else p.id }}"
+            data-name="{{ p.player.name if p.player else (p.displayName or p.firstname ~ ' ' ~ p.lastname) }}"
+            data-team="{{ team_a.id if team_a else '' }}"
+            data-opp="{{ team_b.id if team_b else '' }}"
+            data-home="true"
+            data-pos="{{ p.player.pos if p.player else (p.position or (p.leagues.standard.pos if p.leagues else '')) }}"
+          >
+            {{ p.player.name if p.player else (p.displayName or p.firstname ~ ' ' ~ p.lastname) }}
+            {% if p.player %}({{ p.player.pos or '' }}){% else %}({{ p.leagues.standard.pos if p.leagues else '' }}){% endif %}
+          </option>
+          {% endfor %}
+          {% for p in (squad_b or []) %}
+          <option
+            value="{{ p.player.id if p.player else p.id }}"
+            data-name="{{ p.player.name if p.player else (p.displayName or p.firstname ~ ' ' ~ p.lastname) }}"
+            data-team="{{ team_b.id if team_b else '' }}"
+            data-opp="{{ team_a.id if team_a else '' }}"
+            data-home="false"
+            data-pos="{{ p.player.pos if p.player else (p.position or (p.leagues.standard.pos if p.leagues else '')) }}"
+          >
+            {{ p.player.name if p.player else (p.displayName or p.firstname ~ ' ' ~ p.lastname) }}
+            {% if p.player %}({{ p.player.pos or '' }}){% else %}({{ p.leagues.standard.pos if p.leagues else '' }}){% endif %}
+            [{{ team_b.name if team_b else '' }}]
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div id="selected-player-meta" class="selected-player-meta">Choose a player to see team and position context.</div>
+
+    <!-- Market checkboxes -->
+    <div style="margin-bottom:.6rem; font-size:.78rem; color:rgba(255,255,255,.45); text-transform:uppercase; letter-spacing:.05em; font-weight:600;">Select Markets</div>
+    <div class="market-checkboxes" id="market-checkboxes">
+      {% if sport == "nba" %}
+        {% set mlist = [("points","Points"),("rebounds","Rebounds"),("assists","Assists"),
+                        ("tpm","3-Pointers"),("steals","Steals"),("blocks","Blocks"),
+                        ("turnovers","Turnovers"),("pra","PRA"),
+                        ("double_double","Double-Double"),("triple_double","Triple-Double")] %}
+      {% else %}
+        {% set mlist = [("goals","Goals"),("assists","Assists"),
+                        ("shots_on_target","Shots on Target"),("key_passes","Key Passes"),
+                        ("dribbles","Dribbles"),("tackles","Tackles"),
+                        ("yellow_cards","Yellow Cards"),("minutes","Minutes"),("motm","MoM %")] %}
+      {% endif %}
+      {% for key, lbl in mlist %}
+      <label class="market-cb">
+        <input type="checkbox" name="market" value="{{ key }}"
+          {% if key in ("points","rebounds","assists","pra","goals","assists","shots_on_target","key_passes") %}checked{% endif %}>
+        <span>{{ lbl }}</span>
+      </label>
+      {% endfor %}
+    </div>
+
+    <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
+      <button class="btn-generate" id="btn-generate" onclick="buildProps()">
+        Generate Props
+      </button>
+      <div class="spinner" id="spinner"></div>
+      <span id="gen-status" style="font-size:.84rem; color:rgba(255,255,255,.45);"></span>
+    </div>
+    <div class="loading-progress"><div id="loading-progress-bar" class="loading-progress-bar"></div></div>
+  </div>
+
+  <!-- ── Props output area ─────────────────────────────────────────────────── -->
+  <div id="props-output">
+    <div id="props-errors"></div>
+    <div id="props-cards" class="props-grid"></div>
+    <div id="bet-slip-container"></div>
+    <div id="persistent-slip-container"></div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SPORT = "{{ sport }}";
+const LEAGUE = 39; // PL default (soccer)
+const SLIP_KEY = "scorpred_mixed_slip_v1";
+
+function setProgress(percent, text) {
+  const bar = document.getElementById("loading-progress-bar");
+  const status = document.getElementById("gen-status");
+  if (bar) bar.style.width = `${percent}%`;
+  if (status) status.textContent = text || "";
+}
+
+function updateSelectedPlayerMeta() {
+  const playerSel = document.getElementById("player-select");
+  const opt = playerSel.selectedOptions[0];
+  const meta = document.getElementById("selected-player-meta");
+  if (!meta || !opt || !opt.value) {
+    if (meta) meta.textContent = "Choose a player to see team and position context.";
+    return;
+  }
+  const pos = opt.dataset.pos || "Unknown";
+  meta.innerHTML = `Selected: <strong>${opt.dataset.name || opt.text}</strong><span class="position-badge-inline">${pos}</span>`;
+}
+
+async function buildProps() {
+  const playerSel = document.getElementById("player-select");
+  const opt = playerSel.selectedOptions[0];
+  if (!opt || !opt.value) {
+    alert("Please select a player first.");
+    return;
+  }
+
+  const playerId   = opt.value;
+  const playerName = opt.dataset.name || opt.text;
+  const teamId     = opt.dataset.team;
+  const oppId      = opt.dataset.opp;
+  const isHome     = opt.dataset.home !== "false";
+  const playerPos  = opt.dataset.pos || "";
+
+  // Resolve opponent name from team_b/team_a selects
+  const oppName = isHome
+    ? ("{{ team_b.name if team_b else 'Opponent' }}")
+    : ("{{ team_a.name if team_a else 'Opponent' }}");
+
+  const markets = Array.from(document.querySelectorAll("input[name='market']:checked"))
+    .map(cb => cb.value).join(",");
+
+  if (!markets) { alert("Select at least one market."); return; }
+
+  const endpoint = SPORT === "nba" ? "/nba/props/generate" : "/props/generate";
+  const params = new URLSearchParams({
+    player_id:       playerId,
+    player_name:     playerName,
+    player_team_id:  teamId,
+    opponent_id:     oppId,
+    opponent_name:   oppName,
+    is_home:         isHome ? "true" : "false",
+    markets:         markets,
+    league:          LEAGUE,
+    player_position: playerPos,
+  });
+
+  const btn = document.getElementById("btn-generate");
+  const spinner = document.getElementById("spinner");
+  const status  = document.getElementById("gen-status");
+
+  btn.disabled = true;
+  spinner.style.display = "inline-block";
+  setProgress(18, "Fetching statistical data...");
+
+  try {
+    setProgress(45, "Building prop model...");
+    const resp = await fetch(`${endpoint}?${params}`);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Server error");
+    setProgress(100, "Prop cards ready");
+    renderProps(data);
+  } catch (err) {
+    document.getElementById("props-errors").innerHTML =
+      `<div class="props-error">⚠ ${err.message}</div>`;
+    document.getElementById("props-output").classList.add("visible");
+  } finally {
+    btn.disabled = false;
+    spinner.style.display = "none";
+    setTimeout(() => setProgress(0, ""), 600);
+  }
+}
+
+function renderProps(data) {
+  const output = document.getElementById("props-output");
+  const errDiv = document.getElementById("props-errors");
+  const cards  = document.getElementById("props-cards");
+  const slip   = document.getElementById("bet-slip-container");
+
+  errDiv.innerHTML = "";
+  cards.innerHTML  = "";
+  slip.innerHTML   = "";
+
+  // Errors
+  if (data.errors && data.errors.length) {
+    errDiv.innerHTML = data.errors.map(e =>
+      `<div class="props-error">⚠ ${e}</div>`
+    ).join("");
+  }
+
+  // Prop cards
+  (data.props || []).forEach(prop => {
+    cards.appendChild(buildCard(prop, data.player, data.opponent));
+  });
+
+  // Bet slip
+  if (data.bet_slip && (data.bet_slip.picks || []).length) {
+    slip.appendChild(buildSlip(data.bet_slip));
+  }
+
+  renderPersistentSlip();
+  output.classList.add("visible");
+  output.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function buildCard(prop, player, opp) {
+  const el = document.createElement("div");
+  el.className = "prop-card";
+
+  if (prop.type === "probability") {
+    const prob = prop.probability || {};
+    const pct  = prob.probability != null ? prob.probability + "%" : "N/A";
+    el.innerHTML = `
+      <div class="prop-card-header">
+        <div>
+          <div class="player-info">${player.name}</div>
+          <div class="market-info">${prop.market_label} · vs ${opp.name}</div>
+        </div>
+      </div>
+      <div class="prop-body">
+        <div class="prob-card-value">${pct}</div>
+        <div class="prob-note">${prob.method || ""} · ${prob.sample ? `Sample: ${prob.sample} games` : ""}</div>
+        ${prob.risk_note ? `<div class="props-error" style="margin-top:.6rem;">${prob.risk_note}</div>` : ""}
+        <div class="section-title">Confidence</div>
+        ${renderConfBadge(prop.confidence)}
+      </div>`;
+    return el;
+  }
+
+  const layers  = prop.layers  || {};
+  const vrn     = prop.variance || {};
+  const mods    = prop.modifiers || [];
+  const proj    = prop.projection || {};
+  const conf    = prop.confidence || {};
+
+  const lean        = proj.lean || "PUSH";
+  const leanClass   = lean === "OVER" ? "lean-over" : lean === "UNDER" ? "lean-under" : "lean-push";
+  const borderClass = lean === "OVER" ? "border-over" : lean === "UNDER" ? "border-under" : "border-push";
+  const projClass   = lean === "OVER" ? "proj-lean-over" : lean === "UNDER" ? "proj-lean-under" : "proj-lean-push";
+  const hitPct      = vrn.hit_rate_pct != null ? vrn.hit_rate_pct : 0;
+  const hitFill     = Math.min(hitPct, 100);
+  const confScore   = conf.score || 0;
+  const confFillCls = confScore >= 80 ? "conf-fill-elite" : confScore >= 65 ? "conf-fill-strong" :
+                      confScore >= 50 ? "conf-fill-moderate" : confScore >= 35 ? "conf-fill-lean" : "conf-fill-poor";
+  const trendLbl    = layers.trend_label ? `<span class="stat-hot">${layers.trend_label}</span>` : "";
+
+  // Modifier rows
+  const modRows = mods.map(m => {
+    const mult  = m.multiplier || 1;
+    const cls   = mult > 1.01 ? "mod-boost" : mult < 0.99 ? "mod-drag" : "mod-neut";
+    const sign  = m.raw_value >= 0 ? "+" : "";
+    const rv    = m.raw_value != null ? `${sign}${m.raw_value}` : "";
+    return `<li class="modifier-item">
+      <span class="modifier-name">${m.name}</span>
+      <span class="modifier-val ${cls}">${rv} <small style="opacity:.6;">${m.label || ""}</small></span>
+    </li>`;
+  }).join("");
+
+  // Confidence components
+  const compCells = Object.entries(conf.components || {}).map(([k, v]) =>
+    `<span class="conf-comp">${k.replace("_", " ")}: ${v}/20</span>`
+  ).join("");
+
+  el.classList.add(borderClass);
+  el.innerHTML = `
+    <div class="prop-card-header">
+      <div>
+        <div class="player-info">${player.name} — ${prop.market_label}</div>
+        <div class="market-info">vs ${opp.name}</div>
+      </div>
+      <span class="lean-badge ${leanClass}">${lean} ${proj.suggested_line != null ? proj.suggested_line : ""}</span>
+    </div>
+    <div class="prop-body">
+
+      <div class="section-title">Statistical Breakdown</div>
+      <table class="stats-table">
+        <tr><td>Season average</td><td>${fmt(layers.season_avg)} ${layers.per_90 ? "<small>(per 90)</small>" : ""}</td></tr>
+        <tr><td>Last 5 games avg</td><td>${fmt(layers.last5_avg)} ${trendLbl}</td></tr>
+        <tr><td>Last 10 games avg</td><td>${fmt(layers.last10_avg)}</td></tr>
+        <tr><td>vs ${opp.name} career avg</td><td>${fmt(layers.vs_opponent_avg)} <small style="opacity:.55;">(${layers.vs_opponent_games || 0} games)</small></td></tr>
+        <tr><td>${layers.ha_label || "Home/Away avg"}</td><td>${fmt(layers.active_ha_avg)}</td></tr>
+        <tr><td>Weighted rolling avg</td><td><strong>${fmt(layers.rolling_avg)}</strong></td></tr>
+      </table>
+
+      <div class="section-title">Variance Analysis</div>
+      <table class="stats-table">
+        <tr><td>Std deviation</td><td>${fmt(vrn.std_dev)} <small style="opacity:.55;">(${fmt(vrn.std_dev_pct)}% — ${vrn.consistency_label || ""})</small></td></tr>
+        <tr>
+          <td>Hit rate (last ${vrn.sample_games || 10})</td>
+          <td>
+            <div class="hit-bar-wrap">
+              <div class="hit-bar"><div class="hit-bar-fill" style="width:${hitFill}%"></div></div>
+              <span class="hit-bar-label">${vrn.hit_count || 0}/${vrn.sample_games || 0} &nbsp; ${hitPct}%</span>
+            </div>
+          </td>
+        </tr>
+        <tr><td>Ceiling / Floor</td><td>${fmt(vrn.ceiling)} / ${fmt(vrn.floor)}</td></tr>
+        <tr><td>Boom rate</td><td>${fmt(vrn.boom_rate_pct)}%</td></tr>
+        <tr><td>Bust rate</td><td>${fmt(vrn.bust_rate_pct)}%</td></tr>
+      </table>
+
+      <div class="section-title">Contextual Modifiers</div>
+      <ul class="modifiers-list">${modRows}</ul>
+
+      <div class="section-title">Final Projection</div>
+      <div class="projection-box">
+        <div>
+          <div class="proj-item-label">Base proj.</div>
+          <div class="proj-item-value">${fmt(proj.base)}</div>
+        </div>
+        <div>
+          <div class="proj-item-label">Adjusted</div>
+          <div class="proj-item-value">${fmt(proj.adjusted)}</div>
+        </div>
+        <div>
+          <div class="proj-item-label">Suggested line</div>
+          <div class="proj-item-value">${proj.suggested_line != null ? proj.suggested_line : "—"}</div>
+        </div>
+        <div>
+          <div class="proj-item-label">Lean</div>
+          <div class="proj-item-value ${projClass}">${lean} ${proj.lean_margin_pct != null ? `(${proj.lean_margin_pct > 0 ? "+" : ""}${proj.lean_margin_pct}%)` : ""}</div>
+        </div>
+      </div>
+
+      <div class="confidence-section">
+        <div class="conf-score" style="${scoreColor(confScore)}">${confScore}</div>
+        <div class="conf-bar-wrap">
+          <div class="conf-label">${conf.label || ""}</div>
+          <div class="conf-bar"><div class="conf-bar-fill ${confFillCls}" style="width:${confScore}%"></div></div>
+          <div class="conf-components">${compCells}</div>
+        </div>
+      </div>
+
+      <div style="margin-top:.85rem;">
+        <button class="btn-generate" data-add-slip="true" style="width:100%; padding:.55rem .9rem; font-size:.84rem;">Add To Mixed Slip</button>
+      </div>
+
+    </div>`;
+  const addBtn = el.querySelector("[data-add-slip]");
+  if (addBtn) {
+    addBtn.addEventListener("click", () => addToPersistentSlip(prop, player, opp));
+  }
+  el.querySelector("[data-copy-slip]")?.addEventListener("click", () => copySlipText(el.innerText));
+  return el;
+}
+
+function buildSlip(slip) {
+  const el = document.createElement("div");
+  el.className = "bet-slip gradient-border";
+
+  const pickRows = (slip.picks || []).map(p => {
+    const cls = slipConfClass(p.confidence);
+    return `<div class="slip-pick">
+      <div class="slip-pick-info">
+        ${p.label} <strong>${p.player}</strong> — ${p.market}
+        <strong>${p.lean} ${p.line != null ? p.line : ""}</strong>
+      </div>
+      <span class="slip-pick-conf ${cls}">${p.confidence}%</span>
+    </div>`;
+  }).join('<hr class="bet-slip-divider">');
+
+  const riskCls = (slip.parlay_risk || "").toUpperCase() === "LOW"    ? "parlay-low"    :
+                  (slip.parlay_risk || "").toUpperCase() === "MEDIUM"  ? "parlay-medium" : "parlay-high";
+
+  el.innerHTML = `
+    <div class="bet-slip-title">ScorPred Prop Bet Slip <button class="btn-generate" data-copy-slip style="padding:.3rem .7rem; font-size:.75rem; margin-left:.6rem;">Copy</button></div>
+    <hr class="bet-slip-divider">
+    ${pickRows}
+    <hr class="bet-slip-divider">
+    <div class="slip-footer">
+      <div class="slip-footer-item">
+        <div class="key">Slip Confidence</div>
+        <div class="val">${slip.slip_confidence}% ${slip.stars || ""}</div>
+      </div>
+      <div class="slip-footer-item">
+        <div class="key">Best Single Bet</div>
+        <div class="val" style="font-size:.8rem;">${slip.best_single || "—"}</div>
+      </div>
+    </div>
+    <div class="parlay-banner ${riskCls}">
+      ${slip.parlay_advice || ""}
+    </div>`;
+  return el;
+}
+
+function renderConfBadge(conf) {
+  if (!conf) return "";
+  const score = conf.score || 0;
+  const cls   = score >= 80 ? "conf-fill-elite" : score >= 65 ? "conf-fill-strong" :
+                score >= 50 ? "conf-fill-moderate" : score >= 35 ? "conf-fill-lean" : "conf-fill-poor";
+  return `
+    <div class="confidence-section">
+      <div class="conf-score" style="${scoreColor(score)}">${score}</div>
+      <div class="conf-bar-wrap">
+        <div class="conf-label">${conf.label || ""}</div>
+        <div class="conf-bar"><div class="conf-bar-fill ${cls}" style="width:${score}%"></div></div>
+      </div>
+    </div>`;
+}
+
+function fmt(v) {
+  if (v == null) return "<span style='opacity:.3'>—</span>";
+  return parseFloat(v).toFixed(1);
+}
+
+function scoreColor(score) {
+  if (score >= 80) return "color:#f59e0b;";
+  if (score >= 65) return "color:#22c55e;";
+  if (score >= 50) return "color:#60a5fa;";
+  if (score >= 35) return "color:#f59e0b;";
+  return "color:#6b7280;";
+}
+
+function slipConfClass(c) {
+  if (c >= 80) return "slip-conf-elite";
+  if (c >= 65) return "slip-conf-strong";
+  if (c >= 50) return "slip-conf-moderate";
+  if (c >= 35) return "slip-conf-lean";
+  return "slip-conf-poor";
+}
+
+function readPersistentSlip() {
+  try { return JSON.parse(localStorage.getItem(SLIP_KEY) || "[]"); }
+  catch { return []; }
+}
+
+function writePersistentSlip(picks) {
+  localStorage.setItem(SLIP_KEY, JSON.stringify(picks));
+}
+
+function copySlipText(text) {
+  navigator.clipboard.writeText(text).catch(() => {});
+}
+
+function addToPersistentSlip(prop, player, opp) {
+  if (!prop || !prop.projection) return;
+  const picks = readPersistentSlip();
+  picks.push({
+    sport: SPORT === "nba" ? "nba" : "soccer",
+    player: player.name,
+    market: prop.market_label,
+    lean: prop.projection.lean,
+    line: prop.projection.suggested_line,
+    confidence: (prop.confidence || {}).score || 0,
+    label: (prop.confidence || {}).label || "",
+    scope_label: SPORT === "nba" ? "NBA Regular Season" : (prop.fixture_context || {}).scope_label || "Football",
+  });
+  writePersistentSlip(picks);
+  renderPersistentSlip();
+}
+
+function renderPersistentSlip() {
+  const picks = readPersistentSlip();
+  const container = document.getElementById("persistent-slip-container");
+  if (!container) return;
+  if (!picks.length) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const football = picks.filter(p => p.sport === "soccer");
+  const nba = picks.filter(p => p.sport === "nba");
+  const footballAvg = football.length ? (football.reduce((sum, pick) => sum + pick.confidence, 0) / football.length).toFixed(1) : "0.0";
+  const nbaAvg = nba.length ? (nba.reduce((sum, pick) => sum + pick.confidence, 0) / nba.length).toFixed(1) : "0.0";
+  const overall = (picks.reduce((sum, pick) => sum + pick.confidence, 0) / picks.length).toFixed(1);
+  const warning = nba.length && Number(overall) < 65
+    ? "Parlay not recommended - NBA pick lowers combined confidence below 65%"
+    : "";
+
+  const rows = picks.map((pick, index) => `
+    <div class="slip-pick">
+      <div class="slip-pick-info">
+        ${pick.sport === "soccer" ? "⚽" : "🏀"} ${pick.player} — ${pick.market}
+        <strong>${pick.lean} ${pick.line != null ? pick.line : ""}</strong>
+        <div style="font-size:.78rem; color:rgba(255,255,255,.5); margin-top:.18rem;">${pick.scope_label || ""} · ${pick.confidence}% ${pick.label || ""}</div>
+      </div>
+      <button class="btn-generate" data-remove-slip="${index}" style="padding:.35rem .6rem; font-size:.78rem;">Remove</button>
+    </div>
+  `).join('<hr class="bet-slip-divider">');
+
+  container.innerHTML = `
+    <div class="bet-slip gradient-border" style="margin-top:1.2rem;">
+      <div class="bet-slip-title">Mixed Prop Bet Slip <button class="btn-generate" id="copy-persistent-slip" style="padding:.3rem .7rem; font-size:.75rem; margin-left:.6rem;">Copy</button></div>
+      <hr class="bet-slip-divider">
+      ${rows}
+      <hr class="bet-slip-divider">
+      <div class="slip-footer">
+        <div class="slip-footer-item"><div class="key">Football Avg</div><div class="val">${footballAvg}%</div></div>
+        <div class="slip-footer-item"><div class="key">NBA Avg</div><div class="val">${nbaAvg}%</div></div>
+        <div class="slip-footer-item"><div class="key">Overall</div><div class="val">${overall}%</div></div>
+        <div class="slip-footer-item"><div class="key">Stars</div><div class="val">${Number(overall) >= 65 ? "⭐⭐⭐" : Number(overall) >= 50 ? "⭐⭐" : "⭐"}</div></div>
+      </div>
+      ${warning ? `<div class="parlay-banner parlay-high">${warning}</div>` : ""}
+    </div>`;
+
+  container.querySelectorAll("[data-remove-slip]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const next = readPersistentSlip();
+      next.splice(Number(btn.dataset.removeSlip), 1);
+      writePersistentSlip(next);
+      renderPersistentSlip();
+    });
+  });
+  document.getElementById("copy-persistent-slip")?.addEventListener("click", () => copySlipText(container.innerText));
+}
+
+document.getElementById("player-select")?.addEventListener("change", updateSelectedPlayerMeta);
+updateSelectedPlayerMeta();
+window.addEventListener("load", renderPersistentSlip);
+</script>
+{% endblock %}

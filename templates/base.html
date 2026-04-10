@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}ScorPred{% endblock %}ScorPred</title>
+  <title>{% block title %}ScorPred{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <!-- Tailwind (loaded first so our CSS overrides its preflight) -->
@@ -17,25 +17,26 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Particles.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/particles.js/2.0.0/particles.min.js"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
 
   <nav class="navbar">
     <a href="/" class="nav-brand">
-      <span class="brand-icon">⚽</span>
+      <span class="brand-icon">SP</span>
       <span>ScorPred</span>
     </a>
     <div class="nav-links">
-      <a href="/" class="{% if request.path == '/' %}active{% endif %}">Teams</a>
-      <a href="/fixtures" class="{% if request.path == '/fixtures' %}active{% endif %}">Fixtures</a>
-      <a href="/worldcup" class="{% if request.path == '/worldcup' %}active{% endif %}">World Cup</a>
+      <a href="/" class="{% if not request.path.startswith('/nba') and request.path not in ['/props'] %}active{% endif %}">Home</a>
+      <a href="/nba/" class="{% if request.path.startswith('/nba') %}active{% endif %}">NBA</a>
+      <a href="/props" class="{% if request.path == '/props' or request.path.startswith('/props/') %}active{% endif %}">Props</a>
       {% if session.get('team_a_id') %}
       <a href="/matchup" class="{% if request.path == '/matchup' %}active{% endif %}">Matchup</a>
       <a href="/player"  class="{% if request.path == '/player'  %}active{% endif %}">Players</a>
       <a href="/prediction" class="{% if request.path == '/prediction' %}active{% endif %}">Prediction</a>
       {% endif %}
-      <a href="/nba" class="{% if request.path.startswith('/nba') %}active{% endif %}" style="color:{% if not request.path.startswith('/nba') %}#f59e0b{% else %}var(--text){% endif %};">🏀 NBA</a>
     </div>
     <div class="nav-mobile-toggle" id="navToggle">&#9776;</div>
   </nav>
@@ -45,8 +46,26 @@
   </main>
 
   <footer class="site-footer">
-    <p>⚠️ This app is for informational purposes only. No information on this platform constitutes financial advice. Please gamble responsibly. 18+</p>
+    <p>Predictions and prop ideas are informational only, not financial advice. Bet responsibly and confirm lineups, injuries, and odds before acting.</p>
+    <p class="footer-meta">Data source: {{ data_source or 'Live mixed feeds' }} | Updated: {{ last_updated or 'Unknown' }}</p>
   </footer>
+
+  <button id="chat-toggle" class="chat-toggle" type="button" aria-controls="chat-window" aria-expanded="false">
+    Chat
+  </button>
+  <section id="chat-window" class="chat-window" aria-hidden="true">
+    <div class="chat-header">
+      <strong>ScorPred Assistant</strong>
+      <button id="chat-clear" type="button" class="chat-clear">Clear</button>
+    </div>
+    <div id="chat-messages" class="chat-messages">
+      <div class="chat-message assistant">Ask about predictions, props, injuries, or where to find a page.</div>
+    </div>
+    <form id="chat-form" class="chat-form">
+      <input id="chat-input" name="message" type="text" placeholder="Ask ScorPred..." autocomplete="off" />
+      <button type="submit" class="btn btn-primary btn-sm">Send</button>
+    </form>
+  </section>
 
   <script src="{{ url_for('static', filename='charts.js') }}"></script>
   <script src="{{ url_for('static', filename='main.js') }}"></script>

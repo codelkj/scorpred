@@ -23,14 +23,14 @@
       {% for key, info in route_support.items() %}
       <span style="font-size:.75rem; padding:.18rem .6rem; border-radius:4px; font-weight:600;
         {% if info.state == 'live' %}background:rgba(34,197,94,.15);color:#22c55e;
-        {% elif info.state == 'mock' %}background:rgba(245,158,11,.15);color:#f59e0b;
+        {% elif info.state in ('fallback', 'mock') %}background:rgba(245,158,11,.15);color:#f59e0b;
         {% else %}background:rgba(107,114,128,.15);color:#9ca3af;{% endif %}">
         {{ info.title }}
       </span>
       {% endfor %}
     </div>
     <div style="font-size:.73rem; color:var(--nba-muted); margin-top:.4rem;">
-      🟢 live &nbsp; 🟡 mock/simulated &nbsp; ⚫ unavailable
+      🟢 live &nbsp; 🟡 fallback/limited &nbsp; ⚫ unavailable
     </div>
   </div>
   {% endif %}
@@ -40,6 +40,104 @@
     <p style="color:#ef4444;">⚠ Could not load teams: {{ load_error }}</p>
   </div>
   {% endif %}
+
+  {% if selected_game %}
+  <div class="nba-card glow-card" style="padding:1rem 1.5rem;">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem;">
+      <div style="color:var(--nba-muted); font-size:.9rem;">
+        Selected game:
+        {% if selected_game.short_name %}
+        <strong style="color:var(--nba-text);">{{ selected_game.short_name }}</strong>
+        {% else %}
+        <strong style="color:var(--nba-text);">{{ selected_game.home_name }}</strong>
+        vs
+        <strong style="color:var(--nba-text);">{{ selected_game.away_name }}</strong>
+        {% endif %}
+      </div>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+        <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Matchup</a>
+        <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Rosters</a>
+        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem; padding:.45rem 1rem;">Prediction</a>
+      </div>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center; margin-top:.8rem; font-size:.82rem; color:var(--nba-muted);">
+      {% if selected_game.status %}<span>{{ selected_game.status }}</span>{% endif %}
+      {% if selected_game.date %}<span>{{ selected_game.date[:10] }}{% if selected_game.date|length > 10 %} {{ selected_game.date[11:16] }} UTC{% endif %}</span>{% endif %}
+      {% if selected_game.venue_name %}<span>{{ selected_game.venue_name }}</span>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="nba-card glow-card">
+    <div class="nba-card-title">Upcoming and live games</div>
+    <p style="color:var(--nba-muted); font-size:.9rem; margin:-.3rem 0 1rem;">
+      Pick the fixture first and go straight into the analysis flow without manually choosing teams or players.
+    </p>
+    {% if upcoming_games %}
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:1rem;">
+      {% for g in upcoming_games %}
+      {% set home = g.teams.home %}
+      {% set visit = g.teams.visitors %}
+      {% set sc = g.scores %}
+      {% set h_pts = sc.home.points %}
+      {% set v_pts = sc.visitors.points %}
+      <form method="post" action="{{ url_for('nba.select_game') }}" class="nba-game-tile {% if g.status.state == 'in' %}live{% endif %}" style="width:100%; min-width:0; text-align:left; padding:1rem;">
+        <input type="hidden" name="team_a" value="{{ home.id }}" />
+        <input type="hidden" name="team_b" value="{{ visit.id }}" />
+        <input type="hidden" name="team_a_name" value="{{ home.name }}" />
+        <input type="hidden" name="team_a_logo" value="{{ home.logo }}" />
+        <input type="hidden" name="team_b_name" value="{{ visit.name }}" />
+        <input type="hidden" name="team_b_logo" value="{{ visit.logo }}" />
+        <input type="hidden" name="event_id" value="{{ g.id }}" />
+        <input type="hidden" name="event_date" value="{{ g.date.start }}" />
+        <input type="hidden" name="event_status" value="{{ g.status.long }}" />
+        <input type="hidden" name="venue_name" value="{{ g.venue.name if g.venue else '' }}" />
+        <input type="hidden" name="short_name" value="{{ g.short_name }}" />
+
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:.75rem; margin-bottom:.6rem;">
+          <div class="nba-game-tile-time" style="margin:0;">
+            {% if g.date.start %}{{ g.date.start[:10] }} {{ g.date.start[11:16] }} UTC{% endif %}
+          </div>
+          <span class="nba-badge {% if g.status.state == 'in' %}nba-badge-w{% else %}nba-badge-push{% endif %}">
+            {{ 'Live' if g.status.state == 'in' else 'Upcoming' }}
+          </span>
+        </div>
+
+        <div style="display:grid; gap:.65rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:.75rem;">
+            <div style="display:flex; align-items:center; gap:.55rem; min-width:0;">
+              {% if home.logo %}<img src="{{ home.logo }}" alt="{{ home.name }}" class="team-badge" style="width:22px; height:22px; object-fit:contain;" onerror="this.style.display='none'" />{% endif %}
+              <span class="nba-game-tile-teams" style="white-space:normal;">{{ home.nickname or home.name }}</span>
+            </div>
+            {% if h_pts is not none and v_pts is not none %}
+            <span class="nba-game-tile-score stat-number" data-target="{{ h_pts }}" style="margin:0;">{{ h_pts }}</span>
+            {% endif %}
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:.75rem;">
+            <div style="display:flex; align-items:center; gap:.55rem; min-width:0;">
+              {% if visit.logo %}<img src="{{ visit.logo }}" alt="{{ visit.name }}" class="team-badge" style="width:22px; height:22px; object-fit:contain;" onerror="this.style.display='none'" />{% endif %}
+              <span class="nba-game-tile-teams" style="white-space:normal;">{{ visit.nickname or visit.name }}</span>
+            </div>
+            {% if h_pts is not none and v_pts is not none %}
+            <span class="nba-game-tile-score stat-number" data-target="{{ v_pts }}" style="margin:0;">{{ v_pts }}</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="nba-game-tile-status" style="margin-top:.8rem;">{{ g.status.long }}{% if g.status.short %} | {{ g.status.short }}{% endif %}</div>
+        {% if g.venue and g.venue.name %}
+        <div class="nba-game-tile-status">{{ g.venue.name }}</div>
+        {% endif %}
+        <button type="submit" class="nba-btn nba-btn-primary btn-glow" style="margin-top:1rem; width:100%; justify-content:center;">
+          Open analysis
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:var(--nba-muted); font-size:.9rem; margin:0;">No live or upcoming NBA games were found.</p>
+    {% endif %}
+  </div>
 
   <!-- ── Team Selection ─────────────────────────────────────────────────── -->
   <div class="nba-card glow-card">
@@ -88,7 +186,7 @@
   </div>
 
   <!-- ── Quick links if teams already selected ──────────────────────────── -->
-  {% if session.get('nba_team_a_id') %}
+  {% if session.get('nba_team_a_id') and not selected_game %}
   <div class="nba-card glow-card" style="padding:1rem 1.5rem;">
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem;">
       <div style="color:var(--nba-muted); font-size:.9rem;">
@@ -99,7 +197,7 @@
       </div>
       <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
         <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Matchup</a>
-        <a href="{{ url_for('nba.player') }}"  class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Players</a>
+        <a href="{{ url_for('nba.player') }}"  class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Rosters</a>
         <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem; padding:.45rem 1rem;">Prediction</a>
       </div>
     </div>
@@ -109,11 +207,6 @@
   <!-- ── Today's Games ───────────────────────────────────────────────────── -->
   <div class="nba-card glow-card">
     <div class="nba-card-title">📅 Today's NBA Games</div>
-    {% if not today_games %}
-    <div style="background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.25); border-radius:8px; padding:.75rem 1rem; font-size:.83rem; color:#f59e0b; margin-bottom:.75rem;">
-      ⚠ Live scoreboard is not available from this data provider. No games will be shown here.
-    </div>
-    {% endif %}
     {% if today_games %}
     <div class="nba-games-strip">
       {% for g in today_games %}
@@ -123,7 +216,7 @@
       {% set status = g.status.long %}
       {% set h_pts = sc.home.points %}
       {% set v_pts = sc.visitors.points %}
-      <div class="nba-game-tile {% if status not in ('Scheduled', 'Finished') %}live{% endif %}">
+      <div class="nba-game-tile {% if g.status.state == 'in' %}live{% endif %}">
         <div class="nba-game-tile-time">
           {% if g.date.start %}{{ g.date.start[:16].replace('T', ' ') }} UTC{% endif %}
         </div>

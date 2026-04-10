@@ -26,9 +26,9 @@
 
   <!-- ── Nav ──────────────────────────────────────────────────────────────── -->
   <div style="display:flex; gap:.75rem; margin-bottom:1.5rem; flex-wrap:wrap;">
-    <a href="{{ url_for('nba.index') }}"   class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">← Teams</a>
+    <a href="{{ url_for('nba.index') }}"   class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Back to games</a>
     <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Matchup</a>
-    <a href="{{ url_for('nba.player') }}"  class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Player Props</a>
+    <a href="{{ url_for('nba.player') }}"  class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Rosters and leaders</a>
   </div>
 
   {# Data-source banner #}
@@ -37,11 +37,32 @@
     {% for key, info in route_support.items() %}
     <span title="{{ info.detail }}" style="font-size:.75rem; padding:.18rem .6rem; border-radius:4px; font-weight:600; cursor:help;
       {% if info.state == 'live' %}background:rgba(34,197,94,.15);color:#22c55e;
-      {% elif info.state == 'mock' %}background:rgba(245,158,11,.15);color:#f59e0b;
+      {% elif info.state in ('fallback', 'mock') %}background:rgba(245,158,11,.15);color:#f59e0b;
       {% else %}background:rgba(107,114,128,.15);color:#9ca3af;{% endif %}">
       {{ info.title }}
     </span>
     {% endfor %}
+  </div>
+  {% endif %}
+
+  {% set status_text = game_snapshot.status.long if game_snapshot else (selected_game.status if selected_game else '') %}
+  {% set status_state = game_snapshot.status.state if game_snapshot else '' %}
+  {% set matchup_name = game_snapshot.short_name if game_snapshot else (selected_game.short_name if selected_game else '') %}
+  {% set tipoff = game_snapshot.date.start if game_snapshot else (selected_game.date if selected_game else '') %}
+  {% set venue_name = game_snapshot.venue.name if game_snapshot and game_snapshot.venue else (selected_game.venue_name if selected_game else '') %}
+  {% if selected_game or game_snapshot %}
+  <div class="nba-card glow-card" style="padding:1rem 1.25rem;">
+    <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center;">
+      <span class="nba-badge {% if status_state == 'in' %}nba-badge-w{% elif status_state == 'post' %}nba-badge-med{% else %}nba-badge-push{% endif %}">
+        {{ status_text or 'Scheduled' }}
+      </span>
+      {% if matchup_name %}<span>{{ matchup_name }}</span>{% endif %}
+      {% if tipoff %}<span>{{ tipoff[:10] }}{% if tipoff|length > 10 %} {{ tipoff[11:16] }} UTC{% endif %}</span>{% endif %}
+      {% if venue_name %}<span>{{ venue_name }}</span>{% endif %}
+      {% if game_snapshot and game_snapshot.scores.home.points is not none and game_snapshot.scores.visitors.points is not none %}
+      <span style="color:var(--nba-gold); font-weight:700;">{{ game_snapshot.scores.home.points }} - {{ game_snapshot.scores.visitors.points }}</span>
+      {% endif %}
+    </div>
   </div>
   {% endif %}
 

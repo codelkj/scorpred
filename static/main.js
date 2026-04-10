@@ -180,3 +180,63 @@ document.querySelectorAll('.nba-tab').forEach(btn => {
     btn.classList.add('tab-active');
   }
 });
+
+/* Chat bubble */
+const chatToggle = document.getElementById('chat-toggle');
+const chatWindow = document.getElementById('chat-window');
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+const chatMessages = document.getElementById('chat-messages');
+const chatClear = document.getElementById('chat-clear');
+
+function appendChatMessage(role, text) {
+  if (!chatMessages || !text) return;
+  const row = document.createElement('div');
+  row.className = `chat-message ${role}`;
+  row.textContent = text;
+  chatMessages.appendChild(row);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+if (chatToggle && chatWindow) {
+  chatToggle.addEventListener('click', () => {
+    const open = chatWindow.classList.toggle('open');
+    chatWindow.setAttribute('aria-hidden', open ? 'false' : 'true');
+    chatToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open && chatInput) chatInput.focus();
+  });
+}
+
+if (chatForm && chatInput) {
+  chatForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const message = chatInput.value.trim();
+    if (!message) return;
+    appendChatMessage('user', message);
+    chatInput.value = '';
+    try {
+      const response = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ message }).toString()
+      });
+      const data = await response.json();
+      appendChatMessage('assistant', data.reply || data.error || 'No reply available.');
+    } catch (error) {
+      appendChatMessage('assistant', 'Chat is temporarily unavailable.');
+    }
+  });
+}
+
+if (chatClear) {
+  chatClear.addEventListener('click', async () => {
+    try {
+      await fetch('/chat/clear', { method: 'POST' });
+    } catch (error) {
+      console.error(error);
+    }
+    if (chatMessages) {
+      chatMessages.innerHTML = '<div class="chat-message assistant">Ask about predictions, props, injuries, or where to find a page.</div>';
+    }
+  });
+}

@@ -23,10 +23,27 @@
   </div>
 </div>
 
+{% if selected_fixture %}
+<div class="card glow-card" style="padding:1rem 1.25rem; margin-bottom:1.25rem;">
+  <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center;">
+    <span class="source-badge {{ 'source-espn' if selected_fixture.data_source == 'espn' else 'source-api' }}">
+      {{ 'ESPN fixture' if selected_fixture.data_source == 'espn' else 'Configured fixture' }}
+    </span>
+    {% if selected_fixture.date %}
+    <span>{{ selected_fixture.date[:10] }}{% if selected_fixture.date|length > 10 %} {{ selected_fixture.date[11:16] }} UTC{% endif %}</span>
+    {% endif %}
+    {% if selected_fixture.league_name %}<span>{{ selected_fixture.league_name }}</span>{% endif %}
+    {% if selected_fixture.round %}<span>{{ selected_fixture.round }}</span>{% endif %}
+    {% if selected_fixture.venue_name %}<span>{{ selected_fixture.venue_name }}</span>{% endif %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Tab navigation -->
-<div class="tab-bar">
+<div class="tab-bar tab-nav">
   <button class="tab-btn active tab-active" data-tab="h2h">Last 5 Meetings</button>
   <button class="tab-btn" data-tab="form">Recent Form</button>
+  <button class="tab-btn" data-tab="stats">Stats</button>
   <button class="tab-btn" data-tab="homeaway">Home / Away</button>
   <button class="tab-btn" data-tab="injuries">Injuries</button>
 </div>
@@ -63,7 +80,7 @@
     </div>
 
     <!-- HT score -->
-    {% if f.score.halftime %}
+    {% if f.score and f.score.halftime %}
     <div class="fixture-ht">HT: {{ f.score.halftime.home }} – {{ f.score.halftime.away }}</div>
     {% endif %}
 
@@ -136,6 +153,9 @@
         <span class="form-badge form-{{ r.result }}">{{ r.result }}</span>
         {% endfor %}
       </div>
+      {% if not form_a %}
+      <div class="empty-state">Recent form data is unavailable for {{ team_a.name }}.</div>
+      {% endif %}
       <div class="form-averages">
         <span>Avg scored: <strong class="accent stat-number" data-target="{{ (form_a | sum(attribute='gf') / form_a|length) | round(2) if form_a else 0 }}">{{ (form_a | sum(attribute='gf') / form_a|length) | round(2) if form_a else 0 }}</strong></span>
         <span>Avg conceded: <strong class="accent stat-number" data-target="{{ (form_a | sum(attribute='ga') / form_a|length) | round(2) if form_a else 0 }}">{{ (form_a | sum(attribute='ga') / form_a|length) | round(2) if form_a else 0 }}</strong></span>
@@ -161,6 +181,9 @@
         <span class="form-badge form-{{ r.result }}">{{ r.result }}</span>
         {% endfor %}
       </div>
+      {% if not form_b %}
+      <div class="empty-state">Recent form data is unavailable for {{ team_b.name }}.</div>
+      {% endif %}
       <div class="form-averages">
         <span>Avg scored: <strong class="accent stat-number" data-target="{{ (form_b | sum(attribute='gf') / form_b|length) | round(2) if form_b else 0 }}">{{ (form_b | sum(attribute='gf') / form_b|length) | round(2) if form_b else 0 }}</strong></span>
         <span>Avg conceded: <strong class="accent stat-number" data-target="{{ (form_b | sum(attribute='ga') / form_b|length) | round(2) if form_b else 0 }}">{{ (form_b | sum(attribute='ga') / form_b|length) | round(2) if form_b else 0 }}</strong></span>
@@ -179,7 +202,21 @@
   </div>
 </div>
 
-<!-- TAB 3: Home / Away -->
+<!-- TAB 3: Stats -->
+<div class="tab-panel" id="tab-stats">
+  <div class="card glow-card">
+    <h3 class="card-title">Stats Comparison</h3>
+    {% if stats_compare %}
+    <div class="chart-container" style="height:320px;">
+      <canvas id="footballStatsComparisonChart"></canvas>
+    </div>
+    {% else %}
+    <div class="empty-state">Insufficient data to compare team stats for this matchup.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- TAB 4: Home / Away -->
 <div class="tab-panel" id="tab-homeaway">
   <div class="ha-grid">
     <div class="ha-card glow-card">
@@ -209,7 +246,7 @@
   </div>
 </div>
 
-<!-- TAB 4: Injuries -->
+<!-- TAB 5: Injuries -->
 <div class="tab-panel" id="tab-injuries">
   <div class="injury-columns">
     <div class="injury-col glow-card">
@@ -263,6 +300,8 @@
 
 {% block scripts %}
 <script>
+  let footballStatsComparisonChart = null;
+
   // Tab switching
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -276,5 +315,41 @@
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     });
   });
+
+  {% if stats_compare %}
+  const footballStatsCanvas = document.getElementById('footballStatsComparisonChart');
+  if (footballStatsCanvas && typeof Chart !== 'undefined') {
+    if (window.footballStatsComparisonChart) {
+      window.footballStatsComparisonChart.destroy();
+    }
+    window.footballStatsComparisonChart = new Chart(footballStatsCanvas, {
+      type: 'bar',
+      data: {
+        labels: [{% for row in stats_compare %}'{{ row.label }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+        datasets: [
+          {
+            label: '{{ team_a.name }}',
+            data: [{% for row in stats_compare %}{{ row.a }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            backgroundColor: '#00ff87',
+          },
+          {
+            label: '{{ team_b.name }}',
+            data: [{% for row in stats_compare %}{{ row.b }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            backgroundColor: '#00b4ff',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#f5f5f5' } } },
+        scales: {
+          x: { ticks: { color: '#f5f5f5' } },
+          y: { ticks: { color: '#9a9a9a' }, beginAtZero: true }
+        }
+      }
+    });
+  }
+  {% endif %}
 </script>
 {% endblock %}

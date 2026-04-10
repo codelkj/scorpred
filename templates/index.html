@@ -7,6 +7,88 @@
   <p class="hero-sub">Data-driven match analysis for the Premier League</p>
 </div>
 
+<div class="card glow-card">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+    <div>
+      <h2 class="card-title" style="margin-bottom:.2rem;">Upcoming Fixtures</h2>
+      <p class="page-sub" style="margin:0;">Select an upcoming match and jump straight into the full analysis.</p>
+    </div>
+    <span class="source-badge {{ 'source-espn' if fixtures_source == 'espn' else 'source-api' }}">
+      {{ 'ESPN fixture list' if fixtures_source == 'espn' else 'Configured provider' }}
+    </span>
+  </div>
+
+  {% if fixtures_error %}
+  <div class="alert alert-warn">{{ fixtures_error }}</div>
+  {% endif %}
+
+  {% if upcoming_fixtures %}
+  <div style="display:grid;gap:1rem;">
+    {% for f in upcoming_fixtures %}
+    {% set p = f.prediction %}
+    <div class="fpred-card" style="margin:0;">
+      <div class="fpred-meta">
+        <span>{{ f.fixture.date[:10] }}</span>
+        {% if f.fixture.date | length > 10 %}
+        <span>{{ f.fixture.date[11:16] }} UTC</span>
+        {% endif %}
+        {% if f.league and f.league.name %}
+        <span>{{ f.league.name }}</span>
+        {% endif %}
+        {% if f.league and f.league.round %}
+        <span>{{ f.league.round }}</span>
+        {% endif %}
+      </div>
+
+      <div class="fpred-teams-row">
+        <div class="fpred-team">
+          <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.home.name }}" />
+          <span class="fpred-team-name">{{ f.teams.home.name }}</span>
+        </div>
+        <div class="fpred-centre">
+          <span class="fpred-vs">vs</span>
+          <span class="confidence-badge conf-{{ p.confidence | lower }}">{{ p.confidence }}</span>
+        </div>
+        <div class="fpred-team right">
+          <span class="fpred-team-name">{{ f.teams.away.name }}</span>
+          <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.away.name }}" />
+        </div>
+      </div>
+
+      <div class="fpred-footer">
+        <span class="fpred-winner-label">
+          Predicted:
+          <strong class="accent">
+            {% if p.winner_label == 'Home Win' %}{{ f.teams.home.name }}
+            {% elif p.winner_label == 'Away Win' %}{{ f.teams.away.name }}
+            {% else %}Draw
+            {% endif %}
+          </strong>
+        </span>
+        <form method="POST" action="/select" style="display:inline">
+          <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
+          <input type="hidden" name="team_b" value="{{ f.teams.away.id }}" />
+          <input type="hidden" name="team_a_name" value="{{ f.teams.home.name }}" />
+          <input type="hidden" name="team_a_logo" value="{{ f.teams.home.logo }}" />
+          <input type="hidden" name="team_b_name" value="{{ f.teams.away.name }}" />
+          <input type="hidden" name="team_b_logo" value="{{ f.teams.away.logo }}" />
+          <input type="hidden" name="fixture_id" value="{{ f.fixture.id }}" />
+          <input type="hidden" name="fixture_date" value="{{ f.fixture.date }}" />
+          <input type="hidden" name="league_name" value="{{ f.league.name if f.league else '' }}" />
+          <input type="hidden" name="round" value="{{ f.league.round if f.league else '' }}" />
+          <input type="hidden" name="venue_name" value="{{ f.fixture.venue.name if f.fixture.venue else '' }}" />
+          <input type="hidden" name="data_source" value="{{ fixtures_source }}" />
+          <button type="submit" class="btn btn-primary btn-sm btn-glow">Analyze Fixture →</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">No upcoming fixtures are available right now.</div>
+  {% endif %}
+</div>
+
 <div class="card glow-card team-select-card">
   <h2 class="card-title">Select a Matchup</h2>
 
@@ -41,6 +123,7 @@
           </div>
           <input type="hidden" name="team_a" id="team_a" required />
         </div>
+        <div class="team-form-preview" id="teamFormA">Last 5 form: --</div>
       </div>
 
       <div class="vs-badge">VS</div>
@@ -67,6 +150,7 @@
           </div>
           <input type="hidden" name="team_b" id="team_b" required />
         </div>
+        <div class="team-form-preview" id="teamFormB">Last 5 form: --</div>
       </div>
     </div>
 
@@ -123,6 +207,19 @@
 
 {% block scripts %}
 <script>
+  async function loadTeamForm(teamId, targetId) {
+    const target = document.getElementById(targetId);
+    if (!teamId || !target) return;
+    target.textContent = 'Last 5 form: loading...';
+    try {
+      const response = await fetch(`/api/football/team-form?team_id=${teamId}`);
+      const data = await response.json();
+      target.textContent = `Last 5 form: ${data.form_string || 'No recent data'}`;
+    } catch (error) {
+      target.textContent = 'Last 5 form: unavailable';
+    }
+  }
+
   // Generic custom-select controller
   function initCustomSelect(wrapperId, triggerId, dropId, searchId, optionsId, hiddenId, logoId, labelId, otherHiddenId) {
     const wrap = document.getElementById(wrapperId);
@@ -154,6 +251,8 @@
         logo.src = opt.dataset.logo;
         logo.style.display = 'inline';
         drop.classList.remove('open');
+        if (hiddenId === 'team_a') loadTeamForm(opt.dataset.value, 'teamFormA');
+        if (hiddenId === 'team_b') loadTeamForm(opt.dataset.value, 'teamFormB');
         validateForm();
       });
     });

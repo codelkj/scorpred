@@ -26,19 +26,16 @@
           </thead>
           <tbody>
             {% for r in rows %}
-            {% set c = r.conference %}
-            {% set w = r.win %}
-            {% set l = r.loss %}
             <tr>
-              <td style="color:var(--nba-muted);">{{ c.rank }}</td>
+              <td style="color:var(--nba-muted);">{{ r.seed }}</td>
               <td>
                 {% if r.team.logo %}<img src="{{ r.team.logo }}" class="team-badge" style="width:16px;height:16px;object-fit:contain;vertical-align:middle;margin-right:.3rem;"/>{% endif %}
                 {{ r.team.nickname or r.team.name }}
               </td>
-              <td style="font-weight:600; color:var(--nba-green);" class="stat-number" data-target="{{ w.total }}">{{ w.total }}</td>
-              <td style="color:var(--nba-muted);">{{ l.total }}</td>
-              <td>{{ w.percentage }}</td>
-              <td style="font-size:.82rem; color:var(--nba-muted);">{{ w.lastTen.win }}-{{ w.lastTen.loss }}</td>
+              <td style="font-weight:600; color:#00ff87;" class="stat-number" data-target="{{ r.wins }}">{{ r.wins }}</td>
+              <td style="color:var(--nba-muted);">{{ r.losses }}</td>
+              <td>{{ '%.3f'|format(r.win_pct) }}</td>
+              <td style="font-size:.82rem; color:var(--nba-muted);">{{ r.last10 }}</td>
             </tr>
             {% endfor %}
           </tbody>

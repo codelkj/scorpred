@@ -8,11 +8,28 @@
   <p class="page-sub">Select one player from each squad to compare their stats</p>
 </div>
 
+{% if selected_fixture %}
+<div class="card glow-card" style="padding:1rem 1.25rem; margin-bottom:1.25rem;">
+  <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center;">
+    <span class="source-badge {{ 'source-espn' if selected_fixture.data_source == 'espn' else 'source-api' }}">
+      {{ 'ESPN fixture' if selected_fixture.data_source == 'espn' else 'Configured fixture' }}
+    </span>
+    {% if selected_fixture.date %}
+    <span>{{ selected_fixture.date[:10] }}{% if selected_fixture.date|length > 10 %} {{ selected_fixture.date[11:16] }} UTC{% endif %}</span>
+    {% endif %}
+    {% if selected_fixture.league_name %}<span>{{ selected_fixture.league_name }}</span>{% endif %}
+    {% if selected_fixture.round %}<span>{{ selected_fixture.round }}</span>{% endif %}
+    {% if selected_fixture.venue_name %}<span>{{ selected_fixture.venue_name }}</span>{% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div class="player-selectors card glow-card">
   <div class="player-selector-group">
     <label class="picker-label">
       <img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }} Player
     </label>
+    <input id="searchPlayerA" class="select-search" type="text" placeholder="Search {{ team_a.name }} players" autocomplete="off" />
     <select id="playerA" class="player-select">
       <option value="">— Select Player —</option>
       {% for p in squad_a | sort(attribute='name') %}
@@ -27,12 +44,38 @@
     <label class="picker-label">
       <img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }} Player
     </label>
+    <input id="searchPlayerB" class="select-search" type="text" placeholder="Search {{ team_b.name }} players" autocomplete="off" />
     <select id="playerB" class="player-select">
       <option value="">— Select Player —</option>
       {% for p in squad_b | sort(attribute='name') %}
       <option value="{{ p.id }}" data-pos="{{ p.position }}">{{ p.name }} ({{ p.position }})</option>
       {% endfor %}
     </select>
+  </div>
+</div>
+
+<div id="sampleWarning" class="alert alert-warn" style="display:none">
+  Head-to-head player sample is limited. Fewer than 3 direct games are available, so season form carries more weight.
+</div>
+
+<div class="player-props-card glow-card" style="margin-top:1.5rem; padding:1rem;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.75rem;">
+    <div>
+      <h2>Player Props</h2>
+      <p class="page-sub">Generate soccer prop lines for the selected player against the opponent.</p>
+    </div>
+    <button id="generateProps" class="button button-primary">Generate Player Props</button>
+  </div>
+  <div id="propsNotice" class="info-box" style="display:none; margin-top:1rem;"></div>
+  <div class="props-grid" id="propsGrid" style="display:none; gap:1rem; margin-top:1rem;">
+    <div class="props-column glow-card" id="propsColumnA">
+      <h3 id="propsTitleA">Player A props</h3>
+      <div id="propsA"></div>
+    </div>
+    <div class="props-column glow-card" id="propsColumnB">
+      <h3 id="propsTitleB">Player B props</h3>
+      <div id="propsB"></div>
+    </div>
   </div>
 </div>
 
@@ -85,6 +128,7 @@
   let radarChart = null;
   let ratingChart = null;
   const playerData = { A: null, B: null };
+  const playerMeta = { A: null, B: null };
 
   const statKeys = [
     { key: 'goals.total',      label: 'Goals',          max: 30 },
@@ -155,8 +199,8 @@
     const labels = ['Goals', 'Assists', 'Shots on\nTarget', 'Key Passes', 'Dribbles', 'Duels Won', 'Rating'];
     const maxes  = [30, 20, 80, 100, 60, 150, 10];
 
-    function norm(vals) {
-      return [sA.goals, sA.assists, sA.shots_on, sA.key_passes, sA.dribbles, sA.duels, sA.rating]
+    function norm(source) {
+      return [source.goals, source.assists, source.shots_on, source.key_passes, source.dribbles, source.duels, source.rating]
         .map((v, i) => Math.min(100, (v / maxes[i]) * 100));
     }
 
@@ -178,6 +222,7 @@
       },
       options: {
         responsive: true,
+        maintainAspectRatio: false,
         scales: { r: { suggestedMin: 0, suggestedMax: 100, ticks: { color: '#8b949e', stepSize: 25 }, grid: { color: '#21262d' }, pointLabels: { color: '#e6edf3', font: { size: 12 } } } },
         plugins: { legend: { labels: { color: '#e6edf3' } } }
       }
@@ -197,6 +242,7 @@
       },
       options: {
         responsive: true,
+        maintainAspectRatio: false,
         scales: {
           y: { min: 5, max: 10, grid: { color: '#21262d' }, ticks: { color: '#8b949e' } },
           x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } }
@@ -206,6 +252,26 @@
     });
   }
 
+  async function loadPlayerAnalysis(side, pid) {
+    const form = new URLSearchParams({
+      player_id: pid,
+      team_id: side === 'A' ? '{{ team_a.id }}' : '{{ team_b.id }}',
+      opponent_team_id: side === 'A' ? '{{ team_b.id }}' : '{{ team_a.id }}'
+    });
+    try {
+      const res = await fetch('/player/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString()
+      });
+      playerMeta[side] = await res.json();
+      const limited = (playerMeta.A && playerMeta.A.h2h_sample_warning) || (playerMeta.B && playerMeta.B.h2h_sample_warning);
+      document.getElementById('sampleWarning').style.display = limited ? 'block' : 'none';
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
   async function loadPlayer(side, pid) {
     document.getElementById('playerLoading').style.display = 'flex';
     try {
@@ -213,6 +279,7 @@
       const data = await res.json();
       playerData[side] = data;
       renderStatCard(side, data);
+      loadPlayerAnalysis(side, pid);
 
       if (playerData.A && playerData.B) {
         document.getElementById('playerCards').style.display = 'grid';
@@ -227,11 +294,110 @@
     }
   }
 
+  function filterPlayerOptions(searchId, selectId) {
+    const query = document.getElementById(searchId).value.toLowerCase();
+    const select = document.getElementById(selectId);
+    Array.from(select.options).forEach((option, index) => {
+      if (index === 0) return;
+      option.hidden = !option.textContent.toLowerCase().includes(query);
+    });
+  }
+
+  function renderProps(side, data) {
+    const container = document.getElementById(`props${side}`);
+    const title = document.getElementById(`propsTitle${side}`);
+    if (!data || !Array.isArray(data.props)) {
+      container.innerHTML = '<div class="empty-state">No props available.</div>';
+      return;
+    }
+    if (!data.props.length) {
+      container.innerHTML = '<div class="empty-state">No prop cards could be generated.</div>';
+      return;
+    }
+    title.textContent = `${data.player.name} props`;
+    container.innerHTML = data.props.map(card => {
+      const line = card.projection?.suggested_line ?? 'N/A';
+      const confidence = card.confidence?.label ?? 'No confidence data';
+      return `
+        <div class="prop-card">
+          <div class="prop-header">
+            <strong>${card.market_label || card.market_key}</strong>
+            <span class="prop-line">Line: ${line}</span>
+          </div>
+          <div class="prop-body">
+            <p>${confidence}</p>
+            ${card.type === 'standard' ? `<p>Proj: ${card.projection?.adjusted ?? card.projection?.base ?? 'N/A'}</p>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function loadProps(side, pid, playerName, playerPos, teamId, oppId, oppName, isHome) {
+    const notice = document.getElementById('propsNotice');
+    notice.style.display = 'none';
+    const target = document.getElementById(`props${side}`);
+    target.innerHTML = '<div class="loading-state" style="display:flex;"><div class="spinner"></div> Generating props…</div>';
+    document.getElementById('propsGrid').style.display = 'grid';
+    try {
+      const params = new URLSearchParams({
+        player_id: pid,
+        player_name: playerName,
+        player_team_id: teamId,
+        opponent_id: oppId,
+        opponent_name: oppName,
+        is_home: isHome ? 'true' : 'false',
+        markets: 'goals,assists,shots_on_target,key_passes',
+        player_position: playerPos || '',
+      });
+      const res = await fetch(`/props/generate?${params.toString()}`);
+      const json = await res.json();
+      if (json.error) {
+        target.innerHTML = `<div class="error-state">${json.error}</div>`;
+        return;
+      }
+      renderProps(side, json);
+      if (json.errors && json.errors.length) {
+        notice.innerHTML = json.errors.map(error => `<p>${error}</p>`).join('');
+        notice.style.display = 'block';
+      }
+    } catch (e) {
+      target.innerHTML = `<div class="error-state">Props request failed.</div>`;
+      console.error(e);
+    }
+  }
+
+  function getSelectedPlayerData(side) {
+    const select = document.getElementById(`player${side}`);
+    const playerId = select.value;
+    if (!playerId) return null;
+    const option = select.options[select.selectedIndex];
+    return {
+      id: playerId,
+      name: option.textContent.replace(/ \(.+\)$/, ''),
+      pos: option.dataset.pos || '',
+    };
+  }
+
+  async function generateAllProps() {
+    const playerA = getSelectedPlayerData('A');
+    const playerB = getSelectedPlayerData('B');
+    if (playerA) {
+      await loadProps('A', playerA.id, playerA.name, playerA.pos, {{ team_a.id }}, {{ team_b.id }}, '{{ team_b.name }}', true);
+    }
+    if (playerB) {
+      await loadProps('B', playerB.id, playerB.name, playerB.pos, {{ team_b.id }}, {{ team_a.id }}, '{{ team_a.name }}', false);
+    }
+  }
+
   document.getElementById('playerA').addEventListener('change', function() {
     if (this.value) loadPlayer('A', this.value);
   });
   document.getElementById('playerB').addEventListener('change', function() {
     if (this.value) loadPlayer('B', this.value);
   });
+  document.getElementById('generateProps').addEventListener('click', generateAllProps);
+  document.getElementById('searchPlayerA').addEventListener('input', () => filterPlayerOptions('searchPlayerA', 'playerA'));
+  document.getElementById('searchPlayerB').addEventListener('input', () => filterPlayerOptions('searchPlayerB', 'playerB'));
 </script>
 {% endblock %}

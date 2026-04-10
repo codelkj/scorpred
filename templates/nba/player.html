@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}NBA Player Props — {% endblock %}
+{% block title %}NBA Rosters and Leaders{% endblock %}
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='nba/nba.css') }}" />
@@ -24,9 +24,9 @@
 
   <!-- ── Nav ──────────────────────────────────────────────────────────────── -->
   <div style="display:flex; gap:.75rem; margin-bottom:1.5rem; flex-wrap:wrap;">
-    <a href="{{ url_for('nba.index') }}"      class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">← Teams</a>
+    <a href="{{ url_for('nba.index') }}"      class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Back to games</a>
     <a href="{{ url_for('nba.matchup') }}"    class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Matchup</a>
-    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem;padding:.4rem .9rem;">Full Prediction →</a>
+    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem;padding:.4rem .9rem;">Full prediction</a>
   </div>
 
   {# Data-source banner #}
@@ -35,7 +35,7 @@
     {% for key, info in route_support.items() %}
     <span title="{{ info.detail }}" style="font-size:.75rem; padding:.18rem .6rem; border-radius:4px; font-weight:600; cursor:help;
       {% if info.state == 'live' %}background:rgba(34,197,94,.15);color:#22c55e;
-      {% elif info.state == 'mock' %}background:rgba(245,158,11,.15);color:#f59e0b;
+      {% elif info.state in ('fallback', 'mock') %}background:rgba(245,158,11,.15);color:#f59e0b;
       {% else %}background:rgba(107,114,128,.15);color:#9ca3af;{% endif %}">
       {{ info.title }}
     </span>
@@ -44,13 +44,111 @@
   {% endif %}
 
   <div style="background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:8px; padding:.65rem 1rem; font-size:.81rem; color:#f59e0b; margin-bottom:1rem;">
-    🟡 Player rosters and stats are <strong>simulated</strong> — this provider does not expose working player or roster endpoints. Prop lines are built from realistic statistical templates and are for demonstration purposes only.
+    Live rosters and injuries are available. Featured leaders come from the selected game's public scoreboard, while detailed player prop modeling remains limited on public endpoints.
   </div>
 
   {% if error %}
   <div class="nba-card glow-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ {{ error }}</p></div>
   {% endif %}
 
+  {% set status_text = game_snapshot.status.long if game_snapshot else (selected_game.status if selected_game else '') %}
+  {% set status_state = game_snapshot.status.state if game_snapshot else '' %}
+  {% set matchup_name = game_snapshot.short_name if game_snapshot else (selected_game.short_name if selected_game else '') %}
+  {% set tipoff = game_snapshot.date.start if game_snapshot else (selected_game.date if selected_game else '') %}
+  {% set venue_name = game_snapshot.venue.name if game_snapshot and game_snapshot.venue else (selected_game.venue_name if selected_game else '') %}
+  {% if selected_game or game_snapshot %}
+  <div class="nba-card glow-card" style="padding:1rem 1.25rem;">
+    <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center;">
+      <span class="nba-badge {% if status_state == 'in' %}nba-badge-w{% elif status_state == 'post' %}nba-badge-med{% else %}nba-badge-push{% endif %}">
+        {{ status_text or 'Scheduled' }}
+      </span>
+      {% if matchup_name %}<span>{{ matchup_name }}</span>{% endif %}
+      {% if tipoff %}<span>{{ tipoff[:10] }}{% if tipoff|length > 10 %} {{ tipoff[11:16] }} UTC{% endif %}</span>{% endif %}
+      {% if venue_name %}<span>{{ venue_name }}</span>{% endif %}
+      {% if game_snapshot and game_snapshot.scores.home.points is not none and game_snapshot.scores.visitors.points is not none %}
+      <span style="color:var(--nba-gold); font-weight:700;">{{ game_snapshot.scores.home.points }} - {{ game_snapshot.scores.visitors.points }}</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if featured_players.home or featured_players.visitors %}
+  <div class="nba-player-grid" style="margin-bottom:1.5rem;">
+    {% for side, team, featured in [('home', team_a, featured_players.home), ('visitors', team_b, featured_players.visitors)] %}
+    <div class="nba-card glow-card">
+      <div class="nba-card-title">
+        {% if team.logo %}<img src="{{ team.logo }}" class="team-badge" style="width:18px;height:18px;object-fit:contain;" onerror="this.style.display='none'" />{% endif %}
+        {{ team.nickname or team.name }} featured leaders
+      </div>
+      {% for player in featured %}
+      <div style="display:flex; align-items:center; gap:.75rem; padding:.7rem 0; border-bottom:1px solid var(--nba-border);">
+        {% if player.headshot %}<img src="{{ player.headshot }}" alt="{{ player.name }}" class="team-badge" style="width:42px; height:42px; object-fit:cover;" onerror="this.style.display='none'" />{% endif %}
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; color:var(--nba-text);">{{ player.name }}</div>
+          <div style="font-size:.78rem; color:var(--nba-muted);">
+            {% if player.position %}{{ player.position }}{% endif %}
+            {% if player.abbreviation %} | {{ player.abbreviation }}{% endif %}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:700; color:var(--nba-gold);">{{ player.value }}</div>
+          <div style="font-size:.75rem; color:var(--nba-muted);">{{ player.metric }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% elif selected_game %}
+  <div class="nba-card glow-card">
+    <p style="color:var(--nba-muted); margin:0;">Featured leaders are not available yet for this game, but the live rosters below are ready.</p>
+  </div>
+  {% endif %}
+
+  <div class="nba-player-grid" style="margin-bottom:1.5rem;">
+    {% for team, roster in [(team_a, roster_a), (team_b, roster_b)] %}
+    <div class="nba-card glow-card">
+      <div class="nba-card-title">
+        {% if team.logo %}<img src="{{ team.logo }}" class="team-badge" style="width:18px;height:18px;object-fit:contain;" onerror="this.style.display='none'" />{% endif %}
+        {{ team.nickname or team.name }} roster
+      </div>
+      {% if roster %}
+      {% for player in roster %}
+      <div style="display:flex; align-items:center; gap:.75rem; padding:.75rem 0; border-bottom:1px solid var(--nba-border);">
+        {% if player.photo %}<img src="{{ player.photo }}" alt="{{ player.displayName or (player.firstname ~ ' ' ~ player.lastname) }}" class="team-badge" style="width:42px; height:42px; object-fit:cover;" onerror="this.style.display='none'" />{% endif %}
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; color:var(--nba-text);">{{ player.displayName or (player.firstname ~ ' ' ~ player.lastname) }}</div>
+          <div style="font-size:.78rem; color:var(--nba-muted);">
+            {% if player.jersey %}#{{ player.jersey }}{% endif %}
+            {% if player.position %}{% if player.jersey %} | {% endif %}{{ player.position }}{% endif %}
+          </div>
+          {% if player.injuries %}
+          {% set injury = player.injuries[0] %}
+          <div style="font-size:.76rem; color:#f59e0b; margin-top:.2rem;">{{ injury.detail or injury.type or injury.status or 'Injury listed' }}</div>
+          {% endif %}
+        </div>
+        <div style="text-align:right; white-space:nowrap;">
+          {% if player.injuries %}
+          {% set injury = player.injuries[0] %}
+          <span class="{% if (injury.status or '') | lower == 'out' %}inj-out{% elif (injury.status or '') | lower == 'doubtful' %}inj-doubtful{% else %}inj-question{% endif %}">
+            {{ injury.status or 'Injury' }}
+          </span>
+          {% elif player.leagues.standard.active %}
+          <span class="nba-badge nba-badge-w">Active</span>
+          {% elif player.status %}
+          <span class="nba-badge nba-badge-push">{{ player.status }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p style="color:var(--nba-muted); margin:0;">Roster data is unavailable for this team.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if true %}
   <!-- ── Player Selectors ──────────────────────────────────────────────────── -->
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
     {% for side, team, roster in [('A', team_a, roster_a), ('B', team_b, roster_b)] %}
@@ -106,6 +204,7 @@
     </div>
   </div>
 
+  {% endif %}
 </div>
 
 <!-- ── Templates for JS rendering ──────────────────────────────────────────── -->
@@ -340,14 +439,15 @@ function updateRadar() {
         {
           label: dB._name,
           data: normB,
-          backgroundColor: 'rgba(59,130,246,.2)',
-          borderColor: '#3b82f6',
-          pointBackgroundColor: '#3b82f6',
+          backgroundColor: 'rgba(0,180,255,.2)',
+          borderColor: '#00b4ff',
+          pointBackgroundColor: '#00b4ff',
         }
       ]
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       plugins: {
         legend: { labels: { color: '#e8edf5', font: { family: 'Inter' } } }
       },
