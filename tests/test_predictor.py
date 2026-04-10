@@ -140,6 +140,30 @@ class TestExtractForm:
         filtered = pred.filter_recent_completed_fixtures([date_fallback_fixture], current_season=CURRENT_SEASON)
         assert len(filtered) == 1
 
+    def test_future_fixtures_do_not_crowd_out_previous_season_completed(self):
+        """Verify that upcoming fixtures from current season don't replace completed previous-season fixtures."""
+        from datetime import datetime, timedelta
+        future_date = (datetime.now() + timedelta(days=30)).isoformat()[:10]
+        future_fixture = _make_fixture(
+            1, 2, None, None,
+            date=f"{future_date}T19:00:00+00:00",
+            season=CURRENT_SEASON,
+            status_short="NS",
+        )
+        prev_season_completed = _make_fixture(
+            1, 2, 2, 1,
+            date="2024-06-01T15:00:00+00:00",
+            season=CURRENT_SEASON - 1,
+            status_short="FT",
+        )
+        filtered = pred.filter_recent_completed_fixtures(
+            [future_fixture, prev_season_completed],
+            current_season=CURRENT_SEASON
+        )
+        assert len(filtered) == 1
+        assert filtered[0]["fixture"]["status"]["short"] == "FT"
+        assert filtered[0]["goals"]["home"] == 2
+
 
 # ── form_pts ──────────────────────────────────────────────────────────────────
 

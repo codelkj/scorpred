@@ -843,6 +843,7 @@ def get_team_fixtures(
                 fixtures.extend(season_fixtures)
         if fixtures:
             fixtures = _unique_fixtures(fixtures)
+            fixtures = [f for f in fixtures if _fixture_finished(f)]
             fixtures.sort(
                 key=lambda f: str((f.get("fixture") or {}).get("date") or ""),
                 reverse=True,
