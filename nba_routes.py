@@ -240,6 +240,79 @@ def _build_nba_props_from_avgs(season_avgs: dict, limited_data: bool) -> list[di
     return props
 
 
+def _build_nba_key_threats(roster: list, featured: list) -> list[dict]:
+    """Return up to 5 key threat players for a team.
+
+    If live featured leaders exist (from a selected game) we use those first,
+    then fill remaining slots from the roster ordered by position importance.
+    """
+    position_meta = {
+        "PG": {"label": "Playmaker", "contribution": "points + assists", "rank": 1},
+        "SG": {"label": "Scorer",    "contribution": "points + 3-pointers", "rank": 2},
+        "SF": {"label": "Wing",      "contribution": "points + rebounds",  "rank": 3},
+        "PF": {"label": "Power Forward", "contribution": "rebounds + mid-range", "rank": 4},
+        "C":  {"label": "Rim Anchor", "contribution": "rebounds + blocks", "rank": 5},
+        "G":  {"label": "Guard",     "contribution": "points + assists",   "rank": 2},
+        "F":  {"label": "Forward",   "contribution": "points + rebounds",  "rank": 3},
+    }
+
+    threats = []
+    featured_ids = set()
+
+    # First: promoted featured leaders (live stat leaders for this game)
+    for fp in featured[:3]:
+        pid = str(fp.get("id") or fp.get("playerId") or "")
+        if not pid:
+            continue
+        featured_ids.add(pid)
+        pos = fp.get("position") or fp.get("abbreviation") or "G"
+        meta = position_meta.get(pos, position_meta["G"])
+        threats.append({
+            "id": pid,
+            "name": fp.get("name") or fp.get("displayName") or "—",
+            "photo": fp.get("headshot") or fp.get("photo") or "",
+            "position": pos,
+            "threat_label": meta["label"],
+            "contribution": meta["contribution"],
+            "injured": False,
+            "live_stat": f"{fp.get('value', '')} {fp.get('metric', '')}".strip(),
+            "is_featured": True,
+        })
+
+    # Then: fill remaining slots from roster by position rank
+    for p in roster:
+        if len(threats) >= 5:
+            break
+        pid = str(p.get("id") or "")
+        if pid in featured_ids or not pid:
+            continue
+        injuries = p.get("injuries") or []
+        is_injured = bool(injuries) and (injuries[0].get("status") or "").lower() == "out"
+        if is_injured:
+            continue  # skip confirmed-out players
+
+        pos_raw = ""
+        if p.get("leagues") and p["leagues"].get("standard"):
+            pos_raw = p["leagues"]["standard"].get("pos") or ""
+        if not pos_raw:
+            pos_raw = p.get("position") or "G"
+
+        meta = position_meta.get(pos_raw, position_meta["G"])
+        threats.append({
+            "id": pid,
+            "name": f"{p.get('firstname','')} {p.get('lastname','')}".strip() or p.get("displayName","—"),
+            "photo": p.get("photo") or "",
+            "position": pos_raw,
+            "threat_label": meta["label"],
+            "contribution": meta["contribution"],
+            "injured": bool(injuries),
+            "live_stat": "",
+            "is_featured": False,
+        })
+
+    return threats[:5]
+
+
 def _build_player_analysis(player_id: str, player_name: str = "") -> dict:
     overview = _espn_player_overview(str(player_id))
     season_avgs = _season_split_map(overview)
@@ -516,6 +589,9 @@ def player():
         except Exception as e:
             _log_err("Featured players", e)
 
+    threats_a = _build_nba_key_threats(roster_a, featured_players.get("home", []))
+    threats_b = _build_nba_key_threats(roster_b, featured_players.get("visitors", []))
+
     return render_template(
         "nba/player.html",
         **_page_context(
@@ -523,6 +599,8 @@ def player():
             team_b=team_b,
             roster_a=roster_a,
             roster_b=roster_b,
+            threats_a=threats_a,
+            threats_b=threats_b,
             selected_game=selected_game or {},
             game_snapshot=game_snapshot or {},
             featured_players=featured_players,
