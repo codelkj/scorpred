@@ -312,10 +312,14 @@ def best_bets(prediction: dict, props_a: list, props_b: list,
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
 def _h2h_score(games: list, id_a: int, id_b: int) -> dict:
+    id_a = str(id_a)
+    id_b = str(id_b)
     wins_a = wins_b = 0
-    for g in games:
-        home_id  = g.get("teams", {}).get("home", {}).get("id")
-        visit_id = g.get("teams", {}).get("visitors", {}).get("id")
+    for g in filter_completed_nba_games(games):
+        home_id = str(g.get("teams", {}).get("home", {}).get("id") or "")
+        visit_id = str(g.get("teams", {}).get("visitors", {}).get("id") or "")
+        if {home_id, visit_id} != {id_a, id_b}:
+            continue
         scores   = g.get("scores", {})
         h_pts = _safe_f(scores.get("home", {}).get("points"))
         v_pts = _safe_f(scores.get("visitors", {}).get("points"))
@@ -337,14 +341,17 @@ def _h2h_score(games: list, id_a: int, id_b: int) -> dict:
 
 def _form_score(games: list, team_id: int) -> float:
     """Win-weighted form score. Recent games count more (linear decay)."""
-    if not games:
+    filtered_games = filter_completed_nba_games(games)
+    if not filtered_games:
         return 0.5
     total_w, total_pts = 0.0, 0.0
-    n = len(games)
-    for i, g in enumerate(reversed(games)):  # most recent = index 0
+    team_id = str(team_id)
+    for i, g in enumerate(reversed(filtered_games)):  # most recent = index 0
         weight = 1.0 + i * 0.05              # older games slightly less weight
-        home_id  = g.get("teams", {}).get("home", {}).get("id")
-        visit_id = g.get("teams", {}).get("visitors", {}).get("id")
+        home_id = str(g.get("teams", {}).get("home", {}).get("id") or "")
+        visit_id = str(g.get("teams", {}).get("visitors", {}).get("id") or "")
+        if team_id not in {home_id, visit_id}:
+            continue
         scores   = g.get("scores", {})
         our_key   = "home" if home_id == team_id else "visitors"
         their_key = "visitors" if our_key == "home" else "home"
@@ -400,6 +407,23 @@ def _safe_f(val) -> float:
         return 0.0
 
 
+def _nba_date_key(game: dict) -> str:
+    return str(((game.get("date") or {}).get("start") or ""))
+
+
+def _is_completed_nba_game(game: dict) -> bool:
+    status = game.get("status") or {}
+    state = str(status.get("state") or "").strip().lower()
+    if state == "post":
+        return True
+
+    text = " ".join(
+        str(status.get(key) or "").strip().lower()
+        for key in ("long", "short", "detail", "description")
+    )
+    return "final" in text or "finished" in text
+
+
 def _round_half(x: float) -> float:
     """Round to nearest 0.5."""
     return round(x * 2) / 2
@@ -424,9 +448,12 @@ def extract_form_for_display(games: list, team_id: int) -> list[dict]:
     Returns list sorted most-recent first.
     """
     results = []
-    for g in games:
-        home_id  = g.get("teams", {}).get("home", {}).get("id")
-        visit_id = g.get("teams", {}).get("visitors", {}).get("id")
+    team_id = str(team_id)
+    for g in filter_completed_nba_games(games):
+        home_id = str(g.get("teams", {}).get("home", {}).get("id") or "")
+        visit_id = str(g.get("teams", {}).get("visitors", {}).get("id") or "")
+        if team_id not in {home_id, visit_id}:
+            continue
         scores   = g.get("scores", {})
         is_home  = (home_id == team_id)
         our_key   = "home" if is_home else "visitors"
@@ -470,9 +497,13 @@ def h2h_display(games: list, team_a_id: int, team_b_id: int) -> list[dict]:
     Format H2H games for display with quarter breakdowns and score details.
     """
     rows = []
-    for g in games:
-        home_id  = g.get("teams", {}).get("home",     {}).get("id")
-        visit_id = g.get("teams", {}).get("visitors", {}).get("id")
+    team_a_id = str(team_a_id)
+    team_b_id = str(team_b_id)
+    for g in filter_completed_nba_games(games):
+        home_id = str(g.get("teams", {}).get("home", {}).get("id") or "")
+        visit_id = str(g.get("teams", {}).get("visitors", {}).get("id") or "")
+        if {home_id, visit_id} != {team_a_id, team_b_id}:
+            continue
         home_t   = g.get("teams", {}).get("home",     {})
         visit_t  = g.get("teams", {}).get("visitors", {})
         scores   = g.get("scores", {})
@@ -543,16 +574,18 @@ def _has_played_local(rec: dict) -> bool:
 
 # ── NBA Recent Form and H2H Helpers (similar to soccer update) ─────────────────
 
-def filter_completed_nba_games(games: list) -> list:
+def filter_completed_nba_games(games: list, limit: int | None = None) -> list:
     """
-    Filter NBA games to completed (finished) games only, sort newest first.
+    Filter NBA games to completed (final/post) games only, sort newest first.
     Similar to soccer's filter_recent_completed_fixtures().
     """
     if not games:
         return []
-    finished = [g for g in games if g.get("status", {}).get("long") == "Finished"]
-    # Already sorted newest first in most API responses, but ensure it
-    return sorted(finished, key=lambda g: g.get("date", {}).get("start", ""), reverse=True)
+    completed = [g for g in games if _is_completed_nba_game(g)]
+    completed.sort(key=_nba_date_key, reverse=True)
+    if limit is not None:
+        return completed[:limit]
+    return completed
 
 
 def extract_recent_form(games: list, team_id: int, n: int = 5) -> list[dict]:

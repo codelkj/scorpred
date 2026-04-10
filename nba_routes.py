@@ -873,7 +873,7 @@ def prediction():
         "Upcoming/live game context is from ESPN's public scoreboard and summary feeds.",
         "Season records, PPG, and net rating are live from the standings feed.",
         "Recent form, head-to-head history, rosters, and injuries are all based on real schedule and roster data.",
-        "Analysis uses only completed games (finished state) for accurate recent form and H2H history.",
+        "Analysis uses only completed games (final/post state) for accurate recent form and H2H history.",
     ]
 
     return render_template(
