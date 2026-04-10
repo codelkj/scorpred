@@ -557,8 +557,8 @@ def matchup():
     # ── Scorpred Engine ────────────────────────────────────────────────────────
     scorpred = None
     try:
-        h2h_form_a = np_nba.extract_recent_form(h2h_rows, id_a, n=5)
-        h2h_form_b = np_nba.extract_recent_form(h2h_rows, id_b, n=5)
+        h2h_form_a = np_nba.extract_recent_form(h2h_rows, id_a, n=10)
+        h2h_form_b = np_nba.extract_recent_form(h2h_rows, id_b, n=10)
 
         # Build opponent-strength lookup from NBA standings
         nba_opp_strengths = {}

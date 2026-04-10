@@ -441,7 +441,7 @@ def matchup():
     except Exception as exc:
         app.logger.error("Team B fixtures fetch error: %s", exc)
 
-    h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON)
+    h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
     fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
     fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
 
@@ -485,8 +485,8 @@ def matchup():
 
     # ── Scorpred Engine ────────────────────────────────────────────────────────
     # H2H form from each team's perspective for the Scorpred model
-    h2h_form_a = pred.extract_form(h2h_raw, id_a)[:5]
-    h2h_form_b = pred.extract_form(h2h_raw, id_b)[:5]
+    h2h_form_a = pred.extract_form(h2h_raw, id_a)[:10]
+    h2h_form_b = pred.extract_form(h2h_raw, id_b)[:10]
 
     # Standings → opponent strength lookup for quality-of-schedule adjustment
     standings_for_opp = []

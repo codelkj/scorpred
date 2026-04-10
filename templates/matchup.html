@@ -361,6 +361,36 @@
     {% endfor %}
   </div>
 
+  <!-- Win Probabilities -->
+  <div style="margin-bottom:1.5rem;">
+    <div style="font-size:.78rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.75rem;">Win Probabilities</div>
+    <div style="display:flex; gap:1rem; align-items:center;">
+      <div style="text-align:center; flex:1;">
+        <div class="stat-number accent" style="font-size:1.5rem; font-weight:700;">{{ scorpred.win_probabilities.a }}%</div>
+        <div style="font-size:.75rem; color:#8b949e; margin-top:.2rem;">{{ team_a.name }}</div>
+        <div style="height:6px; background:#21262d; border-radius:3px; overflow:hidden; margin-top:.4rem;">
+          <div style="width:{{ scorpred.win_probabilities.a }}%; height:100%; background:#00ff87; transition:width .6s ease;"></div>
+        </div>
+      </div>
+      {% if 'draw' in scorpred.win_probabilities %}
+      <div style="text-align:center; flex:1;">
+        <div class="stat-number" style="font-size:1.5rem; font-weight:700; color:#f59e0b;">{{ scorpred.win_probabilities.draw }}%</div>
+        <div style="font-size:.75rem; color:#8b949e; margin-top:.2rem;">Draw</div>
+        <div style="height:6px; background:#21262d; border-radius:3px; overflow:hidden; margin-top:.4rem;">
+          <div style="width:{{ scorpred.win_probabilities.draw }}%; height:100%; background:#f59e0b; transition:width .6s ease;"></div>
+        </div>
+      </div>
+      {% endif %}
+      <div style="text-align:center; flex:1;">
+        <div class="stat-number" style="font-size:1.5rem; font-weight:700; color:#3b82f6;">{{ scorpred.win_probabilities.b }}%</div>
+        <div style="font-size:.75rem; color:#8b949e; margin-top:.2rem;">{{ team_b.name }}</div>
+        <div style="height:6px; background:#21262d; border-radius:3px; overflow:hidden; margin-top:.4rem;">
+          <div style="width:{{ scorpred.win_probabilities.b }}%; height:100%; background:#3b82f6; transition:width .6s ease;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Key Edges -->
   {% if scorpred.key_edges %}
   <div style="margin-bottom:1.25rem;">
