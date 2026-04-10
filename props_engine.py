@@ -18,11 +18,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import statistics
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from league_config import DEFAULT_LEAGUE_ID
 
@@ -291,7 +294,9 @@ def _collect_nba_samples(
         result["full_season_log"] = played
         result["last10"] = played[-10:] if len(played) >= 10 else played
         result["last5"]  = played[-5:]  if len(played) >= 5  else played
+        logger.debug("NBA player %s season=%s games_played=%d", player_id, season, len(played))
     except Exception as e:
+        logger.warning("NBA player stats fetch failed player=%s: %s", player_id, e)
         result["error"] = str(e)
 
     try:
@@ -316,6 +321,8 @@ def _collect_nba_samples(
 
 def _soccer_fixture_player_stats(player_stats_list: list, player_id) -> dict | None:
     """Return the raw statistics dict for a player from a fixture/players response."""
+    if not isinstance(player_stats_list, list):
+        return None
     for team_entry in player_stats_list:
         for player_entry in (team_entry.get("players") or []):
             p = player_entry.get("player") or {}
@@ -385,7 +392,8 @@ def _collect_soccer_samples(
 
     # 1 — Season aggregate stats
     try:
-        player_data = ac.get_player_stats(int(player_id), season)
+        player_data = ac.get_player_stats(int(player_id), league, season)
+        logger.debug("Soccer player %s season_stats entries=%d", player_id, len(player_data or []))
         if player_data:
             # API-Football returns list; find entry matching desired league
             entry = None
@@ -403,6 +411,7 @@ def _collect_soccer_samples(
                 entry = stats_list[0] if stats_list else {}
             result["season_stats"] = entry
     except Exception as e:
+        logger.warning("Soccer season stats fetch failed player=%s: %s", player_id, e)
         result["error"] = str(e)
 
     # 2 — Per-game log via fixture player stats
@@ -416,13 +425,18 @@ def _collect_soccer_samples(
             fpath = _cache_path(f"soccer_fix_players_{fid}_{player_team_id}")
             if _cache_valid(fpath, PROPS_CAREER_TTL):
                 fp_data = _cache_load(fpath)
+                if not isinstance(fp_data, list):
+                    fp_data = []
             else:
                 try:
-                    fp_data = ac.get_fixture_player_stats(fid, int(player_team_id))
+                    fp_data = ac.get_fixture_player_stats(fid, team_id=int(player_team_id))
+                    if not isinstance(fp_data, list):
+                        fp_data = []
                     _cache_save(fpath, fp_data)
                 except Exception:
                     fp_data = []
 
+            logger.debug("fixture %s fp_data entries=%d player_id=%s", fid, len(fp_data), player_id)
             game_row = _extract_soccer_game_row(fixture, fp_data, player_id)
             if game_row:
                 result["per_game_log"].append(game_row)
@@ -446,9 +460,13 @@ def _collect_soccer_samples(
                 fpath = _cache_path(f"soccer_fix_players_{fid}_{player_team_id}")
                 if _cache_valid(fpath, PROPS_CAREER_TTL):
                     fp_data = _cache_load(fpath)
+                    if not isinstance(fp_data, list):
+                        fp_data = []
                 else:
                     try:
-                        fp_data = ac.get_fixture_player_stats(fid, int(player_team_id))
+                        fp_data = ac.get_fixture_player_stats(fid, team_id=int(player_team_id))
+                        if not isinstance(fp_data, list):
+                            fp_data = []
                         _cache_save(fpath, fp_data)
                     except Exception:
                         fp_data = []
@@ -516,7 +534,7 @@ def _collect_soccer_samples_all_comps(
 
         # Season aggregate stats for this league
         try:
-            player_data = ac.get_player_stats(int(player_id), season)
+            player_data = ac.get_player_stats(int(player_id), lid, season)
             if player_data:
                 for item in player_data:
                     for stats_entry in (item.get("statistics") or []):
@@ -537,9 +555,13 @@ def _collect_soccer_samples_all_comps(
                 fpath = _cache_path(f"soccer_fix_players_{fid}_{player_team_id}")
                 if _cache_valid(fpath, PROPS_CAREER_TTL):
                     fp_data = _cache_load(fpath)
+                    if not isinstance(fp_data, list):
+                        fp_data = []
                 else:
                     try:
-                        fp_data = ac.get_fixture_player_stats(fid, int(player_team_id))
+                        fp_data = ac.get_fixture_player_stats(fid, team_id=int(player_team_id))
+                        if not isinstance(fp_data, list):
+                            fp_data = []
                         _cache_save(fpath, fp_data)
                     except Exception:
                         fp_data = []
@@ -1578,6 +1600,10 @@ def _build_prop_card(
 
     # If no data at all, return placeholder
     if base_proj == 0 and season_avg is None:
+        logger.debug(
+            "No data for player %s market=%s sport=%s — returning insufficient data card",
+            samples.get("player_id"), market_key, sport,
+        )
         return {
             "market_key":    market_key,
             "market_label":  label,
@@ -1585,8 +1611,17 @@ def _build_prop_card(
             "player_name":   player_name,
             "opponent_name": opponent_name,
             "type":          "standard",
-            "error":         "Insufficient data for this market",
+            "error":         "Insufficient recent data",
             "layers":        avgs,
+            "projection":    {
+                "base":           None,
+                "adjusted":       None,
+                "suggested_line": None,
+                "lean":           "N/A",
+                "lean_margin_pct": None,
+            },
+            "variance":      {},
+            "modifiers":     [],
             "confidence":    {"score": 0, "label": "❌ Insufficient data", "components": {}},
         }
 

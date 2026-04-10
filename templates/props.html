@@ -680,7 +680,7 @@ function buildCard(prop, player, opp) {
   const proj    = prop.projection || {};
   const conf    = prop.confidence || {};
 
-  const lean        = proj.lean || "PUSH";
+  const lean        = proj.lean || "N/A";
   const leanClass   = lean === "OVER" ? "lean-over" : lean === "UNDER" ? "lean-under" : "lean-push";
   const borderClass = lean === "OVER" ? "border-over" : lean === "UNDER" ? "border-under" : "border-push";
   const projClass   = lean === "OVER" ? "proj-lean-over" : lean === "UNDER" ? "proj-lean-under" : "proj-lean-push";
@@ -709,6 +709,9 @@ function buildCard(prop, player, opp) {
   ).join("");
 
   el.classList.add(borderClass);
+  const errorBanner = prop.error
+    ? `<div class="props-error" style="margin:.75rem 0;">⚠ ${prop.error}</div>`
+    : "";
   el.innerHTML = `
     <div class="prop-card-header">
       <div>
@@ -718,7 +721,7 @@ function buildCard(prop, player, opp) {
       <span class="lean-badge ${leanClass}">${lean} ${proj.suggested_line != null ? proj.suggested_line : ""}</span>
     </div>
     <div class="prop-body">
-
+      ${errorBanner}
       <div class="section-title">Statistical Breakdown</div>
       <table class="stats-table">
         <tr><td>Season average</td><td>${fmt(layers.season_avg)} ${layers.per_90 ? "<small>(per 90)</small>" : ""}</td></tr>
