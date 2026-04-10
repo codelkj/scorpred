@@ -1,22 +1,116 @@
 {% extends "base.html" %}
-{% block title %}Player Comparison{% endblock %}
+{% block title %}Key Threats — {{ team_a.name }} vs {{ team_b.name }}{% endblock %}
+
+{% block head %}
+<style>
+  .threats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .threat-team-col { display: flex; flex-direction: column; gap: 1rem; }
+  .threat-team-header {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .75rem 1rem;
+    background: rgba(14,165,233,.08);
+    border: 1px solid rgba(14,165,233,.2);
+    border-radius: 14px;
+  }
+  .threat-team-header img { width: 32px; height: 32px; object-fit: contain; }
+  .threat-team-header h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+
+  .threat-card {
+    background: rgba(9,18,31,.92);
+    border: 1px solid rgba(148,163,184,.14);
+    border-radius: 16px;
+    padding: 1rem 1.1rem;
+    display: flex;
+    gap: .9rem;
+    align-items: flex-start;
+    transition: border-color .2s;
+  }
+  .threat-card:hover { border-color: rgba(14,165,233,.35); }
+  .threat-card.top-threat {
+    border-color: rgba(234,179,8,.35);
+    background: rgba(234,179,8,.04);
+  }
+  .threat-rank {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: rgba(148,163,184,.35);
+    min-width: 1.6rem;
+    line-height: 1;
+    padding-top: .15rem;
+  }
+  .threat-card.top-threat .threat-rank { color: #eab308; }
+  .threat-photo {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: rgba(148,163,184,.1);
+    flex-shrink: 0;
+  }
+  .threat-info { flex: 1; min-width: 0; }
+  .threat-name {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: .2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .threat-badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .4rem; }
+  .threat-badge {
+    font-size: .72rem;
+    padding: .22rem .55rem;
+    border-radius: 999px;
+    font-weight: 500;
+  }
+  .badge-pos { background: rgba(14,165,233,.15); color: #38bdf8; border: 1px solid rgba(14,165,233,.25); }
+  .badge-threat { background: rgba(234,179,8,.12); color: #fbbf24; border: 1px solid rgba(234,179,8,.22); }
+  .badge-injured { background: rgba(239,68,68,.12); color: #f87171; border: 1px solid rgba(239,68,68,.22); }
+  .badge-available { background: rgba(34,197,94,.1); color: #4ade80; border: 1px solid rgba(34,197,94,.2); }
+  .threat-contrib { font-size: .8rem; color: rgba(226,232,240,.55); }
+  .threat-contrib strong { color: rgba(226,232,240,.8); }
+
+  .roster-section { margin-top: 2rem; }
+  .roster-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .roster-col { display: flex; flex-direction: column; gap: 1rem; }
+  .position-label {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+    color: rgba(148,163,184,.5); margin-bottom: .5rem; padding-left: .25rem;
+  }
+  .roster-players { display: flex; flex-direction: column; gap: .35rem; }
+  .roster-player {
+    display: flex; align-items: center; gap: .65rem;
+    padding: .5rem .75rem;
+    background: rgba(15,23,42,.7);
+    border: 1px solid rgba(148,163,184,.1);
+    border-radius: 10px;
+    font-size: .88rem;
+  }
+  .roster-player img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: rgba(148,163,184,.1); }
+  .roster-player-name { flex: 1; }
+  .no-data { color: rgba(148,163,184,.45); font-size: .88rem; padding: .5rem 0; }
+
+  @media (max-width: 640px) {
+    .threats-grid, .roster-grid { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
 
 {% block content %}
 
 <div class="page-header">
-  <h1>Player <span class="accent">Comparison</span></h1>
-  <p class="page-sub">Select one player from each squad to compare their stats</p>
+  <h1>Key <span class="accent">Threats</span></h1>
+  <p class="page-sub">Most dangerous players and their expected match impact</p>
 </div>
 
 {% if selected_fixture %}
-<div class="card glow-card" style="padding:1rem 1.25rem; margin-bottom:1.25rem;">
-  <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center;">
-    <span class="source-badge {{ 'source-espn' if selected_fixture.data_source == 'espn' else 'source-api' }}">
-      {{ 'ESPN fixture' if selected_fixture.data_source == 'espn' else 'Configured fixture' }}
-    </span>
-    {% if selected_fixture.date %}
-    <span>{{ selected_fixture.date[:10] }}{% if selected_fixture.date|length > 10 %} {{ selected_fixture.date[11:16] }} UTC{% endif %}</span>
-    {% endif %}
+<div class="card glow-card" style="padding:.85rem 1.1rem; margin-bottom:1.25rem;">
+  <div style="display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center; font-size:.88rem; color:rgba(226,232,240,.65);">
+    {% if selected_fixture.date %}<span>{{ selected_fixture.date[:10] }}</span>{% endif %}
     {% if selected_fixture.league_name %}<span>{{ selected_fixture.league_name }}</span>{% endif %}
     {% if selected_fixture.round %}<span>{{ selected_fixture.round }}</span>{% endif %}
     {% if selected_fixture.venue_name %}<span>{{ selected_fixture.venue_name }}</span>{% endif %}
@@ -24,380 +118,170 @@
 </div>
 {% endif %}
 
-<div class="player-selectors card glow-card">
-  <div class="player-selector-group">
-    <label class="picker-label">
-      <img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }} Player
-    </label>
-    <input id="searchPlayerA" class="select-search" type="text" placeholder="Search {{ team_a.name }} players" autocomplete="off" />
-    <select id="playerA" class="player-select">
-      <option value="">— Select Player —</option>
-      {% for p in squad_a | sort(attribute='name') %}
-      <option value="{{ p.id }}" data-pos="{{ p.position }}">{{ p.name }} ({{ p.position }})</option>
-      {% endfor %}
-    </select>
-  </div>
+<!-- ── Key Threats ─────────────────────────────────────────────────────────── -->
+<div class="threats-grid">
 
-  <div class="vs-badge">VS</div>
-
-  <div class="player-selector-group">
-    <label class="picker-label">
-      <img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }} Player
-    </label>
-    <input id="searchPlayerB" class="select-search" type="text" placeholder="Search {{ team_b.name }} players" autocomplete="off" />
-    <select id="playerB" class="player-select">
-      <option value="">— Select Player —</option>
-      {% for p in squad_b | sort(attribute='name') %}
-      <option value="{{ p.id }}" data-pos="{{ p.position }}">{{ p.name }} ({{ p.position }})</option>
-      {% endfor %}
-    </select>
-  </div>
-</div>
-
-<div id="sampleWarning" class="alert alert-warn" style="display:none">
-  Head-to-head player sample is limited. Fewer than 3 direct games are available, so season form carries more weight.
-</div>
-
-<div class="player-props-card glow-card" style="margin-top:1.5rem; padding:1rem;">
-  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.75rem;">
-    <div>
-      <h2>Player Props</h2>
-      <p class="page-sub">Generate soccer prop lines for the selected player against the opponent.</p>
+  <div class="threat-team-col">
+    <div class="threat-team-header">
+      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="" class="team-badge" />{% endif %}
+      <h2>{{ team_a.name }}</h2>
     </div>
-    <button id="generateProps" class="button button-primary">Generate Player Props</button>
-  </div>
-  <div id="propsNotice" class="info-box" style="display:none; margin-top:1rem;"></div>
-  <div class="props-grid" id="propsGrid" style="display:none; gap:1rem; margin-top:1rem;">
-    <div class="props-column glow-card" id="propsColumnA">
-      <h3 id="propsTitleA">Player A props</h3>
-      <div id="propsA"></div>
-    </div>
-    <div class="props-column glow-card" id="propsColumnB">
-      <h3 id="propsTitleB">Player B props</h3>
-      <div id="propsB"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Loading indicator -->
-<div id="playerLoading" class="loading-state" style="display:none">
-  <div class="spinner"></div> Loading player data…
-</div>
-
-<!-- Player stat cards -->
-<div class="player-cards" id="playerCards" style="display:none">
-  <div class="player-stat-card glow-card" id="cardA">
-    <div class="player-header">
-      <img id="photoA" src="" class="player-photo team-badge" alt="" />
-      <div>
-        <h3 id="nameA">—</h3>
-        <span id="posA" class="position-badge"></span>
-      </div>
-    </div>
-    <div class="player-stats" id="statsA"></div>
-  </div>
-
-  <div class="player-stat-card glow-card" id="cardB">
-    <div class="player-header">
-      <img id="photoB" src="" class="player-photo team-badge" alt="" />
-      <div>
-        <h3 id="nameB">—</h3>
-        <span id="posB" class="position-badge"></span>
-      </div>
-    </div>
-    <div class="player-stats" id="statsB"></div>
-  </div>
-</div>
-
-<!-- Charts -->
-<div id="chartsSection" class="charts-section" style="display:none">
-  <div class="chart-card glow-card">
-    <h3 class="chart-title">Radar Comparison</h3>
-    <canvas id="radarChart" width="400" height="400"></canvas>
-  </div>
-  <div class="chart-card glow-card">
-    <h3 class="chart-title">Last 10 Games — Rating</h3>
-    <canvas id="ratingChart" width="400" height="200"></canvas>
-  </div>
-</div>
-
-{% endblock %}
-
-{% block scripts %}
-<script>
-  let radarChart = null;
-  let ratingChart = null;
-  const playerData = { A: null, B: null };
-  const playerMeta = { A: null, B: null };
-
-  const statKeys = [
-    { key: 'goals.total',      label: 'Goals',          max: 30 },
-    { key: 'assists',          label: 'Assists',         max: 20 },
-    { key: 'shots.on',         label: 'Shots on Target', max: 80 },
-    { key: 'passes.key',       label: 'Key Passes',      max: 100 },
-    { key: 'dribbles.success', label: 'Dribbles Won',    max: 60 },
-    { key: 'duels.won',        label: 'Duels Won',       max: 150 },
-    { key: 'rating',           label: 'Rating',          max: 10 },
-  ];
-
-  function dig(obj, path) {
-    return path.split('.').reduce((o, k) => (o && o[k] != null ? o[k] : null), obj);
-  }
-
-  function getStats(playerResp) {
-    if (!playerResp || !playerResp.length) return null;
-    const s = playerResp[0].statistics?.[0];
-    if (!s) return null;
-    return {
-      goals:     dig(s, 'goals.total') || 0,
-      assists:   dig(s, 'goals.assists') || 0,
-      shots_on:  dig(s, 'shots.on') || 0,
-      key_passes: dig(s, 'passes.key') || 0,
-      dribbles:  dig(s, 'dribbles.success') || 0,
-      duels:     dig(s, 'duels.won') || 0,
-      rating:    parseFloat(dig(s, 'games.rating') || '0'),
-      minutes:   dig(s, 'games.minutes') || 0,
-      appearances: dig(s, 'games.appearences') || 0,
-    };
-  }
-
-  function renderStatCard(side, resp) {
-    const data = resp[0];
-    const s = getStats(resp);
-    if (!data || !s) return;
-
-    document.getElementById(`photo${side}`).src = data.player?.photo || '';
-    document.getElementById(`name${side}`).textContent = data.player?.name || '—';
-    document.getElementById(`pos${side}`).textContent = data.statistics?.[0]?.games?.position || '';
-
-    const rows = [
-      ['Goals', s.goals],
-      ['Assists', s.assists],
-      ['Shots on Target', s.shots_on],
-      ['Key Passes', s.key_passes],
-      ['Dribbles Won', s.dribbles],
-      ['Duels Won', s.duels],
-      ['Rating', s.rating.toFixed(2)],
-      ['Minutes Played', s.minutes],
-      ['Appearances', s.appearances],
-    ];
-
-    document.getElementById(`stats${side}`).innerHTML = rows.map(([label, val]) => `
-      <div class="stat-item">
-        <span class="stat-label">${label}</span>
-        <span class="stat-val accent">${val ?? '—'}</span>
-      </div>
-    `).join('');
-  }
-
-  function buildRadar() {
-    if (!playerData.A || !playerData.B) return;
-    const sA = getStats(playerData.A);
-    const sB = getStats(playerData.B);
-    if (!sA || !sB) return;
-
-    const labels = ['Goals', 'Assists', 'Shots on\nTarget', 'Key Passes', 'Dribbles', 'Duels Won', 'Rating'];
-    const maxes  = [30, 20, 80, 100, 60, 150, 10];
-
-    function norm(source) {
-      return [source.goals, source.assists, source.shots_on, source.key_passes, source.dribbles, source.duels, source.rating]
-        .map((v, i) => Math.min(100, (v / maxes[i]) * 100));
-    }
-
-    const dA = norm(sA);
-    const dB = norm(sB);
-
-    const nameA = document.getElementById('nameA').textContent;
-    const nameB = document.getElementById('nameB').textContent;
-
-    if (radarChart) radarChart.destroy();
-    radarChart = new Chart(document.getElementById('radarChart'), {
-      type: 'radar',
-      data: {
-        labels,
-        datasets: [
-          { label: nameA, data: dA, backgroundColor: 'rgba(0,255,135,0.15)', borderColor: '#00ff87', pointBackgroundColor: '#00ff87' },
-          { label: nameB, data: dB, backgroundColor: 'rgba(59,130,246,0.15)', borderColor: '#3b82f6', pointBackgroundColor: '#3b82f6' },
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: { r: { suggestedMin: 0, suggestedMax: 100, ticks: { color: '#8b949e', stepSize: 25 }, grid: { color: '#21262d' }, pointLabels: { color: '#e6edf3', font: { size: 12 } } } },
-        plugins: { legend: { labels: { color: '#e6edf3' } } }
-      }
-    });
-  }
-
-  function buildRatingChart() {
-    if (ratingChart) ratingChart.destroy();
-    ratingChart = new Chart(document.getElementById('ratingChart'), {
-      type: 'bar',
-      data: {
-        labels: ['G1','G2','G3','G4','G5','G6','G7','G8','G9','G10'],
-        datasets: [
-          { label: document.getElementById('nameA').textContent, data: [7.1,6.8,7.4,6.5,7.8,7.2,6.9,7.5,7.0,7.3], backgroundColor: '#00ff87' },
-          { label: document.getElementById('nameB').textContent, data: [6.9,7.2,6.6,7.1,6.8,7.3,7.0,6.7,7.4,6.5], backgroundColor: '#3b82f6' },
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y: { min: 5, max: 10, grid: { color: '#21262d' }, ticks: { color: '#8b949e' } },
-          x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } }
-        },
-        plugins: { legend: { labels: { color: '#e6edf3' } } }
-      }
-    });
-  }
-
-  async function loadPlayerAnalysis(side, pid) {
-    const form = new URLSearchParams({
-      player_id: pid,
-      team_id: side === 'A' ? '{{ team_a.id }}' : '{{ team_b.id }}',
-      opponent_team_id: side === 'A' ? '{{ team_b.id }}' : '{{ team_a.id }}'
-    });
-    try {
-      const res = await fetch('/player/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: form.toString()
-      });
-      playerMeta[side] = await res.json();
-      const limited = (playerMeta.A && playerMeta.A.h2h_sample_warning) || (playerMeta.B && playerMeta.B.h2h_sample_warning);
-      document.getElementById('sampleWarning').style.display = limited ? 'block' : 'none';
-    } catch (error) {
-      console.error(error);
-    }
-  }
-
-  async function loadPlayer(side, pid) {
-    document.getElementById('playerLoading').style.display = 'flex';
-    try {
-      const res = await fetch(`/api/player-stats?id=${pid}`);
-      const data = await res.json();
-      playerData[side] = data;
-      renderStatCard(side, data);
-      loadPlayerAnalysis(side, pid);
-
-      if (playerData.A && playerData.B) {
-        document.getElementById('playerCards').style.display = 'grid';
-        document.getElementById('chartsSection').style.display = 'grid';
-        buildRadar();
-        buildRatingChart();
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      document.getElementById('playerLoading').style.display = 'none';
-    }
-  }
-
-  function filterPlayerOptions(searchId, selectId) {
-    const query = document.getElementById(searchId).value.toLowerCase();
-    const select = document.getElementById(selectId);
-    Array.from(select.options).forEach((option, index) => {
-      if (index === 0) return;
-      option.hidden = !option.textContent.toLowerCase().includes(query);
-    });
-  }
-
-  function renderProps(side, data) {
-    const container = document.getElementById(`props${side}`);
-    const title = document.getElementById(`propsTitle${side}`);
-    if (!data || !Array.isArray(data.props)) {
-      container.innerHTML = '<div class="empty-state">No props available.</div>';
-      return;
-    }
-    if (!data.props.length) {
-      container.innerHTML = '<div class="empty-state">No prop cards could be generated.</div>';
-      return;
-    }
-    title.textContent = `${data.player.name} props`;
-    container.innerHTML = data.props.map(card => {
-      const line = card.projection?.suggested_line ?? 'N/A';
-      const confidence = card.confidence?.label ?? 'No confidence data';
-      return `
-        <div class="prop-card">
-          <div class="prop-header">
-            <strong>${card.market_label || card.market_key}</strong>
-            <span class="prop-line">Line: ${line}</span>
+    {% if threats_a %}
+      {% for player in threats_a %}
+      <div class="threat-card glow-card {% if loop.index == 1 %}top-threat{% endif %}">
+        <div class="threat-rank">{{ loop.index }}</div>
+        {% if player.photo %}
+          <img src="{{ player.photo }}" alt="{{ player.name }}" class="threat-photo team-badge" />
+        {% else %}
+          <div class="threat-photo" style="display:flex;align-items:center;justify-content:center;font-size:1.4rem;">👤</div>
+        {% endif %}
+        <div class="threat-info">
+          <div class="threat-name">{{ player.name }}</div>
+          <div class="threat-badges">
+            <span class="threat-badge badge-pos">{{ player.position }}</span>
+            <span class="threat-badge badge-threat">{{ player.threat_label }}</span>
+            {% if player.injured %}
+              <span class="threat-badge badge-injured">Injured</span>
+            {% else %}
+              <span class="threat-badge badge-available">Available</span>
+            {% endif %}
           </div>
-          <div class="prop-body">
-            <p>${confidence}</p>
-            ${card.type === 'standard' ? `<p>Proj: ${card.projection?.adjusted ?? card.projection?.base ?? 'N/A'}</p>` : ''}
+          <div class="threat-contrib">
+            Expected to contribute: <strong>{{ player.contribution }}</strong>
           </div>
         </div>
-      `;
-    }).join('');
-  }
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="no-data">No squad data available.</p>
+    {% endif %}
+  </div>
 
-  async function loadProps(side, pid, playerName, playerPos, teamId, oppId, oppName, isHome) {
-    const notice = document.getElementById('propsNotice');
-    notice.style.display = 'none';
-    const target = document.getElementById(`props${side}`);
-    target.innerHTML = '<div class="loading-state" style="display:flex;"><div class="spinner"></div> Generating props…</div>';
-    document.getElementById('propsGrid').style.display = 'grid';
-    try {
-      const params = new URLSearchParams({
-        player_id: pid,
-        player_name: playerName,
-        player_team_id: teamId,
-        opponent_id: oppId,
-        opponent_name: oppName,
-        is_home: isHome ? 'true' : 'false',
-        markets: 'goals,assists,shots_on_target,key_passes',
-        player_position: playerPos || '',
-      });
-      const res = await fetch(`/props/generate?${params.toString()}`);
-      const json = await res.json();
-      if (json.error) {
-        target.innerHTML = `<div class="error-state">${json.error}</div>`;
-        return;
-      }
-      renderProps(side, json);
-      if (json.errors && json.errors.length) {
-        notice.innerHTML = json.errors.map(error => `<p>${error}</p>`).join('');
-        notice.style.display = 'block';
-      }
-    } catch (e) {
-      target.innerHTML = `<div class="error-state">Props request failed.</div>`;
-      console.error(e);
-    }
-  }
+  <div class="threat-team-col">
+    <div class="threat-team-header">
+      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="" class="team-badge" />{% endif %}
+      <h2>{{ team_b.name }}</h2>
+    </div>
+    {% if threats_b %}
+      {% for player in threats_b %}
+      <div class="threat-card glow-card {% if loop.index == 1 %}top-threat{% endif %}">
+        <div class="threat-rank">{{ loop.index }}</div>
+        {% if player.photo %}
+          <img src="{{ player.photo }}" alt="{{ player.name }}" class="threat-photo team-badge" />
+        {% else %}
+          <div class="threat-photo" style="display:flex;align-items:center;justify-content:center;font-size:1.4rem;">👤</div>
+        {% endif %}
+        <div class="threat-info">
+          <div class="threat-name">{{ player.name }}</div>
+          <div class="threat-badges">
+            <span class="threat-badge badge-pos">{{ player.position }}</span>
+            <span class="threat-badge badge-threat">{{ player.threat_label }}</span>
+            {% if player.injured %}
+              <span class="threat-badge badge-injured">Injured</span>
+            {% else %}
+              <span class="threat-badge badge-available">Available</span>
+            {% endif %}
+          </div>
+          <div class="threat-contrib">
+            Expected to contribute: <strong>{{ player.contribution }}</strong>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="no-data">No squad data available.</p>
+    {% endif %}
+  </div>
 
-  function getSelectedPlayerData(side) {
-    const select = document.getElementById(`player${side}`);
-    const playerId = select.value;
-    if (!playerId) return null;
-    const option = select.options[select.selectedIndex];
-    return {
-      id: playerId,
-      name: option.textContent.replace(/ \(.+\)$/, ''),
-      pos: option.dataset.pos || '',
-    };
-  }
+</div>
 
-  async function generateAllProps() {
-    const playerA = getSelectedPlayerData('A');
-    const playerB = getSelectedPlayerData('B');
-    if (playerA) {
-      await loadProps('A', playerA.id, playerA.name, playerA.pos, {{ team_a.id }}, {{ team_b.id }}, '{{ team_b.name }}', true);
-    }
-    if (playerB) {
-      await loadProps('B', playerB.id, playerB.name, playerB.pos, {{ team_b.id }}, {{ team_a.id }}, '{{ team_a.name }}', false);
-    }
-  }
+<!-- ── Injury Report ───────────────────────────────────────────────────────── -->
+{% if injuries_a or injuries_b %}
+<div class="card glow-card" style="padding:1rem 1.25rem; margin-bottom:2rem;">
+  <h3 style="margin:0 0 .75rem; font-size:.9rem; text-transform:uppercase; letter-spacing:.06em; color:rgba(226,232,240,.6);">Injury Report</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+    <div>
+      <div style="font-size:.8rem; color:rgba(148,163,184,.5); margin-bottom:.4rem;">{{ team_a.name }}</div>
+      {% for inj in injuries_a[:5] %}
+        <div style="font-size:.85rem; color:#f87171; margin-bottom:.25rem;">
+          {{ (inj.player or {}).get('name', '—') }}
+          {% if inj.type %}<span style="color:rgba(148,163,184,.5); font-size:.78rem;"> — {{ inj.type }}</span>{% endif %}
+        </div>
+      {% else %}
+        <div class="no-data">No injuries reported</div>
+      {% endfor %}
+    </div>
+    <div>
+      <div style="font-size:.8rem; color:rgba(148,163,184,.5); margin-bottom:.4rem;">{{ team_b.name }}</div>
+      {% for inj in injuries_b[:5] %}
+        <div style="font-size:.85rem; color:#f87171; margin-bottom:.25rem;">
+          {{ (inj.player or {}).get('name', '—') }}
+          {% if inj.type %}<span style="color:rgba(148,163,184,.5); font-size:.78rem;"> — {{ inj.type }}</span>{% endif %}
+        </div>
+      {% else %}
+        <div class="no-data">No injuries reported</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
 
-  document.getElementById('playerA').addEventListener('change', function() {
-    if (this.value) loadPlayer('A', this.value);
-  });
-  document.getElementById('playerB').addEventListener('change', function() {
-    if (this.value) loadPlayer('B', this.value);
-  });
-  document.getElementById('generateProps').addEventListener('click', generateAllProps);
-  document.getElementById('searchPlayerA').addEventListener('input', () => filterPlayerOptions('searchPlayerA', 'playerA'));
-  document.getElementById('searchPlayerB').addEventListener('input', () => filterPlayerOptions('searchPlayerB', 'playerB'));
-</script>
+<!-- ── Full Squads ─────────────────────────────────────────────────────────── -->
+<div class="roster-section">
+  <h2 style="font-size:.9rem; text-transform:uppercase; letter-spacing:.07em; color:rgba(226,232,240,.5); margin-bottom:1rem;">Full Squads</h2>
+  <div class="roster-grid">
+
+    <div class="roster-col">
+      <div style="font-weight:600; font-size:.95rem; margin-bottom:.1rem;">{{ team_a.name }}</div>
+      {% for position in ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker'] %}
+        {% set players = squad_a.get(position, []) %}
+        {% if players %}
+        <div>
+          <div class="position-label">{{ position }}s</div>
+          <div class="roster-players">
+            {% for p in players | sort(attribute='name') %}
+            <div class="roster-player">
+              {% if p.photo %}
+                <img src="{{ p.photo }}" alt="" class="team-badge" />
+              {% else %}
+                <div style="width:28px;height:28px;border-radius:50%;background:rgba(148,163,184,.12);flex-shrink:0;"></div>
+              {% endif %}
+              <span class="roster-player-name">{{ p.name or '—' }}</span>
+              {% if p.number %}<span style="color:rgba(148,163,184,.4);font-size:.8rem;">#{{ p.number }}</span>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="roster-col">
+      <div style="font-weight:600; font-size:.95rem; margin-bottom:.1rem;">{{ team_b.name }}</div>
+      {% for position in ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker'] %}
+        {% set players = squad_b.get(position, []) %}
+        {% if players %}
+        <div>
+          <div class="position-label">{{ position }}s</div>
+          <div class="roster-players">
+            {% for p in players | sort(attribute='name') %}
+            <div class="roster-player">
+              {% if p.photo %}
+                <img src="{{ p.photo }}" alt="" class="team-badge" />
+              {% else %}
+                <div style="width:28px;height:28px;border-radius:50%;background:rgba(148,163,184,.12);flex-shrink:0;"></div>
+              {% endif %}
+              <span class="roster-player-name">{{ p.name or '—' }}</span>
+              {% if p.number %}<span style="color:rgba(148,163,184,.4);font-size:.8rem;">#{{ p.number }}</span>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+  </div>
+</div>
+
 {% endblock %}

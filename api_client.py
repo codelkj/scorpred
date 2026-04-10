@@ -303,6 +303,29 @@ def _team_logo(team: dict) -> str:
     return team.get("logo", "")
 
 
+def _espn_score(score_val) -> int | None:
+    """Extract integer score from an ESPN score field.
+
+    ESPN returns scores in two shapes depending on the endpoint:
+      - Simple scalar: "2" or 2
+      - Rich object:   {"value": 2.0, "displayValue": "2", "$ref": "..."}
+    """
+    if score_val is None:
+        return None
+    if isinstance(score_val, dict):
+        val = score_val.get("value") if score_val.get("value") is not None else score_val.get("displayValue")
+        if val is None:
+            return None
+        try:
+            return int(float(val))
+        except (TypeError, ValueError):
+            return None
+    try:
+        return int(float(score_val))
+    except (TypeError, ValueError):
+        return None
+
+
 def _espn_fixture_status(state: str) -> dict[str, str]:
     state = (state or "").lower()
     if state == "post":
@@ -356,8 +379,8 @@ def _normalize_espn_fixture(event: dict, league_id: int) -> dict | None:
             },
         },
         "goals": {
-            "home": _si(home.get("score"), None),
-            "away": _si(away.get("score"), None),
+            "home": _espn_score(home.get("score")),
+            "away": _espn_score(away.get("score")),
         },
         "score": {"halftime": {"home": None, "away": None}},
         "events": [],
@@ -895,6 +918,41 @@ def get_upcoming_fixtures(
             continue
         if (fixture.get("fixture") or {}).get("status", {}).get("short") == "NS":
             fixtures.append(fixture)
+    fixtures.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""))
+    return fixtures[:next_n]
+
+
+def get_espn_fixtures(espn_slug: str, next_n: int = 20) -> list:
+    """Fetch upcoming fixtures from ESPN for a given sport slug (e.g. 'FIFA.WC.2026').
+
+    Used by the World Cup page and other non-league ESPN endpoints that are not
+    covered by the standard API-Football provider.
+
+    Args:
+        espn_slug: ESPN competition slug string.
+        next_n: Maximum number of upcoming fixtures to return.
+
+    Returns:
+        List of normalised fixture dicts (same shape as get_upcoming_fixtures).
+    """
+    # ESPN base for soccer scoreboard uses league slug in path
+    soccer_base = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+    url = f"{soccer_base}/{espn_slug}/scoreboard"
+    cache_key = f"espn_slug:{espn_slug}:{datetime.now().strftime('%Y-%m-%d')}"
+    try:
+        payload = _espn_get_json(url, cache_key, ttl_hours=0.5)
+    except Exception:
+        return []
+
+    # Use league_id=0 as a sentinel — _normalize_espn_fixture will still work for
+    # the teams/goals/fixture fields we need.
+    fixtures = []
+    for event in payload.get("events") or []:
+        fixture = _normalize_espn_fixture(event, 0)
+        if not fixture:
+            continue
+        fixtures.append(fixture)
+
     fixtures.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""))
     return fixtures[:next_n]
 
