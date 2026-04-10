@@ -347,9 +347,13 @@ def get_game_summary(event_id: str) -> dict:
     )
 
 
-def _team_schedule(team_id: str) -> list[dict]:
+def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
+    params: dict = {}
+    if season is not None:
+        params["season"] = season
     payload = _espn_get(
         f"teams/{team_id}/schedule",
+        params=params if params else None,
         ttl_seconds=NBA_SCHEDULE_TTL_SECONDS,
     )
     events = []
@@ -369,14 +373,24 @@ def get_team_recent_form(team_id, season: int = NBA_SEASON, n: int = 10) -> list
 def get_h2h(team_a_id, team_b_id, season: int = NBA_SEASON) -> list[dict]:
     team_a_id = str(team_a_id)
     team_b_id = str(team_b_id)
-    games = []
-    for game in _team_schedule(team_a_id):
-        if game["status"]["state"] != "post":
+    seen_ids: set[str] = set()
+    games: list[dict] = []
+    # Fetch the last 5 seasons so H2H is not limited to current season only
+    for yr in range(season - 4, season + 1):
+        try:
+            for game in _team_schedule(team_a_id, season=yr):
+                if game["status"]["state"] != "post":
+                    continue
+                home_id = game["teams"]["home"]["id"]
+                away_id = game["teams"]["visitors"]["id"]
+                if {home_id, away_id} != {team_a_id, team_b_id}:
+                    continue
+                gid = game["id"]
+                if gid not in seen_ids:
+                    seen_ids.add(gid)
+                    games.append(game)
+        except Exception:
             continue
-        home_id = game["teams"]["home"]["id"]
-        away_id = game["teams"]["visitors"]["id"]
-        if {home_id, away_id} == {team_a_id, team_b_id}:
-            games.append(game)
     games.sort(key=lambda game: game["date"]["start"], reverse=True)
     return games[:10]
 

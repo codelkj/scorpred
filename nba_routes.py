@@ -21,6 +21,7 @@ from flask import (
 )
 import nba_live_client as nc
 import nba_predictor as np_nba
+import scorpred_engine as se
 
 nba_bp = Blueprint(
     "nba",
@@ -553,6 +554,52 @@ def matchup():
     split_a = _splits(form_a)
     split_b = _splits(form_b)
 
+    # ── Scorpred Engine ────────────────────────────────────────────────────────
+    scorpred = None
+    try:
+        h2h_form_a = np_nba.extract_recent_form(h2h_rows, id_a, n=10)
+        h2h_form_b = np_nba.extract_recent_form(h2h_rows, id_b, n=10)
+
+        # Build opponent-strength lookup from NBA standings
+        nba_opp_strengths = {}
+        try:
+            nba_standings = nc.get_standings()
+            # Standings are typically a list of team-stat dicts with 'team' and 'conference rank'
+            # Build a flat list with rank derived from position in the list
+            flat = []
+            if isinstance(nba_standings, dict):
+                for conf_teams in nba_standings.values():
+                    flat.extend(conf_teams)
+            else:
+                flat = list(nba_standings)
+            # Assign rank by position if no explicit rank key
+            ranked = []
+            for i, entry in enumerate(flat):
+                team_info = entry.get("team") or entry
+                name = team_info.get("name") or team_info.get("nickname", "")
+                rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
+                if name:
+                    ranked.append({"team": {"name": name}, "rank": rank})
+            nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+        except Exception:
+            pass
+
+        scorpred = se.scorpred_predict(
+            form_a=recent_form_a,
+            form_b=recent_form_b,
+            h2h_form_a=h2h_form_a,
+            h2h_form_b=h2h_form_b,
+            injuries_a=injuries_a,
+            injuries_b=injuries_b,
+            team_a_is_home=True,  # Assume team_a is home for now
+            team_a_name=team_a.get("nickname") or team_a["name"],
+            team_b_name=team_b.get("nickname") or team_b["name"],
+            sport="nba",
+            opp_strengths=nba_opp_strengths,
+        )
+    except Exception as e:
+        _log_err("Scorpred NBA engine", e)
+
     return render_template(
         "nba/matchup.html",
         **_page_context(
@@ -576,6 +623,7 @@ def matchup():
             injury_summary_b=injury_summary_b,
             key_players_a=key_players_a,
             key_players_b=key_players_b,
+            scorpred=scorpred,
             error=error,
             route_support=_support("matchup"),
         ),
@@ -773,6 +821,54 @@ def prediction():
     form_a_display = np_nba.extract_form_for_display(form_a_filtered, id_a)
     form_b_display = np_nba.extract_form_for_display(form_b_filtered, id_b)
 
+    # ── Scorpred Engine ────────────────────────────────────────────────────────
+    scorpred = None
+    try:
+        nba_form_a = np_nba.extract_recent_form(form_a_filtered, id_a, n=5)
+        nba_form_b = np_nba.extract_recent_form(form_b_filtered, id_b, n=5)
+        h2h_form_a = np_nba.extract_recent_form(h2h_games_filtered, id_a, n=5)
+        h2h_form_b = np_nba.extract_recent_form(h2h_games_filtered, id_b, n=5)
+
+        # Build opponent-strength lookup from NBA standings
+        nba_opp_strengths = {}
+        try:
+            nba_standings = nc.get_standings()
+            # Standings are typically a list of team-stat dicts with 'team' and 'conference rank'
+            # Build a flat list with rank derived from position in the list
+            flat = []
+            if isinstance(nba_standings, dict):
+                for conf_teams in nba_standings.values():
+                    flat.extend(conf_teams)
+            else:
+                flat = list(nba_standings)
+            # Assign rank by position if no explicit rank key
+            ranked = []
+            for i, entry in enumerate(flat):
+                team_info = entry.get("team") or entry
+                name = team_info.get("name") or team_info.get("nickname", "")
+                rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
+                if name:
+                    ranked.append({"team": {"name": name}, "rank": rank})
+            nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+        except Exception:
+            pass
+
+        scorpred = se.scorpred_predict(
+            form_a=nba_form_a,
+            form_b=nba_form_b,
+            h2h_form_a=h2h_form_a,
+            h2h_form_b=h2h_form_b,
+            injuries_a=injuries_a,
+            injuries_b=injuries_b,
+            team_a_is_home=True,
+            team_a_name=team_a.get("nickname") or team_a["name"],
+            team_b_name=team_b.get("nickname") or team_b["name"],
+            sport="nba",
+            opp_strengths=nba_opp_strengths,
+        )
+    except Exception as e:
+        _log_err("Scorpred NBA engine", e)
+
     data_notes = [
         "Upcoming/live game context is from ESPN's public scoreboard and summary feeds.",
         "Season records, PPG, and net rating are live from the standings feed.",
@@ -795,6 +891,7 @@ def prediction():
             stats_b=stats_b or {},
             form_a=form_a_display,
             form_b=form_b_display,
+            scorpred=scorpred,
             data_notes=data_notes,
             error=error,
             route_support=_support("prediction"),

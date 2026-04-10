@@ -27,6 +27,7 @@ from league_config import (
     DEFAULT_LEAGUE_ID,
     LEAGUE_BY_ID,
     SUPPORTED_LEAGUE_IDS,
+    _current_football_season,
 )
 
 load_dotenv()
@@ -771,7 +772,7 @@ def get_injuries(
     team_id: int | None = None,
 ) -> list:
     if team_id is None and league_id not in SUPPORTED_LEAGUE_IDS and season in SUPPORTED_LEAGUE_IDS:
-        team_id, league_id, season = league_id, season, CURRENT_SEASON
+        team_id, league_id, season = league_id, season, _current_football_season()
     try:
         params = {"league": league_id, "season": season}
         if team_id is not None:
@@ -1190,10 +1191,11 @@ def get_player_vs_team(
     team_id: int,
     opponent_team_id: int,
     league_ids: list[int] | None = None,
+    season: int = CURRENT_SEASON,
 ) -> dict:
     """Historical records of player_id vs opponent across leagues and past seasons."""
     league_ids = league_ids or list(SUPPORTED_LEAGUE_IDS)
-    seasons    = [CURRENT_SEASON - i for i in range(4)]
+    seasons    = [season - i for i in range(4)]
     games: list[dict] = []
 
     for season in seasons:

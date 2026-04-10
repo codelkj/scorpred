@@ -14,6 +14,7 @@ import api_client as ac
 import api_client as football_api
 import predictor as pred
 import props_engine as pe
+import scorpred_engine as se
 from league_config import (
     CURRENT_SEASON,
     DEFAULT_LEAGUE_ID,
@@ -95,6 +96,14 @@ def _clean_injuries(items: list[dict]) -> list[dict]:
 
 def _display_injuries(items: list[dict]) -> list[dict]:
     return _clean_injuries(items)
+
+
+def _build_opp_strengths(standings: list) -> dict:
+    """Delegate to scorpred_engine — builds normalised_name → strength (0-10)."""
+    try:
+        return se.build_opp_strengths_from_standings(standings)
+    except Exception:
+        return {}
 
 
 def _normalise_probs(win_prob: dict) -> dict:
@@ -432,7 +441,7 @@ def matchup():
     except Exception as exc:
         app.logger.error("Team B fixtures fetch error: %s", exc)
 
-    h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON)
+    h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
     fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
     fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
 
@@ -474,6 +483,33 @@ def matchup():
         {"label": "Clean sheets", "a": sum(1 for row in form_a if row.get("cs")), "b": sum(1 for row in form_b if row.get("cs"))},
     ]
 
+    # ── Scorpred Engine ────────────────────────────────────────────────────────
+    # H2H form from each team's perspective for the Scorpred model
+    h2h_form_a = pred.extract_form(h2h_raw, id_a)[:10]
+    h2h_form_b = pred.extract_form(h2h_raw, id_b)[:10]
+
+    # Standings → opponent strength lookup for quality-of-schedule adjustment
+    standings_for_opp = []
+    try:
+        standings_for_opp = ac.get_standings(LEAGUE, SEASON)
+    except Exception:
+        pass
+    opp_strengths = _build_opp_strengths(standings_for_opp)
+
+    scorpred = se.scorpred_predict(
+        form_a=form_a,
+        form_b=form_b,
+        h2h_form_a=h2h_form_a,
+        h2h_form_b=h2h_form_b,
+        injuries_a=injuries_a_raw,
+        injuries_b=injuries_b_raw,
+        team_a_is_home=True,  # Assume team_a is home for now
+        team_a_name=team_a["name"],
+        team_b_name=team_b["name"],
+        sport="soccer",
+        opp_strengths=opp_strengths,
+    )
+
     return render_template(
         "matchup.html",
         **_page_context(
@@ -489,6 +525,7 @@ def matchup():
             injuries_a=injuries_a,
             injuries_b=injuries_b,
             stats_compare=stats_compare,
+            scorpred=scorpred,
         ),
     )
 
@@ -741,6 +778,33 @@ def prediction():
     )
     result["win_prob"] = _normalise_probs(result.get("win_prob", {}))
 
+    # ── Scorpred Engine ────────────────────────────────────────────────────────
+    # H2H form from each team's perspective for the Scorpred model
+    h2h_form_a = pred.extract_form(h2h, id_a)[:5]
+    h2h_form_b = pred.extract_form(h2h, id_b)[:5]
+
+    # Standings → opponent strength lookup for quality-of-schedule adjustment
+    standings_for_opp = []
+    try:
+        standings_for_opp = ac.get_standings(LEAGUE, SEASON)
+    except Exception:
+        pass
+    opp_strengths = _build_opp_strengths(standings_for_opp)
+
+    scorpred = se.scorpred_predict(
+        form_a=result["form_a"],
+        form_b=result["form_b"],
+        h2h_form_a=h2h_form_a,
+        h2h_form_b=h2h_form_b,
+        injuries_a=injuries_a,
+        injuries_b=injuries_b,
+        team_a_is_home=True,
+        team_a_name=team_a["name"],
+        team_b_name=team_b["name"],
+        sport="soccer",
+        opp_strengths=opp_strengths,
+    )
+
     return render_template(
         "prediction.html",
         **_page_context(
@@ -748,6 +812,7 @@ def prediction():
             team_b=team_b,
             selected_fixture=selected_fixture,
             result=result,
+            scorpred=scorpred,
         ),
     )
 

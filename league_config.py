@@ -10,7 +10,16 @@ experience. Difficulty weights are used during cross-competition aggregation:
 
 from __future__ import annotations
 
-CURRENT_SEASON: int = 2024
+from datetime import datetime as _dt
+
+# Football seasons span two calendar years; API-Football uses the start year.
+# August onwards → new season has started (e.g. Aug 2025 → season 2025).
+# Before August → still in the season that started last year (e.g. Apr 2026 → season 2025).
+def _current_football_season() -> int:
+    now = _dt.now()
+    return now.year if now.month >= 8 else now.year - 1
+
+CURRENT_SEASON: int = _current_football_season()
 DEFAULT_LEAGUE_KEY = "premier_league"
 
 # key -> {id, name, country, flag, difficulty, type, bdl_slug, bdl_version}
