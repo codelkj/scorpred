@@ -8,15 +8,78 @@ Poisson distribution for correct scores and goal totals.
 from __future__ import annotations
 
 import math
+import re
+from datetime import datetime
 from typing import Any
+
+from league_config import CURRENT_SEASON
 
 
 # ── Form extraction ────────────────────────────────────────────────────────────
 
+def _fixture_season_start_years(fixture: dict) -> set[int]:
+    seasons: set[int] = set()
+    season_value = (fixture.get("league") or {}).get("season")
+    if isinstance(season_value, int):
+        seasons.add(season_value)
+        return seasons
+    if isinstance(season_value, str):
+        raw = season_value.strip()
+        if raw:
+            match = re.match(r"^(20\d{2})(?:[/-](?:20)?(\d{2}))?$", raw)
+            if match:
+                seasons.add(int(match.group(1)))
+                return seasons
+            years = re.findall(r"20\d{2}", raw)
+            if years:
+                seasons.add(int(years[0]))
+    return seasons
+
+
+def _fixture_season_start_year_from_date(fixture: dict) -> int | None:
+    date_raw = str((fixture.get("fixture") or {}).get("date") or "")[:10]
+    if not date_raw:
+        return None
+    try:
+        date = datetime.fromisoformat(date_raw)
+    except ValueError:
+        return None
+    return date.year if date.month >= 7 else date.year - 1
+
+
+def _is_completed_fixture(fixture: dict) -> bool:
+    status = (fixture.get("fixture") or {}).get("status") or {}
+    short = str(status.get("short") or "")
+    return short in {"FT", "AET", "PEN"}
+
+
+def filter_recent_completed_fixtures(
+    fixtures: list,
+    current_season: int = CURRENT_SEASON,
+    seasons_back: int = 2,
+) -> list[dict]:
+    valid_seasons = {current_season - i for i in range(seasons_back)}
+    filtered = []
+    for fixture in fixtures or []:
+        if not _is_completed_fixture(fixture):
+            continue
+        seasons = _fixture_season_start_years(fixture)
+        if seasons:
+            if seasons.isdisjoint(valid_seasons):
+                continue
+        else:
+            season_start = _fixture_season_start_year_from_date(fixture)
+            if season_start not in valid_seasons:
+                continue
+        filtered.append(fixture)
+    filtered.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""), reverse=True)
+    return filtered
+
+
 def extract_form(fixtures: list, team_id: int) -> list[dict]:
     """Return per-match summary dicts for team_id from a fixture list."""
     form = []
-    for f in fixtures:
+    for f in filter_recent_completed_fixtures(fixtures):
         h_id = f["teams"]["home"]["id"]
         a_id = f["teams"]["away"]["id"]
         hg = f["goals"]["home"]
@@ -93,7 +156,7 @@ def home_away_split(form: list[dict]) -> dict:
 
 def h2h_record(fixtures: list, id_a: int, id_b: int) -> dict:
     a_wins = draws = b_wins = 0
-    for f in fixtures:
+    for f in filter_recent_completed_fixtures(fixtures):
         h_id = f["teams"]["home"]["id"]
         hg = f["goals"]["home"] or 0
         ag = f["goals"]["away"] or 0
@@ -356,10 +419,8 @@ def predict(
     squad_b: list = None,
 ) -> dict[str, Any]:
 
-    form_a = extract_form(fixtures_a, team_a_id)[:10]
-    form_b = extract_form(fixtures_b, team_b_id)[:10]
-    form_a5 = form_a[:5]
-    form_b5 = form_b[:5]
+    form_a5 = extract_form(fixtures_a, team_a_id)[:5]
+    form_b5 = extract_form(fixtures_b, team_b_id)[:5]
 
     rec = h2h_record(h2h, team_a_id, team_b_id)
 
@@ -442,8 +503,8 @@ def predict(
     fgs_b = top_scorer_candidates(squad_b or [], injuries_b, lam_b)
 
     # Home/Away season splits
-    split_a = home_away_split(form_a)
-    split_b = home_away_split(form_b)
+    split_a = home_away_split(form_a5)
+    split_b = home_away_split(form_b5)
 
     return {
         # 1X2

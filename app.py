@@ -254,7 +254,8 @@ def _store_selected_teams(team_a: dict, team_b: dict, fixture_context: dict | No
 
 
 def _team_form_payload(team_id: int) -> dict:
-    fixtures = ac.get_team_fixtures(team_id, LEAGUE, SEASON, last=5)
+    fixtures = ac.get_team_fixtures(team_id, LEAGUE, SEASON, last=20)
+    fixtures = pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON)
     form = pred.extract_form(fixtures, team_id)[:5]
     return {"form_string": "".join(item.get("result", "") for item in form), "rows": form}
 
@@ -417,19 +418,23 @@ def matchup():
     injuries_b_raw = []
 
     try:
-        h2h_raw = ac.get_h2h(id_a, id_b, last=10)
+        h2h_raw = ac.get_h2h(id_a, id_b, last=20)
     except Exception as exc:
         app.logger.error("H2H fetch error: %s", exc)
 
     try:
-        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=10)
+        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20)
     except Exception as exc:
         app.logger.error("Team A fixtures fetch error: %s", exc)
 
     try:
-        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=10)
+        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20)
     except Exception as exc:
         app.logger.error("Team B fixtures fetch error: %s", exc)
+
+    h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON)
+    fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
+    fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
 
     try:
         injuries_a_raw = ac.get_injuries(LEAGUE, SEASON, id_a)
@@ -453,8 +458,8 @@ def matchup():
 
     form_a = pred.extract_form(fixtures_a, id_a)[:5]
     form_b = pred.extract_form(fixtures_b, id_b)[:5]
-    split_a = pred.home_away_split(pred.extract_form(fixtures_a, id_a))
-    split_b = pred.home_away_split(pred.extract_form(fixtures_b, id_b))
+    split_a = pred.home_away_split(form_a)
+    split_b = pred.home_away_split(form_b)
     h2h_rec = pred.h2h_record(h2h_raw, id_a, id_b)
     injuries_a = _display_injuries(injuries_a_raw)
     injuries_b = _display_injuries(injuries_b_raw)
@@ -495,6 +500,7 @@ def _build_key_threats(squad: list, injuries: list, fixtures: list, team_id: int
         for inj in injuries
         if (inj.get("player") or {}).get("id")
     }
+    fixtures = pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON)
     form = pred.extract_form(fixtures, team_id)
     avg_gf = pred.avg_goals(form, scored=True) if form else 1.2
     team_lambda = max(0.3, avg_gf)
@@ -574,13 +580,16 @@ def player():
     except Exception as exc:
         app.logger.error("Player injuries B fetch error: %s", exc)
     try:
-        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=10)
+        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20)
     except Exception as exc:
         app.logger.error("Player fixtures A fetch error: %s", exc)
     try:
-        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=10)
+        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20)
     except Exception as exc:
         app.logger.error("Player fixtures B fetch error: %s", exc)
+
+    fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
+    fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
 
     if not squad_a and not squad_b:
         return _critical_error("Player squad data is unavailable right now.")
@@ -685,19 +694,23 @@ def prediction():
     squad_b = []
 
     try:
-        h2h = ac.get_h2h(id_a, id_b, last=10)
+        h2h = ac.get_h2h(id_a, id_b, last=20)
     except Exception as exc:
         app.logger.error("Prediction H2H fetch error: %s", exc)
 
     try:
-        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=10)
+        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20)
     except Exception as exc:
         app.logger.error("Prediction team A fixtures fetch error: %s", exc)
 
     try:
-        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=10)
+        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20)
     except Exception as exc:
         app.logger.error("Prediction team B fixtures fetch error: %s", exc)
+
+    h2h = pred.filter_recent_completed_fixtures(h2h, current_season=SEASON)
+    fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
+    fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
 
     try:
         injuries_a = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, id_a))

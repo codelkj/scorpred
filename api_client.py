@@ -389,12 +389,12 @@ def _normalize_espn_fixture(event: dict, league_id: int) -> dict | None:
     }
 
 
-def _espn_schedule(team_id: int, league_id: int) -> list[dict]:
+def _espn_schedule(team_id: int, league_id: int, season: int = CURRENT_SEASON) -> list[dict]:
     slug = _espn_slug(league_id)
     resolved_team_id = _resolve_team_id(team_id, league_id)
     payload = _espn_get_json(
-        f"{ESPN_BASE}/{slug}/teams/{resolved_team_id}/schedule",
-        f"schedule:{league_id}:{resolved_team_id}:{_requested_or_current_season(CURRENT_SEASON)}",
+        f"{ESPN_BASE}/{slug}/teams/{resolved_team_id}/schedule?season={season}",
+        f"schedule:{league_id}:{resolved_team_id}:{season}",
         ttl_hours=1,
     )
     events = payload.get("events") or []
@@ -665,12 +665,13 @@ def get_h2h(id_a: int, id_b: int, last: int = 10) -> list:
     fixtures = []
     for league_id in [DEFAULT_LEAGUE_ID, *SUPPORTED_LEAGUE_IDS]:
         try:
-            for fixture in _espn_schedule(team_a_id, league_id):
-                teams = fixture.get("teams") or {}
-                home_id = _si((teams.get("home") or {}).get("id"))
-                away_id = _si((teams.get("away") or {}).get("id"))
-                if {home_id, away_id} == {team_a_id, team_b_id} and _fixture_finished(fixture):
-                    fixtures.append(fixture)
+            for season_year in (CURRENT_SEASON, CURRENT_SEASON - 1):
+                for fixture in _espn_schedule(team_a_id, league_id, season_year):
+                    teams = fixture.get("teams") or {}
+                    home_id = _si((teams.get("home") or {}).get("id"))
+                    away_id = _si((teams.get("away") or {}).get("id"))
+                    if {home_id, away_id} == {team_a_id, team_b_id} and _fixture_finished(fixture):
+                        fixtures.append(fixture)
         except Exception:
             continue
         if fixtures:
@@ -817,13 +818,31 @@ def get_team_fixtures(
     season: int = CURRENT_SEASON,
     last: int = 10,
 ) -> list:
+    def _unique_fixtures(fixtures: list[dict]) -> list[dict]:
+        seen = {}
+        for fixture in fixtures:
+            fixture_id = _fixture_id(fixture)
+            if fixture_id:
+                seen[fixture_id] = fixture
+            else:
+                home_id = (fixture.get("teams") or {}).get("home", {}).get("id") or ""
+                away_id = (fixture.get("teams") or {}).get("away", {}).get("id") or ""
+                key = f"{(fixture.get('fixture') or {}).get('date') or ''}:{home_id}:{away_id}"
+                seen.setdefault(key, fixture)
+        return list(seen.values())
+
+    fixtures = []
     try:
-        fixtures = api_get(
-            "fixtures",
-            {"team": team_id, "league": league_id, "season": season},
-            cache_hours=2,
-        ).get("response", [])
+        for season_year in (season, season - 1):
+            season_fixtures = api_get(
+                "fixtures",
+                {"team": team_id, "league": league_id, "season": season_year},
+                cache_hours=2,
+            ).get("response", [])
+            if season_fixtures:
+                fixtures.extend(season_fixtures)
         if fixtures:
+            fixtures = _unique_fixtures(fixtures)
             fixtures.sort(
                 key=lambda f: str((f.get("fixture") or {}).get("date") or ""),
                 reverse=True,
@@ -832,7 +851,15 @@ def get_team_fixtures(
     except Exception:
         pass
 
-    fixtures = [fixture for fixture in _espn_schedule(team_id, league_id) if _fixture_finished(fixture)]
+    fixtures = []
+    for season_year in (season, season - 1):
+        try:
+            fixtures.extend(
+                [fixture for fixture in _espn_schedule(team_id, league_id, season_year) if _fixture_finished(fixture)]
+            )
+        except Exception:
+            continue
+    fixtures = _unique_fixtures(fixtures)
     fixtures.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""), reverse=True)
     return fixtures[:last]
 

@@ -9,21 +9,30 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from league_config import CURRENT_SEASON
+
 import predictor as pred
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_fixture(home_id: int, away_id: int, home_goals: int, away_goals: int,
-                  date: str = "2025-01-15T15:00:00+00:00") -> dict:
+                  date: str | None = None,
+                  season: str | int | None = None,
+                  status_short: str = "FT") -> dict:
+    if date is None:
+        date = f"{CURRENT_SEASON}-01-15T15:00:00+00:00"
+    league = {"id": 39, "name": "Premier League"}
+    if season is not None:
+        league["season"] = season
     return {
-        "fixture": {"id": 1, "date": date},
+        "fixture": {"id": 1, "date": date, "status": {"short": status_short}},
         "teams": {
             "home": {"id": home_id, "name": f"Team{home_id}", "logo": ""},
             "away": {"id": away_id, "name": f"Team{away_id}", "logo": ""},
         },
         "goals": {"home": home_goals, "away": away_goals},
-        "league": {"id": 39, "name": "Premier League"},
+        "league": league,
     }
 
 
@@ -71,9 +80,65 @@ class TestExtractForm:
         assert pred.extract_form([], team_id=1) == []
 
     def test_date_truncated_to_10_chars(self):
-        fixture = _make_fixture(1, 2, 1, 0, date="2025-03-20T19:00:00+00:00")
+        fixture = _make_fixture(1, 2, 1, 0, date=f"{CURRENT_SEASON}-03-20T19:00:00+00:00")
         form = pred.extract_form([fixture], team_id=1)
-        assert form[0]["date"] == "2025-03-20"
+        assert form[0]["date"] == f"{CURRENT_SEASON}-03-20"
+
+    def test_filters_to_recent_completed_matches(self):
+        old_fixture = _make_fixture(1, 2, 2, 1, date="2022-12-10T15:00:00+00:00")
+        recent_fixture = _make_fixture(1, 2, 1, 0, date="2024-05-10T15:00:00+00:00")
+        pending_fixture = _make_fixture(1, 2, None, None, date="2024-05-20T15:00:00+00:00")
+        form = pred.extract_form([old_fixture, pending_fixture, recent_fixture], team_id=1)
+        assert len(form) == 1
+        assert form[0]["date"] == "2024-05-10"
+
+    def test_extract_form_sorts_newest_first(self):
+        older = _make_fixture(1, 2, 1, 0, date="2024-04-01T15:00:00+00:00")
+        newer = _make_fixture(1, 2, 2, 1, date="2024-05-01T15:00:00+00:00")
+        form = pred.extract_form([older, newer], team_id=1)
+        assert form[0]["date"] == "2024-05-01"
+        assert form[1]["date"] == "2024-04-01"
+
+    def test_previous_season_fixture_is_included(self):
+        prev_season = _make_fixture(
+            1, 2, 1, 0,
+            date="2024-05-10T15:00:00+00:00",
+            season="2023/2024",
+            status_short="FT",
+        )
+        form = pred.filter_recent_completed_fixtures([prev_season], current_season=CURRENT_SEASON)
+        assert len(form) == 1
+
+    def test_live_match_is_excluded_even_with_goals(self):
+        live_fixture = _make_fixture(
+            1, 2, 2, 1,
+            date="2024-04-10T15:00:00+00:00",
+            season="2023/2024",
+            status_short="1H",
+        )
+        filtered = pred.filter_recent_completed_fixtures([live_fixture], current_season=CURRENT_SEASON)
+        assert filtered == []
+
+    def test_split_year_season_metadata_parses_start_year(self):
+        split_year_fixture = _make_fixture(
+            1, 2, 2, 0,
+            date="2024-05-10T15:00:00+00:00",
+            season="2023/2024",
+            status_short="FT",
+        )
+        filtered = pred.filter_recent_completed_fixtures([split_year_fixture], current_season=CURRENT_SEASON)
+        assert len(filtered) == 1
+        assert filtered[0]["league"]["season"] == "2023/2024"
+
+    def test_date_fallback_uses_real_season_boundaries(self):
+        date_fallback_fixture = _make_fixture(
+            1, 2, 1, 0,
+            date="2024-05-10T15:00:00+00:00",
+            season=None,
+            status_short="FT",
+        )
+        filtered = pred.filter_recent_completed_fixtures([date_fallback_fixture], current_season=CURRENT_SEASON)
+        assert len(filtered) == 1
 
 
 # ── form_pts ──────────────────────────────────────────────────────────────────
@@ -150,6 +215,16 @@ class TestH2hRecord:
         assert rec["draws"] == 1
         assert rec["b_wins"] == 1
         assert rec["total"] == 3
+
+    def test_h2h_record_filters_old_matches(self):
+        fixtures = [
+            _make_fixture(1, 2, 2, 0, date="2022-12-10T15:00:00+00:00"),
+            _make_fixture(1, 2, 1, 1, date="2024-05-10T15:00:00+00:00"),
+        ]
+        rec = pred.h2h_record(fixtures, id_a=1, id_b=2)
+        assert rec["total"] == 1
+        assert rec["a_wins"] == 0
+        assert rec["draws"] == 1
 
     def test_empty_h2h(self):
         rec = pred.h2h_record([], id_a=1, id_b=2)
