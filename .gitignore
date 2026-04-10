@@ -26,7 +26,7 @@ ENV/
 cache/
 
 # IDE / OS
-.vscode/
+.vscode/*.code-workspace
 .idea/
 *.swp
 *.swo

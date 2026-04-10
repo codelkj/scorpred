@@ -1,0 +1,41 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/venv313/Scripts/python.exe",
+  "python.terminal.activateEnvironment": true,
+
+  "files.watcherExclude": {
+    "**/cache/**": true,
+    "**/__pycache__/**": true,
+    "**/venv313/**": true,
+    "**/.tmp/**": true,
+    "**/tmp_work/**": true,
+    "**/*.pyc": true
+  },
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/venv313": true,
+    "**/.tmp": true,
+    "**/tmp_work": true,
+    "**/cache": true
+  },
+
+  "search.exclude": {
+    "**/cache/**": true,
+    "**/__pycache__/**": true,
+    "**/venv313/**": true,
+    "**/.tmp/**": true,
+    "**/tmp_work/**": true
+  },
+
+  "python.analysis.exclude": [
+    "**/venv313/**",
+    "**/cache/**",
+    "**/__pycache__/**",
+    "**/.tmp/**",
+    "**/tmp_work/**"
+  ],
+
+  "editor.formatOnSave": false,
+  "python.analysis.diagnosticMode": "openFilesOnly"
+}
