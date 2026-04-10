@@ -40,5 +40,7 @@ desktop.ini
 # Large utility scripts not part of the app
 get-pip.py
 
-# Claude Code local settings (machine-specific)
-.claude/settings.local.json
+# Local AI/tooling state
+.claude/
+.tmp/
+tmp_work/
