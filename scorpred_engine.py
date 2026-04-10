@@ -7,15 +7,16 @@ Scoring model (all components scored 0-10, final score 0-10):
   Defensive Strength        (15%)  Avg goals/pts conceded in last 5 (fewer = higher)
   Head-to-Head Score        (10%)  Last 5 meetings, recency-weighted · recent H2H > old H2H
   Home/Away Advantage        (8%)  Moderate venue boost — real form data, not hardcoded
-  Squad Availability         (5%)  Injury impact — key absences reduce score
+  Squad Availability         (4%)  Injury impact — role-weighted positional impact
   Opponent Strength Adj      (7%)  Adjusts form value by quality of opponents faced
+  Match Context              (5%)  Rest and fatigue from last match spacing
 
 Recency weights applied to last 5 matches (most recent first):
   1st = 40%,  2nd = 25%,  3rd = 15%,  4th = 10%,  5th = 10%
 
 Final Team Score =
-  (Form × 0.40) + (Offense × 0.15) + (Defense × 0.15) + (H2H × 0.10)
-  + (Home/Away × 0.08) + (Squad × 0.05) + (Opp Strength × 0.07)
+  (Form × 0.39) + (Offense × 0.14) + (Defense × 0.14) + (H2H × 0.09)
+  + (Home/Away × 0.08) + (Squad × 0.04) + (Opp Strength × 0.07) + (Match Context × 0.05)
 
 Design rules:
   - H2H must NOT overpower current form
@@ -25,10 +26,14 @@ Design rules:
 """
 
 from __future__ import annotations
+from datetime import datetime
+import json
+import os
 import re
 from typing import Any
 
 _RECENCY_WEIGHTS = [0.40, 0.25, 0.15, 0.10, 0.10]
+_PREDICTION_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "cache", "prediction_history.json")
 
 
 # ── Name normalisation (for opp-strength lookups) ─────────────────────────────
@@ -250,40 +255,109 @@ def _home_away_score(form: list[dict], is_home: bool, sport: str = "soccer") -> 
     }
 
 
+def _match_context_score(form: list[dict], sport: str = "soccer") -> tuple[float, dict]:
+    """
+    Match context 0-10 based on days since last completed game.
+    Short rest (<=3 days) is a slight fatigue penalty; long rest (>7 days) is a small recovery boost.
+    """
+    if not form:
+        return 5.0, {"days_since_last": None, "category": "neutral", "note": "No recent match spacing data"}
+
+    most_recent = None
+    for match in form[:5]:
+        date_str = str(match.get("date", ""))[:10]
+        try:
+            match_date = datetime.fromisoformat(date_str)
+        except ValueError:
+            continue
+        if not most_recent or match_date > most_recent:
+            most_recent = match_date
+
+    if not most_recent:
+        return 5.0, {"days_since_last": None, "category": "neutral", "note": "No valid dates"}
+
+    days_since_last = max(0, (datetime.utcnow() - most_recent).days)
+    if days_since_last <= 3:
+        score = 4.2
+        category = "short_rest"
+    elif days_since_last <= 7:
+        score = 5.0
+        category = "normal_rest"
+    elif days_since_last <= 10:
+        score = 5.8
+        category = "long_rest"
+    else:
+        score = 6.3
+        category = "extended_rest"
+
+    return round(max(0.0, min(10.0, score)), 2), {
+        "days_since_last": days_since_last,
+        "category": category,
+        "note": f"{days_since_last} days since last match",
+    }
+
+
 def _squad_score(injuries: list, sport: str = "soccer") -> tuple[float, dict]:
     """
     Squad availability 0-10. Full squad = 10.
-    Star/key absences penalise more than role-player absences.
-    Out key player: -1.5. Out non-key: -0.5. Doubtful: -0.7. Questionable: -0.3.
+    Role-weighted absence impact: attackers hurt offense, defenders/keepers hurt defense,
+    bench/reduced-status absences have a smaller effect.
     """
     if not injuries:
-        return 10.0, {"total_injured": 0, "penalty": 0.0}
+        return 10.0, {"total_injured": 0, "penalty": 0.0, "offense_penalty": 0.0, "defense_penalty": 0.0}
 
-    key_positions = (
-        {"G", "F", "C", "PG", "SG", "SF", "PF"}
-        if sport == "nba"
-        else {"Attacker", "Midfielder"}
-    )
+    offense_penalty = 0.0
+    defense_penalty = 0.0
+    total_penalty = 0.0
 
-    penalty = 0.0
     for inj in injuries:
         status = str((inj.get("status") or "")).lower()
         if sport == "nba":
             pos = str((inj.get("player", {}).get("pos") or inj.get("position") or "")).upper()
         else:
-            pos = str((inj.get("player", {}).get("position") or ""))
+            pos = str((inj.get("player", {}).get("position") or "")).title()
 
-        is_key = pos in key_positions
+        if sport == "nba":
+            if pos in {"PG", "SG", "SF", "PF", "G", "F"}:
+                role_weight = 1.2
+                offense_penalty += 1.2
+            elif pos == "C":
+                role_weight = 1.1
+                defense_penalty += 1.1
+            else:
+                role_weight = 0.9
+                offense_penalty += 0.9
+        else:
+            if pos in {"Attacker", "Forward", "Striker", "Winger", "Midfielder"}:
+                role_weight = 1.2
+                offense_penalty += 1.2
+            elif pos in {"Defender", "Fullback", "Center Back", "Wing Back", "Goalkeeper"}:
+                role_weight = 1.3 if pos == "Goalkeeper" else 1.1
+                defense_penalty += role_weight
+            else:
+                role_weight = 0.9
+                total_penalty += 0.9
 
         if status == "out":
-            penalty += 1.5 if is_key else 0.5
+            status_weight = 1.0
         elif status == "doubtful":
-            penalty += 0.7
+            status_weight = 0.55
         elif status == "questionable":
-            penalty += 0.3
+            status_weight = 0.35
+        else:
+            status_weight = 0.65
 
-    score = round(max(0.0, min(10.0, 10.0 - penalty)), 2)
-    return score, {"total_injured": len(injuries), "penalty": round(penalty, 2)}
+        bench_factor = 0.6 if str((inj.get("player", {}).get("role") or "")).lower() == "bench" else 1.0
+        player_penalty = role_weight * status_weight * bench_factor
+        total_penalty += player_penalty
+
+    score = round(max(0.0, min(10.0, 10.0 - total_penalty)), 2)
+    return score, {
+        "total_injured": len(injuries),
+        "penalty": round(total_penalty, 2),
+        "offense_penalty": round(offense_penalty, 2),
+        "defense_penalty": round(defense_penalty, 2),
+    }
 
 
 def _opp_strength_score(
@@ -356,6 +430,125 @@ def _opp_strength_score(
     }
 
 
+def _win_probabilities(score_a: float, score_b: float, sport: str = "soccer") -> dict[str, float]:
+    """Convert two normalized scores into a probability distribution."""
+    if score_a is None or score_b is None:
+        return {"a": 33.3, "draw": 33.4, "b": 33.3} if sport == "soccer" else {"a": 50.0, "b": 50.0}
+
+    gap = score_a - score_b
+    gap_strength = max(-4.0, min(4.0, gap))
+    if sport == "soccer":
+        draw = max(10.0, min(35.0, 28.0 - abs(gap_strength) * 4.0))
+        base_ratio = (score_a + 1.0) / (score_a + score_b + 2.0)
+        a = base_ratio + gap_strength * 0.03
+        b = 1.0 - base_ratio + gap_strength * 0.03
+        a = max(0.05, min(0.95, a))
+        b = max(0.05, min(0.95, b))
+        total = a + b
+        a = a / total
+        b = b / total
+        win_a = round((100.0 - draw) * a, 1)
+        win_b = round((100.0 - draw) * b, 1)
+        draw = round(100.0 - win_a - win_b, 1)
+        if draw < 0:
+            draw = 0.0
+            total = win_a + win_b or 1.0
+            win_a = round(win_a / total * 100.0, 1)
+            win_b = round(win_b / total * 100.0, 1)
+        if win_a + draw + win_b != 100.0:
+            diff = 100.0 - (win_a + draw + win_b)
+            win_a = round(win_a + diff, 1)
+        return {"a": win_a, "draw": draw, "b": win_b}
+
+    # NBA / no-draw probability mapping
+    a = (score_a + 1.0) ** 1.75
+    b = (score_b + 1.0) ** 1.75
+    total = a + b or 1.0
+    win_a = round(a / total * 100.0, 1)
+    win_b = round(100.0 - win_a, 1)
+    if win_a + win_b != 100.0:
+        win_b = round(100.0 - win_a, 1)
+    return {"a": win_a, "b": win_b}
+
+
+def _prediction_history_path() -> str:
+    return _PREDICTION_HISTORY_FILE
+
+
+def _load_prediction_history() -> list[dict]:
+    try:
+        with open(_prediction_history_path(), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data.get("predictions", []) if isinstance(data, dict) else []
+    except Exception:
+        return []
+
+
+def _save_prediction_history(predictions: list[dict]) -> None:
+    try:
+        path = _prediction_history_path()
+        folder = os.path.dirname(path)
+        if folder and not os.path.isdir(folder):
+            os.makedirs(folder, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"predictions": predictions}, fh, indent=2)
+    except Exception:
+        pass
+
+
+def track_prediction(
+    predicted_winner: str,
+    confidence: str,
+    team_a_name: str,
+    team_b_name: str,
+    score_gap: float,
+    team_a_score: float,
+    team_b_score: float,
+    actual_result: str | None = None,
+) -> None:
+    record = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "predicted_winner": predicted_winner,
+        "confidence": confidence,
+        "team_a_name": team_a_name,
+        "team_b_name": team_b_name,
+        "score_gap": score_gap,
+        "team_a_score": team_a_score,
+        "team_b_score": team_b_score,
+        "actual_result": actual_result,
+    }
+    history = _load_prediction_history()
+    history.append(record)
+    _save_prediction_history(history)
+
+
+def summarize_prediction_history() -> dict[str, Any]:
+    predictions = _load_prediction_history()
+    tracked = [p for p in predictions if p.get("actual_result")]
+    total = len(tracked)
+    correct = 0
+    confidence_stats = {"High": {"total": 0, "correct": 0}, "Medium": {"total": 0, "correct": 0}, "Low": {"total": 0, "correct": 0}}
+    for p in tracked:
+        if p.get("predicted_winner") == p.get("actual_result"):
+            correct += 1
+            if p.get("confidence") in confidence_stats:
+                confidence_stats[p["confidence"]]["correct"] += 1
+        if p.get("confidence") in confidence_stats:
+            confidence_stats[p["confidence"]]["total"] += 1
+    return {
+        "total_tracked": len(predictions),
+        "total_verified": total,
+        "accuracy": round((correct / total * 100.0), 1) if total else None,
+        "confidence": {
+            level: {
+                "total": data["total"],
+                "accuracy": round((data["correct"] / data["total"] * 100.0), 1) if data["total"] else None,
+            }
+            for level, data in confidence_stats.items()
+        },
+    }
+
+
 # ── Key edges + optional picks ─────────────────────────────────────────────────
 
 def _build_key_edges(
@@ -373,6 +566,7 @@ def _build_key_edges(
         "home_away":      "Venue Advantage",
         "squad":          "Squad Availability",
         "opp_strength":   "Opponent Quality Faced",
+        "match_context":  "Match Context",
     }
 
     diffs = [
@@ -443,6 +637,18 @@ def _build_matchup_reading(
         lines.append(f"{name_b}'s recent results came against weaker opposition — treat their form with caution.")
     if opp_a > 7.0:
         lines.append(f"{name_a} have been tested by quality opponents recently, making their form more credible.")
+
+    # Match context / rest check
+    context_a = comp_a.get("match_context", 5.0)
+    context_b = comp_b.get("match_context", 5.0)
+    if context_a < 4.5:
+        lines.append(f"{name_a} may be fatigued from short rest, weakening their current edge.")
+    if context_b < 4.5:
+        lines.append(f"{name_b} may be fatigued from short rest, weakening their current edge.")
+    if context_a > 5.5:
+        lines.append(f"{name_a} have had extra recovery time, making their form more trustworthy.")
+    if context_b > 5.5:
+        lines.append(f"{name_b} have had extra recovery time, making their form more trustworthy.")
 
     # Attack/defense summary
     att_leader = name_a if comp_a["offense"] > comp_b["offense"] + 1.0 else (
@@ -532,34 +738,37 @@ def calculate_team_score(
         opp_strengths — dict of normalised_name → strength (0-10) from standings
         sport         — "soccer" or "nba"
     """
-    f_score,  f_det  = _form_score(form, sport)
-    o_score,  o_det  = _offense_score(form, sport)
-    d_score,  d_det  = _defense_score(form, sport)
-    h_score,  h_det  = _h2h_score(h2h_form, sport)
-    ha_score, ha_det = _home_away_score(form, is_home, sport)
-    s_score,  s_det  = _squad_score(injuries, sport)
-    os_score, os_det = _opp_strength_score(form, opp_strengths or {}, sport)
+    f_score,  f_det   = _form_score(form, sport)
+    o_score,  o_det   = _offense_score(form, sport)
+    d_score,  d_det   = _defense_score(form, sport)
+    h_score,  h_det   = _h2h_score(h2h_form, sport)
+    ha_score, ha_det  = _home_away_score(form, is_home, sport)
+    s_score,  s_det   = _squad_score(injuries, sport)
+    os_score, os_det  = _opp_strength_score(form, opp_strengths or {}, sport)
+    mc_score, mc_det  = _match_context_score(form, sport)
 
     final = round(
-        f_score  * 0.40 +
-        o_score  * 0.15 +
-        d_score  * 0.15 +
-        h_score  * 0.10 +
+        f_score  * 0.39 +
+        o_score  * 0.14 +
+        d_score  * 0.14 +
+        h_score  * 0.09 +
         ha_score * 0.08 +
-        s_score  * 0.05 +
-        os_score * 0.07,
+        s_score  * 0.04 +
+        os_score * 0.07 +
+        mc_score * 0.05,
         2,
     )
     final = max(0.0, min(10.0, final))
 
     return final, {
-        "form":         f_score,
-        "offense":      o_score,
-        "defense":      d_score,
-        "h2h":          h_score,
-        "home_away":    ha_score,
-        "squad":        s_score,
-        "opp_strength": os_score,
+        "form":           f_score,
+        "offense":        o_score,
+        "defense":        d_score,
+        "h2h":            h_score,
+        "home_away":      ha_score,
+        "squad":          s_score,
+        "opp_strength":   os_score,
+        "match_context":  mc_score,
         "details": {
             "form":         f_det,
             "offense":      o_det,
@@ -568,6 +777,7 @@ def calculate_team_score(
             "home_away":    ha_det,
             "squad":        s_det,
             "opp_strength": os_det,
+            "match_context": mc_det,
         },
     }
 
@@ -670,7 +880,7 @@ def scorpred_predict(
             prediction = f"{team_a_name} Win" if score_a >= score_b else f"{team_b_name} Win"
             pick_team = "A" if score_a >= score_b else "B"
 
-    comp_keys = ("form", "offense", "defense", "h2h", "home_away", "squad", "opp_strength")
+    comp_keys = ("form", "offense", "defense", "h2h", "home_away", "squad", "opp_strength", "match_context")
     comp_a_clean = {k: comp_a[k] for k in comp_keys}
     comp_b_clean = {k: comp_b[k] for k in comp_keys}
 
@@ -681,11 +891,13 @@ def scorpred_predict(
 
     top_edge_text = key_edges[0]["detail"] if key_edges else f"Scores are close ({score_a} vs {score_b})"
     reasoning = f"{top_edge_text}. Gap: {gap:.1f}/10."
+    win_probs = _win_probabilities(score_a, score_b, sport)
 
     return {
         "team_a_score":   score_a,
         "team_b_score":   score_b,
         "score_gap":      round(gap, 2),
+        "win_probabilities": win_probs,
         "components_a":   comp_a_clean,
         "components_b":   comp_b_clean,
         "comparison":     comparison,
@@ -697,6 +909,7 @@ def scorpred_predict(
             "confidence": confidence,
             "reasoning":  reasoning,
         },
+        "performance_summary": summarize_prediction_history(),
         "optional_picks": _optional_picks(form_a, form_b, sport),
     }
 
@@ -707,7 +920,8 @@ def build_opp_strengths_from_standings(standings: list) -> dict[str, float]:
     """
     Convert a league standings list into a normalised_name → strength (0-10) dict.
 
-    Top of the table = 10, bottom = 1. Scales linearly across all teams.
+    Strength blends rank position and available win/points-per-game context.
+    This lets opponent quality reflect both league position and recent consistency.
     Returns empty dict when standings are unavailable.
     """
     if not standings:
@@ -717,13 +931,45 @@ def build_opp_strengths_from_standings(standings: list) -> dict[str, float]:
         return {_norm((standings[0].get("team") or {}).get("name", "")): 5.0}
 
     lookup = {}
+    ranks = []
     for s in standings:
         name = (s.get("team") or {}).get("name", "")
-        rank = s.get("rank", 0) or 0
+        rank = s.get("rank") or s.get("position") or 0
         if not name or not rank:
             continue
-        strength = round((total - rank) / (total - 1) * 10, 1)
-        strength = max(0.0, min(10.0, strength))
+        ranks.append((name, int(rank), s))
+
+    if not ranks:
+        return {}
+
+    for name, rank, s in ranks:
+        # League position component: rank-based linear scale
+        pos_score = (total - rank) / (total - 1) * 10 if total > 1 else 5.0
+
+        # Standings data may include points, played, win/wins, and win percentage.
+        points = s.get("points") or s.get("pts")
+        played = s.get("played") or s.get("matches_played") or s.get("games")
+        wins = s.get("win") or s.get("wins") or s.get("w")
+        win_pct = None
+        if wins is not None and played:
+            try:
+                win_pct = float(wins) / float(played)
+            except Exception:
+                win_pct = None
+        elif isinstance(s.get("win_pct"), (int, float)):
+            win_pct = float(s.get("win_pct"))
+        elif points is not None and played:
+            try:
+                win_pct = float(points) / float(played) / 3.0
+            except Exception:
+                win_pct = None
+
+        if win_pct is None:
+            win_pct = 0.5
+        win_pct = max(0.0, min(1.0, win_pct))
+
+        quality_score = pos_score * 0.65 + win_pct * 10 * 0.35
+        strength = round(max(0.0, min(10.0, quality_score)), 1)
         lookup[_norm(name)] = strength
 
     return lookup

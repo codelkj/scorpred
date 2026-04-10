@@ -483,6 +483,33 @@ def matchup():
         {"label": "Clean sheets", "a": sum(1 for row in form_a if row.get("cs")), "b": sum(1 for row in form_b if row.get("cs"))},
     ]
 
+    # ── Scorpred Engine ────────────────────────────────────────────────────────
+    # H2H form from each team's perspective for the Scorpred model
+    h2h_form_a = pred.extract_form(h2h_raw, id_a)[:5]
+    h2h_form_b = pred.extract_form(h2h_raw, id_b)[:5]
+
+    # Standings → opponent strength lookup for quality-of-schedule adjustment
+    standings_for_opp = []
+    try:
+        standings_for_opp = ac.get_standings(LEAGUE, SEASON)
+    except Exception:
+        pass
+    opp_strengths = _build_opp_strengths(standings_for_opp)
+
+    scorpred = se.scorpred_predict(
+        form_a=form_a,
+        form_b=form_b,
+        h2h_form_a=h2h_form_a,
+        h2h_form_b=h2h_form_b,
+        injuries_a=injuries_a_raw,
+        injuries_b=injuries_b_raw,
+        team_a_is_home=True,  # Assume team_a is home for now
+        team_a_name=team_a["name"],
+        team_b_name=team_b["name"],
+        sport="soccer",
+        opp_strengths=opp_strengths,
+    )
+
     return render_template(
         "matchup.html",
         **_page_context(
@@ -498,6 +525,7 @@ def matchup():
             injuries_a=injuries_a,
             injuries_b=injuries_b,
             stats_compare=stats_compare,
+            scorpred=scorpred,
         ),
     )
 

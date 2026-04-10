@@ -42,24 +42,26 @@
   </div>
   <div class="win-probs">
     <div class="win-block">
-      <div class="win-pct accent stat-number" data-target="{{ result.win_prob.a }}">{{ result.win_prob.a }}</div>
+      <div class="win-pct accent stat-number" data-target="{{ scorpred.win_probabilities.a }}">{{ scorpred.win_probabilities.a }}</div>
       <div class="win-label">{{ team_a.name }}</div>
       <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ result.win_prob.a }}" style="background:#00ff87"></div>
+        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.a }}" style="background:#00ff87"></div>
       </div>
     </div>
+    {% if 'draw' in scorpred.win_probabilities %}
     <div class="win-block">
-      <div class="win-pct stat-number" data-target="{{ result.win_prob.draw }}">{{ result.win_prob.draw }}</div>
+      <div class="win-pct stat-number" data-target="{{ scorpred.win_probabilities.draw }}">{{ scorpred.win_probabilities.draw }}</div>
       <div class="win-label">Draw</div>
       <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ result.win_prob.draw }}" style="background:#f59e0b"></div>
+        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.draw }}" style="background:#f59e0b"></div>
       </div>
     </div>
+    {% endif %}
     <div class="win-block">
-      <div class="win-pct stat-number" data-target="{{ result.win_prob.b }}">{{ result.win_prob.b }}</div>
+      <div class="win-pct stat-number" data-target="{{ scorpred.win_probabilities.b }}">{{ scorpred.win_probabilities.b }}</div>
       <div class="win-label">{{ team_b.name }}</div>
       <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ result.win_prob.b }}" style="background:#3b82f6"></div>
+        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.b }}" style="background:#3b82f6"></div>
       </div>
     </div>
   </div>
@@ -208,7 +210,7 @@
 <div class="section-title">Scorpred Engine Score</div>
 <div class="card glow-card gradient-border" style="padding:1.5rem 1.25rem;">
   <div class="model-note" style="margin-bottom:1.25rem;">
-    Form 40% · Attack 15% · Defense 15% · H2H 10% · Venue 8% · Opp. Quality 7% · Squad 5%
+    Form 39% · Attack 14% · Defense 14% · H2H 9% · Venue 8% · Opp. Quality 7% · Squad 4% · Match Context 5%
   </div>
 
   <!-- Score comparison -->
