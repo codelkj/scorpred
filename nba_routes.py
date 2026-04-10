@@ -449,14 +449,23 @@ def matchup():
     game_snapshot = None
 
     h2h_rows = []
+    h2h_summary = {}
     form_a = []
     form_b = []
+    recent_form_a = []
+    recent_form_b = []
     split_a = {}
     split_b = {}
     injuries_a = []
     injuries_b = []
+    injury_summary_a = {}
+    injury_summary_b = {}
+    key_players_a = []
+    key_players_b = []
     stats_a = None
     stats_b = None
+    roster_a = []
+    roster_b = []
 
     if selected_game and selected_game.get("event_id"):
         try:
@@ -469,18 +478,21 @@ def matchup():
     try:
         raw_h2h  = nc.get_h2h(id_a, id_b)
         h2h_rows = np_nba.h2h_display(raw_h2h, id_a, id_b)
+        h2h_summary = np_nba.build_h2h_summary(raw_h2h, id_a, id_b, n=5)
     except Exception as e:
         _log_err("H2H fetch", e)
 
     try:
         recent_a = nc.get_team_recent_form(id_a)
         form_a   = np_nba.extract_form_for_display(recent_a, id_a)
+        recent_form_a = np_nba.extract_recent_form(recent_a, id_a, n=5)
     except Exception as e:
         _log_err("Form A fetch", e)
 
     try:
         recent_b = nc.get_team_recent_form(id_b)
         form_b   = np_nba.extract_form_for_display(recent_b, id_b)
+        recent_form_b = np_nba.extract_recent_form(recent_b, id_b, n=5)
     except Exception as e:
         _log_err("Form B fetch", e)
 
@@ -496,13 +508,31 @@ def matchup():
 
     try:
         injuries_a = nc.get_team_injuries(id_a)
+        injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
     except Exception as e:
         _log_err("Injuries A", e)
 
     try:
         injuries_b = nc.get_team_injuries(id_b)
+        injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
     except Exception as e:
         _log_err("Injuries B", e)
+
+    try:
+        roster_a = nc.get_team_roster(id_a)
+        key_players_a = np_nba.build_key_player_stats_summary(roster_a, limit=5)
+        if injuries_a:
+            injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
+    except Exception as e:
+        _log_err("Roster A", e)
+
+    try:
+        roster_b = nc.get_team_roster(id_b)
+        key_players_b = np_nba.build_key_player_stats_summary(roster_b, limit=5)
+        if injuries_b:
+            injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
+    except Exception as e:
+        _log_err("Roster B", e)
 
     def _splits(form_list):
         home = [g for g in form_list if g["is_home"]]
@@ -531,14 +561,21 @@ def matchup():
             selected_game=selected_game or {},
             game_snapshot=game_snapshot or {},
             h2h_rows=h2h_rows,
+            h2h_summary=h2h_summary,
             form_a=form_a,
             form_b=form_b,
+            recent_form_a=recent_form_a,
+            recent_form_b=recent_form_b,
             split_a=split_a,
             split_b=split_b,
             stats_a=stats_a or {},
             stats_b=stats_b or {},
             injuries_a=injuries_a,
             injuries_b=injuries_b,
+            injury_summary_a=injury_summary_a,
+            injury_summary_b=injury_summary_b,
+            key_players_a=key_players_a,
+            key_players_b=key_players_b,
             error=error,
             route_support=_support("matchup"),
         ),
@@ -650,8 +687,11 @@ def prediction():
     error = None
     result = None
     h2h_games = []
+    h2h_games_filtered = []
     form_a_raw = []
     form_b_raw = []
+    form_a_filtered = []
+    form_b_filtered = []
     injuries_a = []
     injuries_b = []
     stats_a = None
@@ -669,16 +709,19 @@ def prediction():
 
     try:
         h2h_games = nc.get_h2h(id_a, id_b)
+        h2h_games_filtered = np_nba.filter_completed_nba_games(h2h_games)
     except Exception as e:
         _log_err("H2H for prediction", e)
 
     try:
         form_a_raw = nc.get_team_recent_form(id_a)
+        form_a_filtered = np_nba.filter_completed_nba_games(form_a_raw)
     except Exception as e:
         _log_err("Form A for prediction", e)
 
     try:
         form_b_raw = nc.get_team_recent_form(id_b)
+        form_b_filtered = np_nba.filter_completed_nba_games(form_b_raw)
     except Exception as e:
         _log_err("Form B for prediction", e)
 
@@ -705,9 +748,9 @@ def prediction():
     try:
         result = np_nba.predict_winner(
             team_a, team_b,
-            h2h_games=h2h_games,
-            form_a=form_a_raw,
-            form_b=form_b_raw,
+            h2h_games=h2h_games_filtered,
+            form_a=form_a_filtered,
+            form_b=form_b_filtered,
             injuries_a=injuries_a,
             injuries_b=injuries_b,
             stats_a=stats_a,
@@ -727,13 +770,14 @@ def prediction():
         except Exception as e:
             _log_err("Best bets", e)
 
-    form_a_display = np_nba.extract_form_for_display(form_a_raw, id_a)
-    form_b_display = np_nba.extract_form_for_display(form_b_raw, id_b)
+    form_a_display = np_nba.extract_form_for_display(form_a_filtered, id_a)
+    form_b_display = np_nba.extract_form_for_display(form_b_filtered, id_b)
 
     data_notes = [
         "Upcoming/live game context is from ESPN's public scoreboard and summary feeds.",
         "Season records, PPG, and net rating are live from the standings feed.",
         "Recent form, head-to-head history, rosters, and injuries are all based on real schedule and roster data.",
+        "Analysis uses only completed games (finished state) for accurate recent form and H2H history.",
     ]
 
     return render_template(

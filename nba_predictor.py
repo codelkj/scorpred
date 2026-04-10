@@ -539,3 +539,225 @@ def _has_played_local(rec: dict) -> bool:
     s = rec.get("statistics", [{}])[0] if rec.get("statistics") else {}
     raw = s.get("min", "0") or "0"
     return raw not in ("0", "0:00", "", None)
+
+
+# ── NBA Recent Form and H2H Helpers (similar to soccer update) ─────────────────
+
+def filter_completed_nba_games(games: list) -> list:
+    """
+    Filter NBA games to completed (finished) games only, sort newest first.
+    Similar to soccer's filter_recent_completed_fixtures().
+    """
+    if not games:
+        return []
+    finished = [g for g in games if g.get("status", {}).get("long") == "Finished"]
+    # Already sorted newest first in most API responses, but ensure it
+    return sorted(finished, key=lambda g: g.get("date", {}).get("start", ""), reverse=True)
+
+
+def extract_recent_form(games: list, team_id: int, n: int = 5) -> list[dict]:
+    """
+    Extract the last N completed games for a team as form data.
+    Returns list of dicts with result, opponent, score, home/away.
+    Similar to soccer's extract_form() but for NBA.
+    """
+    completed = filter_completed_nba_games(games)
+    form = []
+    for g in completed[:n]:
+        home_id = g.get("teams", {}).get("home", {}).get("id")
+        is_home = (home_id == team_id)
+        our_key = "home" if is_home else "visitors"
+        their_key = "visitors" if is_home else "home"
+        
+        our_pts = g.get("scores", {}).get(our_key, {}).get("points")
+        their_pts = g.get("scores", {}).get(their_key, {}).get("points")
+        
+        if our_pts is None or their_pts is None:
+            continue
+        
+        our_pts, their_pts = int(our_pts), int(their_pts)
+        opp_info = g.get("teams", {}).get(their_key, {})
+        result = "W" if our_pts > their_pts else "L"
+        
+        form.append({
+            "date": g.get("date", {}).get("start", "")[:10],
+            "is_home": is_home,
+            "opponent": opp_info.get("name", "—"),
+            "opp_logo": opp_info.get("logo", ""),
+            "our_pts": our_pts,
+            "their_pts": their_pts,
+            "result": result,
+            "score": f"{our_pts}–{their_pts}",
+            "venue": "Home" if is_home else "Away",
+        })
+    
+    return form
+
+
+def build_h2h_summary(h2h_games: list, team_a_id: int, team_b_id: int, n: int = 5) -> dict:
+    """
+    Build H2H summary from last N completed meetings.
+    Returns wins count and recent games list.
+    Only counts actual wins, not ties.
+    """
+    completed = filter_completed_nba_games(h2h_games)[:n]
+    
+    wins_a = 0
+    wins_b = 0
+    games_list = []
+    
+    for g in completed:
+        home_id = g.get("teams", {}).get("home", {}).get("id")
+        scores = g.get("scores", {})
+        home_pts = scores.get("home", {}).get("points")
+        visit_pts = scores.get("visitors", {}).get("points")
+        
+        if home_pts is None or visit_pts is None:
+            continue
+        
+        home_pts, visit_pts = int(home_pts), int(visit_pts)
+        
+        # Only count actual wins, skip ties
+        if home_pts == visit_pts:
+            # Skip ties - don't count them as wins
+            pass
+        elif home_id == team_a_id:
+            if home_pts > visit_pts:
+                wins_a += 1
+            else:
+                wins_b += 1
+        else:
+            if visit_pts > home_pts:
+                wins_a += 1
+            else:
+                wins_b += 1
+        
+        games_list.append({
+            "date": g.get("date", {}).get("start", "")[:10],
+            "home_team": g.get("teams", {}).get("home", {}).get("name", "—"),
+            "away_team": g.get("teams", {}).get("visitors", {}).get("name", "—"),
+            "home_pts": home_pts,
+            "away_pts": visit_pts,
+        })
+    
+    return {
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "total": len(games_list),
+        "games": games_list,
+    }
+
+
+def build_injury_summary(injuries: list, roster: list = None) -> dict:
+    """
+    Build injury summary with status breakdown.
+    Infer healthy players from roster if provided.
+    
+    Returns:
+    {
+        "out": [...player dicts...],
+        "doubtful": [...],
+        "questionable": [...],
+        "probable": [...],
+        "healthy_count": int,
+        "total_roster": int,
+    }
+    """
+    status_map = {
+        "out": [],
+        "doubtful": [],
+        "questionable": [],
+        "probable": [],
+    }
+    
+    if not injuries:
+        injuries = []
+    
+    for inj in injuries:
+        status_str = (inj.get("status") or "").lower()
+        player = inj.get("player", {})
+        
+        summary = {
+            "id": player.get("id"),
+            "name": player.get("name", "Unknown"),
+            "position": inj.get("position", "—"),
+            "status": status_str,
+            "return_date": inj.get("return_date", ""),
+        }
+        
+        if status_str in status_map:
+            status_map[status_str].append(summary)
+        elif status_str == "available" or status_str == "":
+            # Skip; these are not injuries
+            pass
+        else:
+            # Unknown status; default to questionable
+            status_map["questionable"].append(summary)
+    
+    # Calculate healthy count if roster provided
+    healthy_count = 0
+    total_roster = len(roster) if roster else 0
+    if roster:
+        injured_ids = set()
+        for cat_list in status_map.values():
+            for inj in cat_list:
+                if inj.get("id"):
+                    injured_ids.add(inj["id"])
+        healthy_count = total_roster - len(injured_ids)
+    
+    return {
+        "out": status_map["out"],
+        "doubtful": status_map["doubtful"],
+        "questionable": status_map["questionable"],
+        "probable": status_map["probable"],
+        "total_injured": sum(len(v) for v in status_map.values()),
+        "healthy_count": healthy_count,
+        "total_roster": total_roster,
+    }
+
+
+def build_key_player_stats_summary(roster: list, limit: int = 5) -> list[dict]:
+    """
+    Extract key players from roster sorted by scoring potential.
+    If season averages available, use those; otherwise infer from position.
+    """
+    if not roster:
+        return []
+    
+    # Simple heuristic: prioritize by position and presence of stats
+    position_order = {"PG": 1, "SG": 2, "SF": 3, "PF": 4, "C": 5}
+    
+    players_with_rank = []
+    for p in roster:
+        # Check if injured
+        injuries = p.get("injuries", [])
+        is_out = any((inj.get("status") or "").lower() == "out" for inj in injuries)
+        
+        # Get position
+        pos = ""
+        if p.get("leagues") and p["leagues"].get("standard"):
+            pos = p["leagues"]["standard"].get("pos", "") or ""
+        if not pos:
+            pos = p.get("position", "G")
+        
+        # Get basic info; if full stats not available, use position estimation
+        rank = position_order.get(pos, 99)
+        
+        player_summary = {
+            "id": p.get("id"),
+            "name": f"{p.get('firstname', '')} {p.get('lastname', '')}".strip() or p.get("displayName", "—"),
+            "position": pos,
+            "injured": is_out,
+            "games": p.get("games", 0),
+            "points": p.get("points", 0),
+            "rebounds": p.get("rebounds", 0),
+            "assists": p.get("assists", 0),
+        }
+        
+        # Use (not_injured, -rank, -points) for sorting to prioritize healthy starters
+        sort_key = (not is_out, -rank, -float(player_summary.get("points", 0)))
+        players_with_rank.append((sort_key, player_summary))
+    
+    # Sort and take top N
+    players_with_rank.sort(key=lambda x: x[0], reverse=True)
+    return [p[1] for p in players_with_rank[:limit]]

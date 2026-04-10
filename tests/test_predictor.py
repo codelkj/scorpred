@@ -322,3 +322,249 @@ class TestQuickPredictFromStandings:
     def test_empty_standings_returns_dict(self):
         result = pred.quick_predict_from_standings(1, 2, [])
         assert isinstance(result, dict)
+
+
+# ── NBA Tests ──────────────────────────────────────────────────────────────────
+
+import nba_predictor as np_nba
+
+
+def _make_nba_game(home_id: int, away_id: int, home_pts: int, away_pts: int,
+                   date: str = "2024-05-10", status: str = "Finished") -> dict:
+    """Helper to create mock NBA game records."""
+    return {
+        "id": f"game-{home_id}-{away_id}",
+        "date": {"start": f"{date}T19:00:00Z"},
+        "status": {"long": status},
+        "teams": {
+            "home": {"id": home_id, "name": f"Team{home_id}", "logo": ""},
+            "visitors": {"id": away_id, "name": f"Team{away_id}", "logo": ""},
+        },
+        "scores": {
+            "home": {"points": home_pts, "linescore": [20, 25, 30, 28]},
+            "visitors": {"points": away_pts, "linescore": [18, 22, 25, 26]},
+        },
+    }
+
+
+def _make_nba_injury(player_id: int, player_name: str, status: str = "out") -> dict:
+    """Helper to create mock injury records."""
+    return {
+        "player": {"id": player_id, "name": player_name},
+        "status": status,
+        "position": "PG",
+    }
+
+
+def _make_nba_player(player_id: int, name: str, pos: str = "PG",
+                     injuries: list = None, points: float = 0.0) -> dict:
+    """Helper to create mock player roster entries."""
+    return {
+        "id": player_id,
+        "firstname": name.split()[0],
+        "lastname": name.split()[-1],
+        "displayName": name,
+        "position": pos,
+        "injuries": injuries or [],
+        "games": 82,
+        "points": points if points else 20.5,
+        "rebounds": 6.2,
+        "assists": 5.1,
+        "leagues": {"standard": {"pos": pos}},
+    }
+
+
+class TestFilterCompletedNbaGames:
+    def test_filters_to_finished_only(self):
+        games = [
+            _make_nba_game(1, 2, 110, 105, status="Finished"),
+            _make_nba_game(1, 2, 100, 100, status="Live"),
+            _make_nba_game(3, 4, 95, 98, status="Scheduled"),
+        ]
+        result = np_nba.filter_completed_nba_games(games)
+        assert len(result) == 1
+        assert result[0]["status"]["long"] == "Finished"
+
+    def test_sorts_newest_first(self):
+        games = [
+            _make_nba_game(1, 2, 110, 105, date="2024-04-01"),
+            _make_nba_game(1, 2, 100, 100, date="2024-05-01"),
+        ]
+        result = np_nba.filter_completed_nba_games(games)
+        assert result[0]["date"]["start"].startswith("2024-05-01")
+        assert result[1]["date"]["start"].startswith("2024-04-01")
+
+    def test_empty_list_returns_empty(self):
+        result = np_nba.filter_completed_nba_games([])
+        assert result == []
+
+    def test_no_finished_games_returns_empty(self):
+        games = [
+            _make_nba_game(1, 2, 100, 100, status="Live"),
+            _make_nba_game(3, 4, 95, 98, status="Scheduled"),
+        ]
+        result = np_nba.filter_completed_nba_games(games)
+        assert result == []
+
+
+class TestExtractRecentForm:
+    def test_extracts_last_5_games(self):
+        games = [
+            _make_nba_game(1, 2, 110, 105, date="2024-04-01"),
+            _make_nba_game(1, 3, 100, 100, date="2024-04-05"),
+            _make_nba_game(1, 4, 95, 98, date="2024-04-10"),
+            _make_nba_game(1, 5, 120, 110, date="2024-04-15"),
+            _make_nba_game(1, 6, 105, 100, date="2024-04-20"),
+            _make_nba_game(1, 7, 115, 112, date="2024-04-25"),
+        ]
+        form = np_nba.extract_recent_form(games, team_id=1, n=5)
+        assert len(form) == 5
+        assert form[0]["result"] == "W"
+
+    def test_identifies_wins_and_losses(self):
+        games = [
+            _make_nba_game(1, 2, 110, 105, date="2024-04-01"),  # home team 1 wins
+            _make_nba_game(3, 1, 100, 95, date="2024-04-05"),   # away team 1 loses
+        ]
+        form = np_nba.extract_recent_form(games, team_id=1, n=5)
+        # Most recent (second game) should be listed first
+        result_by_date = {f["date"]: f["result"] for f in form}
+        assert result_by_date["2024-04-05"] == "L"  # Away loss
+        assert result_by_date["2024-04-01"] == "W"  # Home win
+
+    def test_marks_home_away_correctly(self):
+        games = [
+            _make_nba_game(1, 2, 110, 105, date="2024-04-01"),  # team 1 home
+            _make_nba_game(3, 1, 100, 95, date="2024-04-05"),   # team 1 away
+        ]
+        form = np_nba.extract_recent_form(games, team_id=1, n=5)
+        home_away_by_date = {f["date"]: f["is_home"] for f in form}
+        assert home_away_by_date["2024-04-01"] is True
+        assert home_away_by_date["2024-04-05"] is False
+
+    def test_skips_games_with_no_score(self):
+        games = [
+            _make_nba_game(1, 2, None, None),
+            _make_nba_game(1, 2, 110, 105),
+        ]
+        form = np_nba.extract_recent_form(games, team_id=1, n=5)
+        assert len(form) == 1
+
+    def test_empty_games_returns_empty(self):
+        form = np_nba.extract_recent_form([], team_id=1, n=5)
+        assert form == []
+
+
+class TestBuildH2hSummary:
+    def test_counts_wins_correctly(self):
+        games = [
+            _make_nba_game(1, 2, 110, 105, date="2024-04-01"),  # team 1 (home) wins
+            _make_nba_game(1, 2, 100, 100, date="2024-04-02"),  # tie
+            _make_nba_game(2, 1, 95, 98, date="2024-04-03"),    # team 1 (away) wins
+            _make_nba_game(2, 1, 105, 100, date="2024-04-04"), # team 2 (home) wins
+        ]
+        summary = np_nba.build_h2h_summary(games, team_a_id=1, team_b_id=2, n=5)
+        # team 1: wins game1 (home win), wins game3 (away win) = 2 wins
+        # team 2: wins game4 (home win) = 1 win
+        # game2 is a tie
+        assert summary["wins_a"] == 2
+        assert summary["wins_b"] == 1
+        assert summary["total"] == 4
+
+    def test_limits_to_n_games(self):
+        games = [
+            _make_nba_game(1, 2, 110, 105, date="2024-04-01"),
+            _make_nba_game(1, 2, 100, 100, date="2024-04-05"),
+            _make_nba_game(1, 2, 95, 98, date="2024-04-10"),
+            _make_nba_game(1, 2, 120, 110, date="2024-04-15"),
+            _make_nba_game(1, 2, 105, 100, date="2024-04-20"),
+            _make_nba_game(1, 2, 115, 112, date="2024-04-25"),
+        ]
+        summary = np_nba.build_h2h_summary(games, team_a_id=1, team_b_id=2, n=5)
+        assert summary["total"] == 5
+
+    def test_filters_to_finished_games(self):
+        games = [
+            _make_nba_game(1, 2, 110, 105, status="Finished"),
+            _make_nba_game(1, 2, 100, 100, status="Live"),
+            _make_nba_game(1, 2, 95, 98, status="Scheduled"),
+        ]
+        summary = np_nba.build_h2h_summary(games, team_a_id=1, team_b_id=2, n=5)
+        assert summary["total"] == 1
+
+
+class TestBuildInjurySummary:
+    def test_categorizes_by_status(self):
+        injuries = [
+            _make_nba_injury(1, "Player1", "out"),
+            _make_nba_injury(2, "Player2", "doubtful"),
+            _make_nba_injury(3, "Player3", "questionable"),
+            _make_nba_injury(4, "Player4", "probable"),
+        ]
+        summary = np_nba.build_injury_summary(injuries)
+        assert len(summary["out"]) == 1
+        assert len(summary["doubtful"]) == 1
+        assert len(summary["questionable"]) == 1
+        assert len(summary["probable"]) == 1
+
+    def test_counts_healthy_vs_injured(self):
+        injuries = [
+            _make_nba_injury(1, "Player1", "out"),
+            _make_nba_injury(2, "Player2", "doubtful"),
+        ]
+        roster = [
+            _make_nba_player(1, "Player1"),
+            _make_nba_player(2, "Player2"),
+            _make_nba_player(3, "Player3"),
+            _make_nba_player(4, "Player4"),
+        ]
+        summary = np_nba.build_injury_summary(injuries, roster)
+        assert summary["total_injured"] == 2
+        assert summary["healthy_count"] == 2
+        assert summary["total_roster"] == 4
+
+    def test_handles_empty_injuries(self):
+        summary = np_nba.build_injury_summary([])
+        assert summary["total_injured"] == 0
+        assert len(summary["out"]) == 0
+
+    def test_handles_empty_roster(self):
+        injuries = [_make_nba_injury(1, "Player1", "out")]
+        summary = np_nba.build_injury_summary(injuries)
+        assert summary["total_injured"] == 1
+        assert summary["total_roster"] == 0
+
+
+class TestBuildKeyPlayerStatsSummary:
+    def test_returns_top_players(self):
+        roster = [
+            _make_nba_player(1, "Star Player", "PG", points=25.0),
+            _make_nba_player(2, "Good Player", "SG", points=15.0),
+            _make_nba_player(3, "Bench Player", "SG", points=8.0),
+        ]
+        players = np_nba.build_key_player_stats_summary(roster, limit=2)
+        assert len(players) == 2
+        assert players[0]["position"] == "PG"  # prioritize PG
+
+    def test_excludes_injured_out_players(self):
+        roster = [
+            _make_nba_player(1, "Star Player", "PG", injuries=[{"status": "out"}]),
+            _make_nba_player(2, "Healthy Player", "SG"),
+        ]
+        players = np_nba.build_key_player_stats_summary(roster, limit=5)
+        # Should still include injured players but deprioritize them
+        assert len(players) <= 2
+
+    def test_empty_roster_returns_empty(self):
+        players = np_nba.build_key_player_stats_summary([], limit=5)
+        assert players == []
+
+    def test_sorts_by_position_importance(self):
+        roster = [
+            _make_nba_player(1, "Center", "C", points=10.0),
+            _make_nba_player(2, "Point Guard", "PG", points=10.0),
+        ]
+        players = np_nba.build_key_player_stats_summary(roster, limit=5)
+        # PG should come before C when points are equal
+        assert players[0]["position"] == "PG"
+        assert players[1]["position"] == "C"
