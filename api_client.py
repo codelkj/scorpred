@@ -303,6 +303,29 @@ def _team_logo(team: dict) -> str:
     return team.get("logo", "")
 
 
+def _espn_score(score_val) -> int | None:
+    """Extract integer score from an ESPN score field.
+
+    ESPN returns scores in two shapes depending on the endpoint:
+      - Simple scalar: "2" or 2
+      - Rich object:   {"value": 2.0, "displayValue": "2", "$ref": "..."}
+    """
+    if score_val is None:
+        return None
+    if isinstance(score_val, dict):
+        val = score_val.get("value") if score_val.get("value") is not None else score_val.get("displayValue")
+        if val is None:
+            return None
+        try:
+            return int(float(val))
+        except (TypeError, ValueError):
+            return None
+    try:
+        return int(float(score_val))
+    except (TypeError, ValueError):
+        return None
+
+
 def _espn_fixture_status(state: str) -> dict[str, str]:
     state = (state or "").lower()
     if state == "post":
@@ -356,8 +379,8 @@ def _normalize_espn_fixture(event: dict, league_id: int) -> dict | None:
             },
         },
         "goals": {
-            "home": _si(home.get("score"), None),
-            "away": _si(away.get("score"), None),
+            "home": _espn_score(home.get("score")),
+            "away": _espn_score(away.get("score")),
         },
         "score": {"halftime": {"home": None, "away": None}},
         "events": [],
