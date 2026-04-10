@@ -275,30 +275,45 @@ def _fallback_chat_reply(message: str) -> str:
     return "Ask about matchup analysis, player props, prediction logic, injuries, or where to find a specific football or NBA view."
 
 
-def _chat_reply(message: str) -> str:
+def _chat_reply(message: str, history: list[dict] | None = None) -> str:
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key or anthropic is None:
         return _fallback_chat_reply(message)
+
+    system_prompt = (
+        "You are the ScorPred assistant — a helpful AI built into a football and NBA prediction app. "
+        "You help users navigate the app, understand predictions, interpret stats, and find features. "
+        "Key pages: Home (team selection + upcoming fixtures), Matchup (H2H, form, injuries), "
+        "Players (squad comparison, prop ideas), Prediction (Poisson model, win probability), "
+        "Props (player bet lines with 6-layer stat model), Fixtures (upcoming schedule), "
+        "NBA (full NBA section at /nba with standings, matchup, players, predictions), "
+        "World Cup (/worldcup). "
+        "Be concise (2-3 sentences max), accurate, and friendly. "
+        "Do not make up odds or guarantees. If unsure, say so."
+    )
+
+    # Build messages list from history + current message
+    messages = []
+    for entry in (history or [])[-8:]:
+        role = entry.get("role", "")
+        content = entry.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": message})
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model="claude-3-5-haiku-latest",
-            max_tokens=180,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        "You are the ScorPred assistant. Answer briefly, accurately, and focus on football and NBA app usage. "
-                        f"User question: {message}"
-                    ),
-                }
-            ],
+            max_tokens=300,
+            system=system_prompt,
+            messages=messages,
         )
         text_blocks = [block.text for block in getattr(response, "content", []) if getattr(block, "type", "") == "text"]
         reply = " ".join(text_blocks).strip()
         return reply or _fallback_chat_reply(message)
-    except Exception:
+    except Exception as exc:
+        app.logger.warning("Claude chat API error: %s", exc)
         return _fallback_chat_reply(message)
 
 
@@ -473,6 +488,62 @@ def matchup():
     )
 
 
+def _build_key_threats(squad: list, injuries: list, fixtures: list, team_id: int) -> list[dict]:
+    """Return up to 5 key threat players ranked by position + form."""
+    injured_ids = {
+        (inj.get("player") or {}).get("id")
+        for inj in injuries
+        if (inj.get("player") or {}).get("id")
+    }
+    form = pred.extract_form(fixtures, team_id)
+    avg_gf = pred.avg_goals(form, scored=True) if form else 1.2
+    team_lambda = max(0.3, avg_gf)
+
+    position_order = {"Attacker": 0, "Midfielder": 1, "Defender": 2, "Goalkeeper": 3}
+    threat_labels = {
+        "Attacker": "Goal Threat",
+        "Midfielder": "Creative Threat",
+        "Defender": "Set Piece Threat",
+        "Goalkeeper": "Shot Stopper",
+    }
+    contribution_map = {
+        "Attacker": "goals / shots on target",
+        "Midfielder": "key passes / assists",
+        "Defender": "aerial duels / clearances",
+        "Goalkeeper": "saves / clean sheet",
+    }
+
+    candidates = []
+    for p in squad:
+        player_obj = p.get("player") or p
+        pid = player_obj.get("id")
+        if not pid:
+            continue
+        position = player_obj.get("position") or p.get("position") or "Unknown"
+        is_injured = pid in injured_ids
+        pos_rank = position_order.get(position, 4)
+
+        # Score: attackers first, healthy players first, position boost
+        pos_boost = 1.4 if position == "Attacker" else 1.1 if position == "Midfielder" else 0.7
+        health_penalty = 0.5 if is_injured else 1.0
+        score = pos_boost * health_penalty * team_lambda
+
+        candidates.append({
+            "id": pid,
+            "name": player_obj.get("name") or "",
+            "photo": player_obj.get("photo", ""),
+            "position": position,
+            "pos_rank": pos_rank,
+            "threat_label": threat_labels.get(position, "Key Player"),
+            "contribution": contribution_map.get(position, "match impact"),
+            "injured": is_injured,
+            "score": score,
+        })
+
+    candidates.sort(key=lambda x: (-x["score"], x["pos_rank"]))
+    return candidates[:5]
+
+
 @app.route("/player")
 def player():
     _set_data_refresh()
@@ -480,21 +551,54 @@ def player():
     if not team_a:
         return redirect(url_for("index"))
     selected_fixture = _selected_fixture()
+    id_a, id_b = team_a["id"], team_b["id"]
 
-    squad_a = []
-    squad_b = []
+    squad_a, squad_b = [], []
+    injuries_a_raw, injuries_b_raw = [], []
+    fixtures_a, fixtures_b = [], []
+
     try:
-        squad_a = ac.get_squad(team_a["id"], SEASON)
+        squad_a = ac.get_squad(id_a, SEASON)
     except Exception as exc:
         app.logger.error("Player squad A fetch error: %s", exc)
-
     try:
-        squad_b = ac.get_squad(team_b["id"], SEASON)
+        squad_b = ac.get_squad(id_b, SEASON)
     except Exception as exc:
         app.logger.error("Player squad B fetch error: %s", exc)
+    try:
+        injuries_a_raw = ac.get_injuries(LEAGUE, SEASON, id_a)
+    except Exception as exc:
+        app.logger.error("Player injuries A fetch error: %s", exc)
+    try:
+        injuries_b_raw = ac.get_injuries(LEAGUE, SEASON, id_b)
+    except Exception as exc:
+        app.logger.error("Player injuries B fetch error: %s", exc)
+    try:
+        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=10)
+    except Exception as exc:
+        app.logger.error("Player fixtures A fetch error: %s", exc)
+    try:
+        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=10)
+    except Exception as exc:
+        app.logger.error("Player fixtures B fetch error: %s", exc)
 
     if not squad_a and not squad_b:
         return _critical_error("Player squad data is unavailable right now.")
+
+    threats_a = _build_key_threats(squad_a, injuries_a_raw, fixtures_a, id_a)
+    threats_b = _build_key_threats(squad_b, injuries_b_raw, fixtures_b, id_b)
+
+    # Group full squads by position for the roster section
+    def _group_by_position(squad):
+        groups = {"Goalkeeper": [], "Defender": [], "Midfielder": [], "Attacker": []}
+        for p in squad:
+            player_obj = p.get("player") or p
+            pos = player_obj.get("position") or p.get("position") or "Unknown"
+            if pos in groups:
+                groups[pos].append(player_obj)
+            else:
+                groups.setdefault("Unknown", []).append(player_obj)
+        return groups
 
     return render_template(
         "player.html",
@@ -502,8 +606,12 @@ def player():
             team_a=team_a,
             team_b=team_b,
             selected_fixture=selected_fixture,
-            squad_a=squad_a,
-            squad_b=squad_b,
+            threats_a=threats_a,
+            threats_b=threats_b,
+            squad_a=_group_by_position(squad_a),
+            squad_b=_group_by_position(squad_b),
+            injuries_a=_display_injuries(injuries_a_raw),
+            injuries_b=_display_injuries(injuries_b_raw),
         ),
     )
 
@@ -746,7 +854,7 @@ def chat():
         return jsonify({"error": "message is required"}), 400
 
     history = session.get("chat_history", [])[-8:]
-    reply = _chat_reply(message)
+    reply = _chat_reply(message, history=history)
     history.extend(
         [
             {"role": "user", "content": message, "timestamp": _now_stamp()},
@@ -963,16 +1071,20 @@ def not_found(_):
 
 @app.errorhandler(500)
 def server_error(e):
-    return render_template("error.html", **_page_context(msg=str(e))), 500
+    app.logger.error("Internal server error: %s", e)
+    return render_template("error.html", **_page_context(msg="An internal error occurred. Please try again.")), 500
 
 
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
-    use_reloader = os.getenv("FLASK_USE_RELOADER", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    use_reloader = os.getenv("FLASK_USE_RELOADER", "0").strip().lower() in {"1", "true", "yes", "on"}
     port = int(os.getenv("PORT", "5000"))
-    app.run(debug=debug, use_reloader=use_reloader, port=port)
+    try:
+        app.run(debug=debug, use_reloader=use_reloader, port=port)
+    except OSError as e:
+        if "address already in use" in str(e).lower() or "10048" in str(e):
+            print(f"\n  Port {port} is already in use.")
+            print(f"  Stop the other process first, or set a different port:")
+            print(f"  PORT=5001 python app.py\n")
+        else:
+            raise

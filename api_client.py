@@ -899,6 +899,41 @@ def get_upcoming_fixtures(
     return fixtures[:next_n]
 
 
+def get_espn_fixtures(espn_slug: str, next_n: int = 20) -> list:
+    """Fetch upcoming fixtures from ESPN for a given sport slug (e.g. 'FIFA.WC.2026').
+
+    Used by the World Cup page and other non-league ESPN endpoints that are not
+    covered by the standard API-Football provider.
+
+    Args:
+        espn_slug: ESPN competition slug string.
+        next_n: Maximum number of upcoming fixtures to return.
+
+    Returns:
+        List of normalised fixture dicts (same shape as get_upcoming_fixtures).
+    """
+    # ESPN base for soccer scoreboard uses league slug in path
+    soccer_base = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+    url = f"{soccer_base}/{espn_slug}/scoreboard"
+    cache_key = f"espn_slug:{espn_slug}:{datetime.now().strftime('%Y-%m-%d')}"
+    try:
+        payload = _espn_get_json(url, cache_key, ttl_hours=0.5)
+    except Exception:
+        return []
+
+    # Use league_id=0 as a sentinel — _normalize_espn_fixture will still work for
+    # the teams/goals/fixture fields we need.
+    fixtures = []
+    for event in payload.get("events") or []:
+        fixture = _normalize_espn_fixture(event, 0)
+        if not fixture:
+            continue
+        fixtures.append(fixture)
+
+    fixtures.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""))
+    return fixtures[:next_n]
+
+
 def get_top_scorers(league_id: int = DEFAULT_LEAGUE_ID, season: int = CURRENT_SEASON) -> list:
     try:
         response = api_get(
