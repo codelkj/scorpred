@@ -138,6 +138,22 @@ class TestMatchupRoute:
             rv = client.get("/matchup")
         assert rv.status_code == 200
 
+    def test_matchup_handles_upstream_failures(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("api_client.get_h2h", side_effect=Exception("h2h down")), \
+             patch("api_client.get_team_fixtures", side_effect=Exception("fixtures down")), \
+             patch("api_client.get_injuries", side_effect=Exception("injuries down")), \
+             patch("api_client.get_standings", side_effect=Exception("standings down")):
+            rv = client.get("/matchup")
+        assert rv.status_code == 200
+
 
 # ── Prediction page ───────────────────────────────────────────────────────────
 
@@ -161,6 +177,94 @@ class TestPredictionRoute:
              patch("api_client.get_injuries", return_value=[]), \
              patch("api_client.get_squad", return_value=[]):
             rv = client.get("/prediction")
+        assert rv.status_code == 200
+
+    def test_prediction_handles_upstream_failures(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("api_client.get_h2h", side_effect=Exception("h2h down")), \
+             patch("api_client.get_team_fixtures", side_effect=Exception("fixtures down")), \
+             patch("api_client.get_injuries", side_effect=Exception("injuries down")), \
+             patch("api_client.get_standings", side_effect=Exception("standings down")):
+            rv = client.get("/prediction")
+        assert rv.status_code == 200
+
+
+# ── Players page ──────────────────────────────────────────────────────────────
+
+class TestPlayersRoute:
+    def test_players_without_session_redirects(self, client):
+        rv = client.get("/players")
+        assert rv.status_code in (302, 303)
+
+    def test_players_uses_squad_fallback_and_renders(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        squad = [
+            {"id": 1, "name": "Player A", "position": "Goalkeeper", "photo": "", "number": 1},
+            {"id": 2, "name": "Player B", "position": "Forward", "photo": "", "number": 9},
+        ]
+        with patch("app.ac.get_squad", return_value=squad), \
+             patch("app.ac.get_injuries", return_value=[]):
+            rv = client.get("/players")
+        assert rv.status_code == 200
+        assert b"Full Squads" in rv.data
+
+    def test_players_handles_squad_fetch_failure(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("app.ac.get_squad", side_effect=Exception("squad down")):
+            rv = client.get("/players")
+        assert rv.status_code == 200
+
+
+class TestPropsRoute:
+    def test_props_without_session_redirects(self, client):
+        rv = client.get("/props")
+        assert rv.status_code in (302, 303)
+
+    def test_props_with_session_renders(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("app.ac.get_squad", return_value=[]):
+            rv = client.get("/props")
+        assert rv.status_code == 200
+
+    def test_props_handles_squad_fetch_failure(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("app.ac.get_squad", side_effect=Exception("squad down")):
+            rv = client.get("/props")
         assert rv.status_code == 200
 
 
@@ -228,12 +332,27 @@ class TestAPIRoutes:
         rv = client.get("/api/football/squad")
         assert rv.status_code == 400
 
+    def test_football_squad_api_invalid_team_id(self, client):
+        rv = client.get("/api/football/squad?team_id=abc")
+        assert rv.status_code == 400
+
     def test_player_stats_api_missing_id(self, client):
         rv = client.get("/api/player-stats")
         assert rv.status_code == 400
 
+    def test_player_stats_api_invalid_player_id(self, client):
+        rv = client.get("/api/player-stats?player_id=abc")
+        assert rv.status_code == 400
+
     def test_props_generate_missing_params(self, client):
         rv = client.post("/props/generate", data={})
+        assert rv.status_code == 400
+
+    def test_props_generate_invalid_numeric_payload_returns_400(self, client):
+        rv = client.post(
+            "/props/generate",
+            json={"player_id": "abc", "player_team_id": "x", "opponent_id": "y"},
+        )
         assert rv.status_code == 400
 
 
@@ -257,6 +376,44 @@ class TestWorldCupRoute:
     def test_worldcup_post_with_valid_teams(self, client):
         with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
             rv = client.post("/worldcup", data={"team_a": "Brazil", "team_b": "Argentina"})
+        assert rv.status_code == 200
+
+
+class TestConnectedFlows:
+    def test_soccer_connected_flow(self, client):
+        with patch("api_client.get_teams", return_value=_mock_teams()), \
+             patch("api_client.get_upcoming_fixtures", return_value=[_mock_fixture()]), \
+             patch("api_client.get_h2h", return_value=[_mock_fixture()]), \
+             patch("api_client.get_team_fixtures", return_value=[_mock_fixture()]), \
+             patch("api_client.get_injuries", return_value=[]), \
+             patch("api_client.get_standings", return_value=[]), \
+             patch("app.ac.get_squad", return_value=[]):
+            assert client.get("/").status_code == 200
+            assert client.get("/soccer").status_code == 200
+
+            select_resp = client.post("/select", data={"team_a": "33", "team_b": "40"})
+            assert select_resp.status_code in (302, 303)
+            assert "/matchup" in select_resp.headers.get("Location", "")
+
+            assert client.get("/matchup").status_code == 200
+            assert client.get("/prediction").status_code == 200
+            assert client.get("/players").status_code == 200
+            assert client.get("/props").status_code == 200
+
+    def test_model_performance_to_update_results_flow(self, client):
+        with patch("result_updater.get_update_summary", return_value={"pending": 1, "completed": 0, "total": 1, "completion_rate": 0.0}), \
+             patch("model_tracker.get_summary_metrics", return_value={"total_predictions": 1, "finalized_predictions": 0, "wins": 0, "losses": 0, "overall_accuracy": None, "by_confidence": {}, "by_sport": {}, "recent_predictions": []}):
+            assert client.get("/model-performance").status_code == 200
+            assert client.get("/update-prediction-results").status_code == 200
+
+
+class TestNbaFailureHandling:
+    def test_nba_index_handles_fetch_failures(self, client):
+        with patch("nba_live_client.get_teams", side_effect=Exception("teams down")), \
+             patch("nba_live_client.get_today_games", side_effect=Exception("games down")), \
+             patch("nba_live_client.get_upcoming_games", side_effect=Exception("upcoming down")), \
+             patch("nba_live_client.get_standings", return_value={"conference": []}):
+            rv = client.get("/nba/")
         assert rv.status_code == 200
 
     def test_worldcup_same_team_shows_error(self, client):

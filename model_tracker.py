@@ -94,7 +94,11 @@ def _get_game_key(sport: str, date: str, team_a: str, team_b: str) -> str:
 
 
 def _compute_prediction_outcome(prediction: dict) -> dict:
-    """Compute winner/totals performance values for a completed prediction."""
+    """Compute winner/totals display values for a completed prediction.
+
+    ScorPred currently stores winner picks only (A/B/draw). Totals are informative
+    and should not change whether the prediction is graded correct.
+    """
     sport = (prediction.get("sport") or "").lower()
     final_score = prediction.get("final_score") or {}
     actual_result = prediction.get("actual_result") or ""
@@ -121,7 +125,7 @@ def _compute_prediction_outcome(prediction: dict) -> dict:
         totals_result = "Over" if totals_hit else "Under"
         ou_display = f"U/O {total_line}: {'Hit' if totals_hit else 'Miss'}"
 
-    game_win = winner_hit and totals_hit
+    game_win = winner_hit
     overall_result = "Win" if game_win else "Loss"
     winner_result = "Hit" if winner_hit else "Miss"
 
@@ -284,10 +288,9 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
 
 def get_summary_metrics() -> dict[str, Any]:
     """
-    Compute summary metrics across all predictions using parlay-style grading.
-    
-    Each completed game is graded as Win/Loss based on whether ALL included picks hit.
-    Accuracy = wins / completed_games
+    Compute summary metrics across all predictions.
+
+    Accuracy is based on winner-pick correctness for completed games.
     
     Returns:
         {
@@ -337,10 +340,10 @@ def get_summary_metrics() -> dict[str, Any]:
             "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
         }
     
-    # Calculate game-level wins/losses (parlay logic)
+    # Calculate game-level wins/losses from winner correctness.
     def is_game_win(pred):
         outcome = _compute_prediction_outcome(pred)
-        return outcome["winner_hit"] and outcome["totals_hit"]
+        return outcome["winner_hit"]
     
     wins = sum(1 for p in finalized if is_game_win(p))
     losses = len(finalized) - wins

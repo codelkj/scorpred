@@ -120,6 +120,43 @@ def _display_injuries(items: list[dict]) -> list[dict]:
     return _clean_injuries(items)
 
 
+def _fetch_team_squad(team_id: int, season: int = SEASON) -> list[dict]:
+    getter = getattr(ac, "get_players", None)
+    if callable(getter):
+        data = getter(team_id, season)
+        if data:
+            return data
+    return ac.get_squad(team_id, season)
+
+
+def _group_squad_by_position(squad: list[dict]) -> dict[str, list[dict]]:
+    grouped = {"Goalkeeper": [], "Defender": [], "Midfielder": [], "Attacker": []}
+    for raw in squad or []:
+        player = raw.get("player") if isinstance(raw, dict) and isinstance(raw.get("player"), dict) else raw
+        if not isinstance(player, dict):
+            continue
+        position = str(player.get("position") or raw.get("position") or "Attacker").strip().title()
+        if position not in grouped:
+            if position in {"Forward", "Striker", "Winger"}:
+                position = "Attacker"
+            elif position in {"Centre-Back", "Center Back", "Fullback", "Wing Back"}:
+                position = "Defender"
+            elif position in {"Keeper", "Goalie"}:
+                position = "Goalkeeper"
+            else:
+                position = "Midfielder"
+        grouped[position].append(
+            {
+                "id": player.get("id"),
+                "name": player.get("name", ""),
+                "photo": player.get("photo", ""),
+                "number": player.get("number"),
+                "position": position,
+            }
+        )
+    return grouped
+
+
 def _build_opp_strengths(standings: list) -> dict:
     try:
         return se.build_opp_strengths_from_standings(standings)
@@ -170,6 +207,13 @@ def _normalize_team_name(name: str) -> str:
     ignored = {"fc", "cf", "sc", "afc", "club"}
     tokens = [token for token in text.split() if token not in ignored]
     return " ".join(tokens)
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _tracking_window_dates() -> tuple[set[str], list[str]]:
@@ -1092,26 +1136,29 @@ def players():
     if not team_a:
         return redirect(url_for("index"))
 
-    squad_a = []
-    squad_b = []
+    squad_a_raw = []
+    squad_b_raw = []
 
     try:
-        squad_a = ac.get_players(team_a["id"], SEASON)
+        squad_a_raw = _fetch_team_squad(team_a["id"], SEASON)
     except Exception as exc:
         app.logger.warning("Players fetch failed for %s: %s", team_a["name"], exc)
 
     try:
-        squad_b = ac.get_players(team_b["id"], SEASON)
+        squad_b_raw = _fetch_team_squad(team_b["id"], SEASON)
     except Exception as exc:
         app.logger.warning("Players fetch failed for %s: %s", team_b["name"], exc)
+
+    squad_a = _group_squad_by_position(squad_a_raw)
+    squad_b = _group_squad_by_position(squad_b_raw)
 
     return render_template(
         "player.html",
         **_page_context(
             team_a=team_a,
             team_b=team_b,
-            squad_a=squad_a or [],
-            squad_b=squad_b or [],
+            squad_a=squad_a,
+            squad_b=squad_b,
             selected_fixture=_selected_fixture(),
         ),
     )
@@ -1129,12 +1176,12 @@ def props():
     players = []
 
     try:
-        squad_a = ac.get_players(team_a["id"], SEASON)
+        squad_a = _fetch_team_squad(team_a["id"], SEASON)
     except Exception as exc:
         app.logger.warning("Props squad fetch failed for %s: %s", team_a["name"], exc)
 
     try:
-        squad_b = ac.get_players(team_b["id"], SEASON)
+        squad_b = _fetch_team_squad(team_b["id"], SEASON)
     except Exception as exc:
         app.logger.warning("Props squad fetch failed for %s: %s", team_b["name"], exc)
 
@@ -1202,15 +1249,15 @@ def props_generate():
     _set_data_refresh()
     payload = request.get_json(silent=True) or request.values
 
-    player_id = int(payload.get("player_id", 0) or 0)
+    player_id = _safe_int(payload.get("player_id", 0), 0)
     player_name = payload.get("player_name", "Unknown Player")
-    player_team_id = int(payload.get("player_team_id", 0) or 0)
-    opponent_id = int(payload.get("opponent_id", 0) or 0)
+    player_team_id = _safe_int(payload.get("player_team_id", 0), 0)
+    opponent_id = _safe_int(payload.get("opponent_id", 0), 0)
     opponent_name = payload.get("opponent_name", "Opponent")
     is_home_str = str(payload.get("is_home", "true")).lower()
     markets_str = str(payload.get("markets", "goals,assists,shots_on_target,key_passes"))
-    season = int(payload.get("season", SEASON) or SEASON)
-    league = int(payload.get("league", LEAGUE) or LEAGUE)
+    season = _safe_int(payload.get("season", SEASON), SEASON)
+    league = _safe_int(payload.get("league", LEAGUE), LEAGUE)
     player_position = payload.get("player_position", "")
     include_all_comps = str(payload.get("include_all_comps", "false")).lower() in ("true", "1", "yes", "on")
     league_ids_raw = str(payload.get("league_ids", ""))
@@ -1284,7 +1331,7 @@ def api_football_leagues():
 
 @app.route("/api/football/teams", methods=["GET"])
 def api_football_teams():
-    league_id = int(request.args.get("league", LEAGUE) or LEAGUE)
+    league_id = _safe_int(request.args.get("league", LEAGUE), LEAGUE)
     try:
         teams = ac.get_teams(league_id, SEASON)
     except Exception as exc:
@@ -1295,7 +1342,7 @@ def api_football_teams():
 
 @app.route("/api/football/squad", methods=["GET"])
 def api_football_squad():
-    team_id = int(request.args.get("team_id", 0) or 0)
+    team_id = _safe_int(request.args.get("team_id", 0), 0)
     if not team_id:
         return jsonify({"error": "team_id is required"}), 400
     try:
@@ -1308,11 +1355,11 @@ def api_football_squad():
 
 @app.route("/api/player-stats", methods=["GET"])
 def api_player_stats():
-    player_id = int(request.args.get("player_id", 0) or 0)
+    player_id = _safe_int(request.args.get("player_id", 0), 0)
     if not player_id:
         return jsonify({"error": "player_id is required"}), 400
-    season = int(request.args.get("season", SEASON) or SEASON)
-    league = int(request.args.get("league", LEAGUE) or LEAGUE)
+    season = _safe_int(request.args.get("season", SEASON), SEASON)
+    league = _safe_int(request.args.get("league", LEAGUE), LEAGUE)
     try:
         stats = ac.get_player_stats(player_id, season=season, league=league)
     except Exception as exc:
