@@ -47,7 +47,7 @@
       <div class="win-pct accent stat-number" data-target="{{ scorpred.win_probabilities.a }}">{{ scorpred.win_probabilities.a }}</div>
       <div class="win-label">{{ team_a.name }}</div>
       <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.a }}" style="background:#00ff87"></div>
+        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.a }}" style="background:#00ff87;"></div>
       </div>
     </div>
     {% if 'draw' in scorpred.win_probabilities %}
@@ -55,7 +55,7 @@
       <div class="win-pct stat-number" data-target="{{ scorpred.win_probabilities.draw }}">{{ scorpred.win_probabilities.draw }}</div>
       <div class="win-label">Draw</div>
       <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.draw }}" style="background:#f59e0b"></div>
+        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.draw }}" style="background:#8b949e;"></div>
       </div>
     </div>
     {% endif %}
@@ -63,7 +63,7 @@
       <div class="win-pct stat-number" data-target="{{ scorpred.win_probabilities.b }}">{{ scorpred.win_probabilities.b }}</div>
       <div class="win-label">{{ team_b.name }}</div>
       <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.b }}" style="background:#3b82f6"></div>
+        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.b }}" style="background:#3b82f6;"></div>
       </div>
     </div>
   </div>
@@ -101,8 +101,7 @@
     </div>
     <div style="text-align:center;">
       <div class="stat-number" data-target="{{ scorpred.team_b_score }}"
-           style="font-size:3rem; font-weight:800; line-height:1;
-                  color:{% if scorpred.team_b_score > scorpred.team_a_score %}#3b82f6{% else %}#e6edf3{% endif %};">
+           style="font-size:3rem; font-weight:800; line-height:1; color:#3b82f6;">
         {{ scorpred.team_b_score }}
       </div>
       <div style="font-size:.85rem; color:#8b949e; margin-top:.3rem;">{{ team_b.name }}</div>
@@ -113,7 +112,7 @@
   {% set total_s = scorpred.team_a_score + scorpred.team_b_score %}
   {% set pct_a = (scorpred.team_a_score / total_s * 100) | round(1) if total_s > 0 else 50 %}
   <div style="display:flex; height:8px; border-radius:4px; overflow:hidden; margin-bottom:1.5rem;">
-    <div style="width:{{ pct_a }}%; background:#00ff87; transition:width .6s ease;"></div>
+    <div style="width:{{ pct_a }}%; background:#00ff87;"></div>
     <div style="flex:1; background:#3b82f6;"></div>
   </div>
 
@@ -133,8 +132,7 @@
     <div style="background:rgba(255,255,255,.03); border-radius:6px; padding:.5rem .75rem;">
       <div style="font-size:.75rem; color:#8b949e; margin-bottom:.35rem;">{{ label }}</div>
       <div style="display:flex; align-items:center; gap:.5rem;">
-        <span style="font-size:.82rem; font-weight:600; min-width:2.5rem;
-          color:{% if a_val > b_val %}#00ff87{% elif a_val < b_val %}#8b949e{% else %}#e6edf3{% endif %};">
+        <span style="font-size:.82rem; font-weight:600; min-width:2.5rem; color:#00ff87;">
           {{ a_val }}
         </span>
         <div style="flex:1; display:flex; height:4px; border-radius:2px; overflow:hidden; background:#21262d;">
@@ -143,8 +141,7 @@
           <div style="width:{{ row_pct }}%; background:#00ff87;"></div>
           <div style="flex:1; background:#3b82f6;"></div>
         </div>
-        <span style="font-size:.82rem; font-weight:600; min-width:2.5rem; text-align:right;
-          color:{% if b_val > a_val %}#3b82f6{% elif b_val < a_val %}#8b949e{% else %}#e6edf3{% endif %};">
+        <span style="font-size:.82rem; font-weight:600; min-width:2.5rem; text-align:right; color:#3b82f6;">
           {{ b_val }}
         </span>
       </div>
@@ -158,9 +155,7 @@
     <div style="font-size:.78rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.5rem;">Key Edges</div>
     {% for edge in scorpred.key_edges %}
     <div style="display:flex; align-items:center; gap:.6rem; padding:.35rem 0; border-bottom:1px solid #21262d;">
-      <span style="font-size:.82rem; padding:.1rem .45rem; border-radius:3px; font-weight:700;
-        {% if edge.team == 'A' %}background:rgba(0,255,135,.12); color:#00ff87;
-        {% else %}background:rgba(59,130,246,.12); color:#3b82f6;{% endif %}">
+      <span style="font-size:.82rem; padding:.1rem .45rem; border-radius:3px; font-weight:700; {% if edge.team == 'A' %}background:rgba(0,255,135,.12); color:#00ff87;{% else %}background:rgba(59,130,246,.12); color:#3b82f6;{% endif %}">
         {{ edge.team_name }}
       </span>
       <span style="font-size:.82rem; color:#e6edf3;">{{ edge.category }}</span>

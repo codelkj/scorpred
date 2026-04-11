@@ -358,6 +358,7 @@ def index():
     teams = []
     today_games = []
     upcoming_games = []
+    upcoming_games_with_predictions = []
 
     try:
         teams = nc.get_teams()
@@ -375,12 +376,105 @@ def index():
     except Exception as e:
         _log_err("NBA upcoming games fetch failed", e)
 
+    # ── Generate Scorpred predictions for each upcoming game ──────────────────
+    team_map = {str(t["id"]): t for t in teams} if teams else {}
+    
+    for game in upcoming_games or []:
+        try:
+            home_id = str(game.get("teams", {}).get("home", {}).get("id") or "")
+            away_id = str(game.get("teams", {}).get("away", {}).get("id") or "")
+            home_team = team_map.get(home_id)
+            away_team = team_map.get(away_id)
+            
+            if not home_team or not away_team:
+                upcoming_games_with_predictions.append({**game, "prediction": None})
+                continue
+            
+            # Fetch form and H2H data for prediction
+            h2h_raw = []
+            form_home = []
+            form_away = []
+            injuries_home = []
+            injuries_away = []
+            
+            try:
+                h2h_raw = nc.get_h2h(home_id, away_id)
+            except Exception:
+                pass
+            
+            try:
+                form_home_raw = nc.get_team_recent_form(home_id)
+                form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
+            except Exception:
+                pass
+            
+            try:
+                form_away_raw = nc.get_team_recent_form(away_id)
+                form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
+            except Exception:
+                pass
+            
+            try:
+                injuries_home = nc.get_team_injuries(home_id)
+            except Exception:
+                pass
+            
+            try:
+                injuries_away = nc.get_team_injuries(away_id)
+            except Exception:
+                pass
+            
+            # H2H form
+            h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
+            h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
+            
+            # Build opponent strength lookup
+            nba_opp_strengths = {}
+            try:
+                nba_standings = nc.get_standings()
+                flat = []
+                if isinstance(nba_standings, dict):
+                    for conf_teams in nba_standings.values():
+                        flat.extend(conf_teams)
+                else:
+                    flat = list(nba_standings)
+                ranked = []
+                for i, entry in enumerate(flat):
+                    team_info = entry.get("team") or entry
+                    name = team_info.get("name") or team_info.get("nickname", "")
+                    rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
+                    if name:
+                        ranked.append({"team": {"name": name}, "rank": rank})
+                nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+            except Exception:
+                pass
+            
+            # Run Scorpred prediction
+            prediction = se.scorpred_predict(
+                form_a=form_home,
+                form_b=form_away,
+                h2h_form_a=h2h_form_home,
+                h2h_form_b=h2h_form_away,
+                injuries_a=injuries_home,
+                injuries_b=injuries_away,
+                team_a_is_home=True,
+                team_a_name=home_team.get("nickname") or home_team["name"],
+                team_b_name=away_team.get("nickname") or away_team["name"],
+                sport="nba",
+                opp_strengths=nba_opp_strengths,
+            )
+            
+            upcoming_games_with_predictions.append({**game, "prediction": prediction})
+        except Exception as e:
+            _log_err(f"Prediction for NBA game {game.get('id')}", e)
+            upcoming_games_with_predictions.append({**game, "prediction": None})
+
     return render_template(
         "nba/index.html",
         **_page_context(
             teams=teams,
             today_games=today_games,
-            upcoming_games=upcoming_games,
+            upcoming_games=upcoming_games_with_predictions,
             selected_game=_selected_nba_game() or {},
             load_error=load_error,
             route_support=_support("index"),

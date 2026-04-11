@@ -325,7 +325,7 @@
       </div>
       <div style="text-align:center;">
         <div class="stat-number" data-target="{{ scorpred.team_b_score }}"
-          style="font-size:3rem; font-weight:800; line-height:1; color:{% if scorpred.team_b_score > scorpred.team_a_score %}#00ff87{% else %}#e6edf3{% endif %};">
+          style="font-size:3rem; font-weight:800; line-height:1; color:#3b82f6;">
           {{ scorpred.team_b_score }}
         </div>
         <div style="font-size:.85rem; color:#8b949e; margin-top:.3rem;">{{ team_b.nickname or team_b.name }}</div>
@@ -355,8 +355,7 @@
       <div style="background:rgba(255,255,255,.03); border-radius:6px; padding:.5rem .75rem;">
         <div style="font-size:.75rem; color:#8b949e; margin-bottom:.35rem;">{{ label }}</div>
         <div style="display:flex; align-items:center; gap:.5rem;">
-          <span style="font-size:.82rem; font-weight:600; min-width:2.5rem;
-            color:{% if a_val > b_val %}#00ff87{% elif a_val < b_val %}#8b949e{% else %}#e6edf3{% endif %};">
+          <span style="font-size:.82rem; font-weight:600; min-width:2.5rem; color:#00ff87;">
             {{ a_val }}
           </span>
           <div style="flex:1; display:flex; height:4px; border-radius:2px; overflow:hidden; background:#21262d;">
@@ -365,8 +364,7 @@
             <div style="width:{{ row_pct }}%; background:#00ff87;"></div>
             <div style="flex:1; background:#3b82f6;"></div>
           </div>
-          <span style="font-size:.82rem; font-weight:600; min-width:2.5rem; text-align:right;
-            color:{% if b_val > a_val %}#3b82f6{% elif b_val < a_val %}#8b949e{% else %}#e6edf3{% endif %};">
+          <span style="font-size:.82rem; font-weight:600; min-width:2.5rem; text-align:right; color:#3b82f6;">
             {{ b_val }}
           </span>
         </div>
