@@ -956,7 +956,7 @@ def prediction():
     try:
         if scorpred:
             best_pick = scorpred.get("best_pick", {})
-            pred_winner = best_pick.get("team", "")
+            pred_winner = best_pick.get("prediction", "")
             probs = scorpred.get("win_probabilities", {})
             conf = best_pick.get("confidence", "Medium")
             

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 import unicodedata
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
@@ -151,6 +151,344 @@ def _normalize_team_name(name: str) -> str:
     ignored = {"fc", "cf", "sc", "afc", "club"}
     tokens = [token for token in text.split() if token not in ignored]
     return " ".join(tokens)
+
+
+def _tracking_window_dates() -> tuple[set[str], list[str]]:
+    today = date.today()
+    yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    tomorrow = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+    required = {yesterday, today.strftime("%Y-%m-%d")}
+    return required, [yesterday, today.strftime("%Y-%m-%d"), tomorrow]
+
+
+def _tracking_is_complete() -> bool:
+    required_dates, _ = _tracking_window_dates()
+    predictions = mt._load_predictions()
+    seen_dates = {pred.get("date", "") for pred in predictions if pred.get("sport", "").lower() in {"soccer", "nba"}}
+    return required_dates.issubset(seen_dates)
+
+
+def _bootstrap_model_tracking() -> dict[str, int]:
+    required_dates, tracking_dates = _tracking_window_dates()
+    inserted = 0
+    updated = 0
+    predictions_generated = 0
+    soccer_fetched = 0
+    nba_fetched = 0
+
+    existing_keys = {
+        mt._get_game_key(
+            pred.get("sport", ""),
+            pred.get("date", ""),
+            pred.get("team_a", ""),
+            pred.get("team_b", ""),
+        )
+        for pred in mt._load_predictions()
+    }
+
+    def _soccer_fixture_key(fixture: dict) -> str:
+        fixture_date = str((fixture.get("fixture") or {}).get("date") or "")[:10]
+        home = (fixture.get("teams") or {}).get("home", {}).get("name", "")
+        away = (fixture.get("teams") or {}).get("away", {}).get("name", "")
+        return f"{fixture_date}|{home}|{away}"
+
+    fixtures_seen: set[str] = set()
+    soccer_fixtures: list[dict] = []
+    for league_id in SUPPORTED_LEAGUE_IDS:
+        try:
+            upcoming = ac.get_upcoming_fixtures(league_id, SEASON, next_n=40)
+        except Exception:
+            upcoming = []
+        for fixture in upcoming:
+            fixture_date = str((fixture.get("fixture") or {}).get("date") or "")[:10]
+            if fixture_date not in tracking_dates:
+                continue
+            key = _soccer_fixture_key(fixture)
+            if key in fixtures_seen:
+                continue
+            fixtures_seen.add(key)
+            soccer_fixtures.append(fixture)
+
+        slug = getattr(ac, "ESPN_SLUG_BY_LEAGUE", {}).get(league_id)
+        if not slug:
+            continue
+        try:
+            espn_fixtures = ac.get_espn_fixtures(slug, next_n=40)
+        except Exception:
+            espn_fixtures = []
+        for fixture in espn_fixtures:
+            fixture_date = str((fixture.get("fixture") or {}).get("date") or "")[:10]
+            if fixture_date not in tracking_dates:
+                continue
+            key = _soccer_fixture_key(fixture)
+            if key in fixtures_seen:
+                continue
+            fixtures_seen.add(key)
+            soccer_fixtures.append(fixture)
+
+    soccer_fetched = len(soccer_fixtures)
+
+    # Track soccer fixtures
+    standings_cache: dict[int, list[dict]] = {}
+    for fixture in soccer_fixtures:
+        fixture_date = str((fixture.get("fixture") or {}).get("date") or "")[:10]
+        home = (fixture.get("teams") or {}).get("home", {})
+        away = (fixture.get("teams") or {}).get("away", {})
+        home_id = home.get("id")
+        away_id = away.get("id")
+        home_name = home.get("name", "Home")
+        away_name = away.get("name", "Away")
+
+        league_id = (fixture.get("league") or {}).get("id") or LEAGUE
+        if league_id not in standings_cache:
+            try:
+                standings_cache[league_id] = ac.get_standings(league_id, SEASON)
+            except Exception:
+                standings_cache[league_id] = []
+
+        opp_strengths = _build_opp_strengths(standings_cache.get(league_id, []))
+        try:
+            h2h_raw = ac.get_h2h(home_id, away_id, last=10) if home_id and away_id else []
+        except Exception:
+            h2h_raw = []
+        try:
+            fixtures_home = ac.get_team_fixtures(home_id, league_id, SEASON, last=10) if home_id else []
+        except Exception:
+            fixtures_home = []
+        try:
+            fixtures_away = ac.get_team_fixtures(away_id, league_id, SEASON, last=10) if away_id else []
+        except Exception:
+            fixtures_away = []
+        try:
+            injuries_home = _clean_injuries(ac.get_injuries(league_id, SEASON, home_id)) if home_id else []
+        except Exception:
+            injuries_home = []
+        try:
+            injuries_away = _clean_injuries(ac.get_injuries(league_id, SEASON, away_id)) if away_id else []
+        except Exception:
+            injuries_away = []
+
+        form_home = pred.extract_form(pred.filter_recent_completed_fixtures(fixtures_home, current_season=SEASON), home_id)[:5]
+        form_away = pred.extract_form(pred.filter_recent_completed_fixtures(fixtures_away, current_season=SEASON), away_id)[:5]
+        h2h_form_home = pred.extract_form(pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5), home_id)[:5]
+        h2h_form_away = pred.extract_form(pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5), away_id)[:5]
+
+        try:
+            prediction = se.scorpred_predict(
+                form_a=form_home,
+                form_b=form_away,
+                h2h_form_a=h2h_form_home,
+                h2h_form_b=h2h_form_away,
+                injuries_a=injuries_home,
+                injuries_b=injuries_away,
+                team_a_is_home=True,
+                team_a_name=home_name,
+                team_b_name=away_name,
+                sport="soccer",
+                opp_strengths=opp_strengths,
+            )
+        except Exception:
+            continue
+
+        best_pick = prediction.get("best_pick", {})
+        pred_winner = best_pick.get("prediction", "")
+        probs = prediction.get("win_probabilities", {})
+        conf = best_pick.get("confidence", "Low")
+        game_key = mt._get_game_key("soccer", fixture_date, home_name, away_name)
+        existing = game_key in existing_keys
+
+        try:
+            mt.save_prediction(
+                sport="soccer",
+                team_a=home_name,
+                team_b=away_name,
+                predicted_winner=pred_winner,
+                win_probs=probs,
+                confidence=conf,
+                game_date=fixture_date,
+            )
+            predictions_generated += 1
+            if existing:
+                updated += 1
+            else:
+                inserted += 1
+                existing_keys.add(game_key)
+        except Exception:
+            continue
+
+    # Track NBA games
+    nba_games: list[dict] = []
+    try:
+        nba_games.extend(nc.get_scoreboard_games(date.today()))
+    except Exception:
+        pass
+    try:
+        nba_games.extend(nc.get_scoreboard_games(date.today() - timedelta(days=1)))
+    except Exception:
+        pass
+    try:
+        nba_games.extend(nc.get_upcoming_games(next_n=40, days_ahead=1))
+    except Exception:
+        pass
+
+    # Deduplicate NBA games by id and date/home/away ordering
+    game_ids: set[str] = set()
+    unique_nba_games: list[dict] = []
+    for game in nba_games:
+        game_id = str(game.get("id", ""))
+        if not game_id or game_id in game_ids:
+            continue
+        game_ids.add(game_id)
+        unique_nba_games.append(game)
+
+    nba_fetched = len(unique_nba_games)
+
+    nba_standings = {}
+    try:
+        raw_standings = nc.get_standings()
+        flat: list = []
+        if isinstance(raw_standings, dict):
+            for group in raw_standings.values():
+                flat.extend(group)
+        else:
+            flat = list(raw_standings)
+        ranked = []
+        for i, entry in enumerate(flat):
+            team_info = entry.get("team") or entry
+            name = team_info.get("name") or team_info.get("nickname", "")
+            rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
+            if name:
+                ranked.append({"team": {"name": name}, "rank": rank})
+        nba_standings = se.build_opp_strengths_from_standings(ranked)
+    except Exception:
+        nba_standings = {}
+
+    for game in unique_nba_games:
+        teams_block = game.get("teams") or {}
+        home_team = teams_block.get("home") or {}
+        away_team = teams_block.get("visitors") or {}
+        home_name = home_team.get("name") or home_team.get("nickname", "Home")
+        away_name = away_team.get("name") or away_team.get("nickname", "Away")
+        fixture_date = str((game.get("date") or {}).get("start") or "")[:10]
+
+        try:
+            h2h_raw = []
+            form_home_raw = []
+            form_away_raw = []
+            injuries_home = []
+            injuries_away = []
+
+            try:
+                h2h_raw = nc.get_h2h(str(home_team.get("id", "")), str(away_team.get("id", "")))
+            except Exception:
+                pass
+            try:
+                form_home_raw = nc.get_team_recent_form(str(home_team.get("id", "")))
+            except Exception:
+                pass
+            try:
+                form_away_raw = nc.get_team_recent_form(str(away_team.get("id", "")))
+            except Exception:
+                pass
+            try:
+                injuries_home = nc.get_team_injuries(str(home_team.get("id", "")))
+            except Exception:
+                pass
+            try:
+                injuries_away = nc.get_team_injuries(str(away_team.get("id", "")))
+            except Exception:
+                pass
+
+            prediction = se.scorpred_predict(
+                form_a=np_nba.extract_recent_form(form_home_raw, str(home_team.get("id", "")), n=5),
+                form_b=np_nba.extract_recent_form(form_away_raw, str(away_team.get("id", "")), n=5),
+                h2h_form_a=np_nba.extract_recent_form(h2h_raw, str(home_team.get("id", "")), n=5),
+                h2h_form_b=np_nba.extract_recent_form(h2h_raw, str(away_team.get("id", "")), n=5),
+                injuries_a=injuries_home,
+                injuries_b=injuries_away,
+                team_a_is_home=True,
+                team_a_name=home_name,
+                team_b_name=away_name,
+                sport="nba",
+                opp_strengths=nba_standings,
+            )
+        except Exception:
+            continue
+
+        best_pick = prediction.get("best_pick", {})
+        pred_winner = best_pick.get("prediction", "")
+        probs = prediction.get("win_probabilities", {})
+        conf = best_pick.get("confidence", "Low")
+        game_key = mt._get_game_key("nba", fixture_date, home_name, away_name)
+        existing = game_key in existing_keys
+
+        try:
+            mt.save_prediction(
+                sport="nba",
+                team_a=home_name,
+                team_b=away_name,
+                predicted_winner=pred_winner,
+                win_probs=probs,
+                confidence=conf,
+                game_date=fixture_date,
+            )
+            predictions_generated += 1
+            if existing:
+                updated += 1
+            else:
+                inserted += 1
+                existing_keys.add(game_key)
+        except Exception:
+            continue
+
+    result_stats = ru.update_pending_predictions()
+    completed_updated = result_stats.get("updated", 0)
+    app.logger.debug(
+        "model_tracking: soccer_fetched=%d nba_fetched=%d predictions_generated=%d inserted=%d updated=%d results_updated=%d",
+        soccer_fetched,
+        nba_fetched,
+        predictions_generated,
+        inserted,
+        updated,
+        completed_updated,
+    )
+
+    return {
+        "soccer_fetched": soccer_fetched,
+        "nba_fetched": nba_fetched,
+        "predictions_generated": predictions_generated,
+        "inserted": inserted,
+        "updated": updated,
+        "results_updated": completed_updated,
+    }
+
+
+def _ensure_model_tracking():
+    if not _tracking_is_complete():
+        app.logger.info("Model performance tracking bootstrap triggered.")
+        _bootstrap_model_tracking()
+
+
+@app.before_first_request
+def _bootstrap_tracking_first_request():
+    try:
+        _ensure_model_tracking()
+    except Exception as exc:
+        app.logger.error("Bootstrap tracking failed at startup: %s", exc, exc_info=True)
+
+
+@app.before_request
+def _bootstrap_tracking_daily():
+    if request.endpoint in {None, "static"}:
+        return
+    today_str = date.today().strftime("%Y-%m-%d")
+    if app.config.get("TRACKING_LAST_BOOTSTRAP") == today_str:
+        return
+    try:
+        _ensure_model_tracking()
+    except Exception as exc:
+        app.logger.debug("Daily tracking check failed: %s", exc, exc_info=True)
+    app.config["TRACKING_LAST_BOOTSTRAP"] = today_str
 
 
 def _resolve_provider_team_by_name(name: str, teams: list[dict]) -> dict | None:
@@ -603,7 +941,7 @@ def matchup():
             sport="soccer",
             team_a=team_a["name"],
             team_b=team_b["name"],
-            predicted_winner=best_pick.get("team", ""),
+            predicted_winner=best_pick.get("prediction", ""),
             win_probs=scorpred.get("win_probabilities", {}),
             confidence=best_pick.get("confidence", "Low"),
         )
@@ -912,7 +1250,7 @@ def prediction():
     # Track this prediction
     try:
         best_pick = prediction.get("best_pick", {})
-        pred_winner = best_pick.get("team", "")
+        pred_winner = best_pick.get("prediction", "")
         probs = prediction.get("win_probabilities", {})
         conf = best_pick.get("confidence", "Medium")
         

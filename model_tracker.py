@@ -86,10 +86,56 @@ def _save_predictions(predictions: list[dict]) -> None:
 
 
 def _get_game_key(sport: str, date: str, team_a: str, team_b: str) -> str:
-    """Generate a unique key for a game to prevent duplicates."""
-    # Normalize teams by sorting alphabetically
-    teams = sorted([team_a.lower().strip(), team_b.lower().strip()])
-    return f"{sport.lower()}|{date}|{teams[0]}|{teams[1]}"
+    """Generate a unique key for a game to prevent duplicates.
+
+    Strict dedupe requires sport, date, home_team, and away_team to match exactly.
+    """
+    return f"{sport.lower().strip()}|{str(date)[:10]}|{team_a.lower().strip()}|{team_b.lower().strip()}"
+
+
+def _compute_prediction_outcome(prediction: dict) -> dict:
+    """Compute winner/totals performance values for a completed prediction."""
+    sport = (prediction.get("sport") or "").lower()
+    final_score = prediction.get("final_score") or {}
+    actual_result = prediction.get("actual_result") or ""
+    predicted_winner = prediction.get("predicted_winner") or ""
+
+    winner_hit = actual_result == predicted_winner
+    actual_winner = "Unknown"
+    if actual_result == "A":
+        actual_winner = prediction.get("team_a", "Unknown")
+    elif actual_result == "B":
+        actual_winner = prediction.get("team_b", "Unknown")
+    elif actual_result == "draw":
+        actual_winner = "Draw"
+
+    total_line = 2.5 if sport == "soccer" else 220.5
+    totals_hit = True
+    totals_result = None
+    ou_display = None
+    total_scored = None
+
+    if isinstance(final_score, dict) and "a" in final_score and "b" in final_score:
+        total_scored = final_score.get("a", 0) + final_score.get("b", 0)
+        totals_hit = total_scored > total_line
+        totals_result = "Over" if totals_hit else "Under"
+        ou_display = f"U/O {total_line}: {'Hit' if totals_hit else 'Miss'}"
+
+    game_win = winner_hit and totals_hit
+    overall_result = "Win" if game_win else "Loss"
+    winner_result = "Hit" if winner_hit else "Miss"
+
+    return {
+        "winner_hit": winner_hit,
+        "actual_winner": actual_winner,
+        "winner_result": winner_result,
+        "totals_result": totals_result,
+        "totals_hit": totals_hit,
+        "ou_display": ou_display,
+        "game_win": game_win,
+        "overall_result": overall_result,
+        "total_scored": total_scored,
+    }
 
 
 def save_prediction(
@@ -102,11 +148,10 @@ def save_prediction(
     game_date: str | None = None,
 ) -> str:
     """
-    Save a new prediction to the tracking file.
+    Save or update a prediction in the tracking file.
     
     Returns the prediction ID for later updates.
-    Checks for duplicates based on sport, date, and teams.
-    If a duplicate exists, returns the existing ID without saving.
+    If a matching game already exists, update the existing record instead of creating a duplicate.
     """
     predictions = _load_predictions()
     
@@ -122,7 +167,22 @@ def save_prediction(
             existing.get("team_b", "")
         )
         if existing_key == game_key:
-            # Duplicate found, return existing ID without saving new one
+            if existing.get("status") != "completed":
+                existing["predicted_winner"] = predicted_winner
+                existing["prob_a"] = round(win_probs.get("a", 0), 1)
+                existing["prob_b"] = round(win_probs.get("b", 0), 1)
+                existing["prob_draw"] = round(win_probs.get("draw", 0), 1)
+                existing["confidence"] = confidence
+                existing["status"] = "pending"
+                existing["actual_result"] = None
+                existing["is_correct"] = None
+                existing["final_score"] = None
+                existing["actual_winner"] = None
+                existing["winner_result"] = None
+                existing["totals_result"] = None
+                existing["overall_result"] = None
+                existing["updated_at"] = datetime.utcnow().isoformat() + "Z"
+                _save_predictions(predictions)
             return existing.get("id", "")
     
     pred_id = str(uuid.uuid4())[:8]
@@ -143,6 +203,11 @@ def save_prediction(
         "status": "pending",
         "actual_result": None,
         "is_correct": None,
+        "final_score": None,
+        "actual_winner": None,
+        "winner_result": None,
+        "totals_result": None,
+        "overall_result": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -205,6 +270,11 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
             pred["is_correct"] = (pred.get("predicted_winner") == actual_result)
             pred["status"] = "completed"
             pred["final_score"] = final_score
+            outcome = _compute_prediction_outcome(pred)
+            pred["actual_winner"] = outcome["actual_winner"]
+            pred["winner_result"] = outcome["winner_result"]
+            pred["totals_result"] = outcome["totals_result"]
+            pred["overall_result"] = outcome["overall_result"]
             pred["updated_at"] = datetime.utcnow().isoformat() + "Z"
             _save_predictions(predictions)
             return True
@@ -269,10 +339,8 @@ def get_summary_metrics() -> dict[str, Any]:
     
     # Calculate game-level wins/losses (parlay logic)
     def is_game_win(pred):
-        winner_hit = pred.get("winner_hit", False)
-        has_totals = bool(pred.get("ou_display"))
-        totals_hit = pred.get("ou_hit", True) if has_totals else True  # If no totals, don't count as miss
-        return winner_hit and totals_hit
+        outcome = _compute_prediction_outcome(pred)
+        return outcome["winner_hit"] and outcome["totals_hit"]
     
     wins = sum(1 for p in finalized if is_game_win(p))
     losses = len(finalized) - wins
@@ -351,65 +419,29 @@ def get_completed_predictions(limit: int = 50) -> list[dict]:
     for pred in completed:
         sport = pred.get("sport", "").lower()
         final_score = pred.get("final_score", {})
-        
-        # Calculate total scored
-        if final_score and isinstance(final_score, dict):
+        outcome = _compute_prediction_outcome(pred)
+
+        if isinstance(final_score, dict) and "a" in final_score and "b" in final_score:
+            total_value = final_score.get("a", 0) + final_score.get("b", 0)
             if sport == "soccer":
-                total_goals = final_score.get("a", 0) + final_score.get("b", 0)
-                pred["total_scored"] = total_goals
-                pred["total_label"] = f"Total Goals: {total_goals}"
-                
-                # Determine O/U result (using 2.5 as default line)
-                ou_line = 2.5
-                if total_goals > ou_line:
-                    pred["ou_result"] = "Over"
-                    pred["ou_hit"] = True
-                else:
-                    pred["ou_result"] = "Under" 
-                    pred["ou_hit"] = False
-                pred["ou_display"] = f"U/O {ou_line}: {'Hit' if pred['ou_hit'] else 'Miss'}"
-                
-            elif sport == "nba":
-                total_points = final_score.get("a", 0) + final_score.get("b", 0)
-                pred["total_scored"] = total_points
-                pred["total_label"] = f"Total Points: {total_points}"
-                
-                # For NBA, use a dynamic line based on typical NBA totals
-                # This is a simple approximation - in reality you'd want historical data
-                ou_line = 220.5  # Default NBA total line
-                if total_points > ou_line:
-                    pred["ou_result"] = "Over"
-                    pred["ou_hit"] = True
-                else:
-                    pred["ou_result"] = "Under"
-                    pred["ou_hit"] = False
-                pred["ou_display"] = f"U/O {ou_line}: {'Hit' if pred['ou_hit'] else 'Miss'}"
-        
-        # Format final score display
-        if final_score and isinstance(final_score, dict):
-            pred["final_score_display"] = f"{final_score.get('a', 0)}-{final_score.get('b', 0)}"
-        else:
-            pred["final_score_display"] = "Unknown"
-        
-        # Determine actual winner
-        actual_result = pred.get("actual_result", "")
-        if actual_result == "A":
-            pred["actual_winner"] = pred.get("team_a", "Unknown")
-        elif actual_result == "B":
-            pred["actual_winner"] = pred.get("team_b", "Unknown")
-        elif actual_result == "draw":
-            pred["actual_winner"] = "Draw"
-        else:
-            pred["actual_winner"] = "Unknown"
-        
-        # Winner pick result
-        pred["winner_hit"] = pred.get("is_correct", False)
-        pred["winner_display"] = f"Winner Pick: {'Hit' if pred['winner_hit'] else 'Miss'}"
-        
-        # Overall game result (parlay logic)
-        has_totals = bool(pred.get("ou_display"))
-        totals_hit = pred.get("ou_hit", True) if has_totals else True
-        pred["game_win"] = pred["winner_hit"] and totals_hit
-        pred["overall_game_result"] = "Win" if pred["game_win"] else "Loss"
+                pred["total_scored"] = total_value
+                pred["total_label"] = f"Total Goals: {total_value}"
+            else:
+                pred["total_scored"] = total_value
+                pred["total_label"] = f"Total Points: {total_value}"
+
+        pred["final_score_display"] = (
+            f"{final_score.get('a', 0)}-{final_score.get('b', 0)}"
+            if isinstance(final_score, dict)
+            else "Unknown"
+        )
+        pred["actual_winner"] = outcome["actual_winner"]
+        pred["winner_hit"] = outcome["winner_hit"]
+        pred["winner_display"] = f"Winner Pick: {'Hit' if outcome['winner_hit'] else 'Miss'}"
+        pred["ou_result"] = outcome["totals_result"]
+        pred["ou_hit"] = outcome["totals_hit"]
+        pred["ou_display"] = outcome["ou_display"]
+        pred["game_win"] = outcome["game_win"]
+        pred["overall_game_result"] = outcome["overall_result"]
     
     return completed
