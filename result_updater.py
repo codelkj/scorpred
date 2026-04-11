@@ -321,9 +321,10 @@ def update_pending_predictions() -> dict[str, Any]:
         if result and result.get("found"):
             stats["found"] += 1
             actual_winner = result.get("winner", "")
+            final_score = result.get("score", None)
             
-            # Update the prediction
-            if mt.update_prediction_result(pred_id, actual_winner):
+            # Update the prediction with result and final score
+            if mt.update_prediction_result(pred_id, actual_winner, final_score):
                 stats["updated"] += 1
     
     return stats

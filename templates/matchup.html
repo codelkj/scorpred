@@ -43,6 +43,51 @@
 {% endif %}
 
 
+{# ── Data Quality + Best Pick Banner ─────────────────────────────────────── #}
+{% set dq = scorpred.data_quality or 'Moderate' %}
+<div style="display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; margin-bottom:1.25rem;">
+  <span style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e;">Data Quality:</span>
+  {% if dq == 'Strong' %}
+    <span style="background:rgba(0,255,135,.15); color:#00ff87; border:1px solid rgba(0,255,135,.3); border-radius:20px; padding:.2rem .75rem; font-size:.78rem; font-weight:700;">Strong</span>
+    <span style="font-size:.75rem; color:#8b949e;">Form · H2H · Opponent quality · Injuries all available</span>
+  {% elif dq == 'Moderate' %}
+    <span style="background:rgba(245,158,11,.12); color:#f59e0b; border:1px solid rgba(245,158,11,.3); border-radius:20px; padding:.2rem .75rem; font-size:.78rem; font-weight:700;">Moderate</span>
+    <span style="font-size:.75rem; color:#8b949e;">Some data sources missing — prediction still reliable</span>
+  {% else %}
+    <span style="background:rgba(239,68,68,.12); color:#ef4444; border:1px solid rgba(239,68,68,.3); border-radius:20px; padding:.2rem .75rem; font-size:.78rem; font-weight:700;">Limited</span>
+    <span style="font-size:.75rem; color:#8b949e;">Minimal data — treat prediction with caution</span>
+  {% endif %}
+</div>
+
+{# ── Unmissable Best Pick card ────────────────────────────────────────────── #}
+<div style="background:rgba(0,255,135,.06); border:1px solid rgba(0,255,135,.25); border-radius:12px;
+            padding:1.25rem 1.5rem; margin-bottom:1.5rem;">
+  <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.6px; color:#8b949e; margin-bottom:.5rem;">
+    Best Pick
+  </div>
+  <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+    <span style="font-size:1.5rem; font-weight:800; color:#00ff87; letter-spacing:-.5px;">
+      {{ scorpred.best_pick.prediction }}
+    </span>
+    <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}" style="font-size:.82rem; padding:.3rem .75rem;">
+      {{ scorpred.best_pick.confidence }} Confidence
+    </span>
+    <span style="font-size:.8rem; color:#8b949e; font-style:italic;">
+      Gap: {{ scorpred.score_gap }}/10
+    </span>
+    <span style="margin-left:auto; font-size:1.1rem; color:#8b949e;">
+      {% if scorpred.best_pick.confidence == 'High' %}★★★★★
+      {% elif scorpred.best_pick.confidence == 'Medium' %}★★★★☆
+      {% else %}★★★☆☆{% endif %}
+    </span>
+  </div>
+  {% if scorpred.best_pick.reasoning %}
+  <div style="font-size:.83rem; color:#8b949e; margin-top:.6rem; line-height:1.55;">
+    Why: {{ scorpred.best_pick.reasoning }}
+  </div>
+  {% endif %}
+</div>
+
 {# ─────────────────────────────────────────────────────────────────────────────
    SECTION 1 — FINAL PREDICTION
 ───────────────────────────────────────────────────────────────────────────── #}
@@ -598,6 +643,65 @@
 
 </div>
 
+
+{# ─────────────────────────────────────────────────────────────────────────────
+   HOW THE MODEL WORKS
+───────────────────────────────────────────────────────────────────────────── #}
+<details style="margin-bottom:1.25rem;">
+  <summary style="cursor:pointer; font-size:.85rem; font-weight:600; color:#e6edf3; padding:.7rem 1rem;
+    background:rgba(0,255,135,.08); border:1px solid rgba(0,255,135,.2); border-radius:8px;
+    list-style:none; display:flex; align-items:center; gap:.6rem; user-select:none;">
+    <span style="font-size:1rem;">ℹ️</span> <span>How Scorpred Generates This Prediction</span>
+    <span style="margin-left:auto; font-size:.7rem; color:#8b949e;">Click to expand</span>
+  </summary>
+  <div style="background:rgba(0,255,135,.03); border:1px solid rgba(0,255,135,.15); border-top:none;
+    border-radius:0 0 8px 8px; padding:1.25rem 1.5rem; margin-top:.5rem;">
+    
+    <div style="margin-bottom:1.25rem;">
+      <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.6px; color:#8b949e; margin-bottom:.6rem;">
+        The Model Combines 8 Weighted Factors
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:.8rem;">
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Form (39%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Last 5 matches recency-weighted. Recent results matter most.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Attack (14%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Offensive output over last 5 games with trend adjustment.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Defense (14%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Goals/points conceded. Lower = stronger defensive rating.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">H2H (9%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Recent meetings. Does not override current form.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Venue (8%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Home advantage + actual venue-specific performance.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Opponent Quality (7%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Adjusts form based on opponent strength (quality of wins).</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Squad (4%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Key player absences, role-weighted by position.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Context (5%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Rest days and match congestion. Affects fatigue.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:.75rem; background:rgba(0,255,135,.08); border-left:3px solid rgba(0,255,135,.3); border-radius:0 4px 4px 0; font-size:.8rem; color:#8b949e; line-height:1.6;">
+      <strong style="color:#e6edf3;">For Soccer:</strong> The model calculates three outcome probabilities (Home Win · Draw · Away Win). Draw probability increases when the predicted score gap is small. The <strong style="color:#e6edf3;">Best Pick</strong> is always the outcome with highest probability.
+    </div>
+  </div>
+</details>
 
 {# ─────────────────────────────────────────────────────────────────────────────
    NAVIGATION

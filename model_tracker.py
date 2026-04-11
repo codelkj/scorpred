@@ -102,13 +102,14 @@ def save_prediction(
     return pred_id
 
 
-def update_prediction_result(pred_id: str, actual_result: str) -> bool:
+def update_prediction_result(pred_id: str, actual_result: str, final_score: dict | None = None) -> bool:
     """
-    Update a prediction with the actual game result.
+    Update a prediction with the actual game result and final score.
     
     Args:
         pred_id: The prediction ID returned from save_prediction()
         actual_result: "A" | "B" | "draw"
+        final_score: Optional dict with {"a": int, "b": int} for the final score
     
     Returns True if updated, False if prediction not found.
     """
@@ -118,6 +119,7 @@ def update_prediction_result(pred_id: str, actual_result: str) -> bool:
         if pred.get("id") == pred_id:
             pred["actual_result"] = actual_result
             pred["is_correct"] = (pred.get("predicted_winner") == actual_result)
+            pred["final_score"] = final_score
             pred["updated_at"] = datetime.utcnow().isoformat() + "Z"
             _save_predictions(predictions)
             return True

@@ -2,14 +2,14 @@
 scorpred_engine.py — Scorpred Weighted Prediction Engine
 
 Scoring model (all components scored 0-10, final score 0-10):
-  Form Score                (40%)  Win=+2, Draw=+1, Loss=0 · recency weights · margin bonus
-  Offensive Strength        (15%)  Avg goals/pts scored in last 5 + trend adjustment
-  Defensive Strength        (15%)  Avg goals/pts conceded in last 5 (fewer = higher)
-  Head-to-Head Score        (10%)  Last 5 meetings, recency-weighted · recent H2H > old H2H
+  Form Score                (39%)  Win=+2, Draw=+1, Loss=0 · recency weights · margin bonus
+  Offensive Strength        (14%)  Avg goals/pts scored in last 5 + trend adjustment
+  Defensive Strength        (14%)  Avg goals/pts conceded in last 5 (fewer = higher)
+  Head-to-Head Score         (9%)  Last 5 meetings, recency-weighted · recent H2H > old H2H
   Home/Away Advantage        (8%)  Moderate venue boost — real form data, not hardcoded
+  Match Context              (5%)  Rest and fatigue from last match spacing
   Squad Availability         (4%)  Injury impact — role-weighted positional impact
   Opponent Strength Adj      (7%)  Adjusts form value by quality of opponents faced
-  Match Context              (5%)  Rest and fatigue from last match spacing
 
 Recency weights applied to last 5 matches (most recent first):
   1st = 40%,  2nd = 25%,  3rd = 15%,  4th = 10%,  5th = 10%
@@ -23,6 +23,11 @@ Design rules:
   - Venue is a moderate contextual boost, not a dominant factor
   - Opponent Strength separates inflated form from real form
   - Prefer current evidence over old narratives
+
+Data Quality:
+  - Strong: Recent form + H2H + opponent quality + injuries all available
+  - Moderate: Some data missing but prediction still reliable
+  - Limited: Minimal data — prediction based on limited information
 """
 
 from __future__ import annotations
@@ -854,6 +859,38 @@ def _fallback_team_components() -> dict[str, Any]:
     }
 
 
+def _assess_data_quality(
+    form_a: list[dict],
+    form_b: list[dict],
+    h2h_form: list[dict],
+    injuries_a: list,
+    injuries_b: list,
+    opp_strengths: dict[str, float] | None = None,
+) -> str:
+    """
+    Assess data quality for the prediction.
+    
+    Returns: "Strong", "Moderate", or "Limited"
+    """
+    checks = {
+        "form_a": len(form_a) >= 3,
+        "form_b": len(form_b) >= 3,
+        "h2h": len(h2h_form) >= 3,
+        "injuries_a": len(injuries_a) > 0,
+        "injuries_b": len(injuries_b) > 0,
+        "opp_strength": bool(opp_strengths and len(opp_strengths) > 0),
+    }
+    
+    passed = sum(1 for v in checks.values() if v)
+    
+    if passed >= 5:
+        return "Strong"
+    elif passed >= 3:
+        return "Moderate"
+    else:
+        return "Limited"
+
+
 def scorpred_predict(
     form_a: list[dict],
     form_b: list[dict],
@@ -896,7 +933,20 @@ def scorpred_predict(
         optional_picks               — over/under and BTTS suggestions
         debug_info                   — fallback usage and data quality notes
     """
-    debug_info = {"fallbacks_used": [], "data_quality": "optimal"}
+    # Compute data quality label before running — based on what we have
+    _has_form_a = len(form_a or []) >= 3
+    _has_form_b = len(form_b or []) >= 3
+    _has_h2h    = len(h2h_form_a or []) >= 2 or len(h2h_form_b or []) >= 2
+    _has_opp    = bool(opp_strengths)
+    _q_points   = sum([_has_form_a, _has_form_b, _has_h2h, _has_opp])
+    if _q_points >= 4:
+        _data_quality_label = "Strong"
+    elif _q_points >= 2:
+        _data_quality_label = "Moderate"
+    else:
+        _data_quality_label = "Limited"
+
+    debug_info = {"fallbacks_used": [], "data_quality": _data_quality_label}
     
     try:
         score_a, comp_a = calculate_team_score(
@@ -1046,6 +1096,7 @@ def scorpred_predict(
         "performance_summary": perf_summary,
         "optional_picks": optional,
         "debug_info": debug_info,
+        "data_quality": _data_quality_label,
     }
 
 
