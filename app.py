@@ -45,6 +45,9 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "scorpred-dev-secret")
 
+# Initialize app config with tracking state
+app.config["TRACKING_LAST_BOOTSTRAP"] = None
+
 # ── Blueprints ─────────────────────────────────────────────────────────────────
 app.register_blueprint(nba_bp)
 
@@ -508,14 +511,6 @@ def _ensure_model_tracking():
     if not _tracking_is_complete():
         app.logger.info("Model performance tracking bootstrap triggered.")
         _bootstrap_model_tracking()
-
-
-@app.before_first_request
-def _bootstrap_tracking_first_request():
-    try:
-        _ensure_model_tracking()
-    except Exception as exc:
-        app.logger.error("Bootstrap tracking failed at startup: %s", exc, exc_info=True)
 
 
 @app.before_request
@@ -1243,6 +1238,130 @@ def chat():
     return jsonify({"reply": reply, "history": session["chat_history"], "last_updated": _now_stamp()})
 
 
+@app.route("/today-soccer-predictions", methods=["GET"])
+def today_soccer_predictions():
+    """Show soccer predictions for today's fixtures or next available fixtures."""
+    _set_data_refresh()
+    load_error = None
+    data_source = _football_data_source()
+    fixtures_with_pred, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20)
+
+    # Sort by confidence
+    def _confidence_rank(item):
+        pred = item.get("prediction", {})
+        best_pick = pred.get("best_pick", {})
+        conf = best_pick.get("confidence", "Low")
+        conf_map = {"High": 0, "Medium": 1, "Low": 2}
+        prob_gap = abs(
+            pred.get("win_probabilities", {}).get("a", 0.5)
+            - pred.get("win_probabilities", {}).get("b", 0.5)
+        )
+        return (conf_map.get(conf, 3), -prob_gap)
+
+    fixtures_with_pred.sort(key=_confidence_rank)
+
+    # Prepare predictions for template
+    predictions = []
+    for fixture in fixtures_with_pred:
+        try:
+            teams_block = fixture.get("teams", {})
+            home_team = teams_block.get("home", {})
+            away_team = teams_block.get("away", {})
+            fixture_block = fixture.get("fixture", {})
+            league_block = fixture.get("league", {})
+            prediction = fixture.get("prediction", {})
+            best_pick = prediction.get("best_pick", {})
+            probs = prediction.get("win_probabilities", {})
+
+            predictions.append({
+                "fixture": fixture,
+                "home_team": home_team,
+                "away_team": away_team,
+                "league": league_block,
+                "predicted_winner": best_pick.get("prediction", "—"),
+                "confidence": best_pick.get("confidence", "Low"),
+                "prob_home": probs.get("a", 50),
+                "prob_draw": probs.get("draw", 0),
+                "prob_away": probs.get("b", 50),
+                "reasoning": best_pick.get("reasoning", ""),
+            })
+        except Exception as e:
+            app.logger.warning("Error preparing fixture prediction: %s", e)
+            continue
+
+    return render_template(
+        "today_predictions.html",
+        **_page_context(
+            predictions=predictions,
+            total_fixtures=len(fixtures_with_pred),
+            total_predictions=len(predictions),
+            load_error=load_error,
+            data_source=data_source,
+        ),
+    )
+
+
+@app.route("/top-picks-today", methods=["GET"])
+def top_picks_today():
+    """Show high-confidence picks from today's soccer and NBA predictions."""
+    _set_data_refresh()
+    
+    # Load soccer fixtures
+    soccer_predictions, _, _, _ = _load_upcoming_fixtures(next_n=20)
+    soccer_picks = []
+    for fixture in soccer_predictions:
+        try:
+            teams_block = fixture.get("teams", {})
+            home_team = teams_block.get("home", {})
+            away_team = teams_block.get("away", {})
+            prediction = fixture.get("prediction", {})
+            best_pick = prediction.get("best_pick", {})
+            probs = prediction.get("win_probabilities", {})
+            
+            if best_pick.get("confidence") == "High":
+                soccer_picks.append({
+                    "fixture": fixture,
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "predicted_winner": best_pick.get("prediction", "—"),
+                    "confidence": "High",
+                    "prob_home": probs.get("a", 50),
+                    "prob_draw": probs.get("draw", 0),
+                    "prob_away": probs.get("b", 50),
+                    "pick_type": "match_winner" if best_pick.get("prediction") != "Draw" else "draw",
+                    "reasoning": best_pick.get("reasoning", ""),
+                })
+        except Exception as e:
+            app.logger.debug("Error preparing soccer top pick: %s", e)
+            continue
+    
+    # Load NBA predictions from tracker
+    nba_picks = []
+    try:
+        recent = mt.get_recent_predictions(limit=50)
+        from datetime import date, timedelta
+        today_str = date.today().strftime("%Y-%m-%d")
+        nba_records = [
+            p for p in recent
+            if p.get("sport") == "nba"
+            and p.get("date", "") == today_str
+            and p.get("is_correct") is None
+        ]
+        for record in nba_records[:10]:
+            if record.get("best_pick", {}).get("confidence") == "High":
+                nba_picks.append(record)
+    except Exception as e:
+        app.logger.debug("Error loading NBA picks: %s", e)
+    
+    return render_template(
+        "top_picks_today.html",
+        **_page_context(
+            soccer_picks=soccer_picks[:10],
+            nba_picks=nba_picks[:10],
+        ),
+    )
+
+
 @app.route("/model-performance")
 def model_performance():
     try:
@@ -1350,4 +1469,4 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
