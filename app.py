@@ -816,6 +816,37 @@ def soccer():
     )
 
 
+@app.route("/fixtures", methods=["GET"])
+def fixtures():
+    """Legacy fixtures page route (kept for backwards compatibility)."""
+    _set_data_refresh()
+    selected_slug = (request.args.get("espn_slug") or "").strip()
+    fixtures_data: list[dict] = []
+    load_error = None
+    data_source = _football_data_source()
+
+    if selected_slug:
+        try:
+            fixtures_data = ac.get_espn_fixtures(selected_slug, next_n=20)
+            data_source = "espn"
+        except Exception as exc:
+            load_error = str(exc)
+            app.logger.error("Failed to fetch ESPN fixtures (%s): %s", selected_slug, exc)
+            fixtures_data = []
+    else:
+        fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20)
+
+    return render_template(
+        "fixtures.html",
+        **_page_context(
+            fixtures=fixtures_data or [],
+            load_error=load_error,
+            data_source=data_source,
+            espn_slug=selected_slug,
+        ),
+    )
+
+
 @app.route("/select", methods=["GET", "POST"])
 @app.route("/select-game", methods=["GET", "POST"])
 @app.route("/matchup", methods=["POST"])
@@ -974,6 +1005,7 @@ def matchup():
             injuries_b=injuries_b,
             stats_compare=stats_compare,
             prediction=prediction,
+            scorpred=prediction,
         ),
     )
 
@@ -1047,6 +1079,7 @@ def prediction():
             team_a=team_a,
             team_b=team_b,
             prediction=result,
+            scorpred=result,
             selected_fixture=_selected_fixture(),
         ),
     )
@@ -1073,7 +1106,7 @@ def players():
         app.logger.warning("Players fetch failed for %s: %s", team_b["name"], exc)
 
     return render_template(
-        "players.html",
+        "player.html",
         **_page_context(
             team_a=team_a,
             team_b=team_b,
@@ -1236,6 +1269,62 @@ def chat():
     )
     session["chat_history"] = history[-10:]
     return jsonify({"reply": reply, "history": session["chat_history"], "last_updated": _now_stamp()})
+
+
+@app.route("/chat/clear", methods=["POST"])
+def chat_clear():
+    session.pop("chat_history", None)
+    return jsonify({"status": "cleared", "last_updated": _now_stamp()})
+
+
+@app.route("/api/football/leagues", methods=["GET"])
+def api_football_leagues():
+    return jsonify({"leagues": _football_supported_leagues(), "season": SEASON})
+
+
+@app.route("/api/football/teams", methods=["GET"])
+def api_football_teams():
+    league_id = int(request.args.get("league", LEAGUE) or LEAGUE)
+    try:
+        teams = ac.get_teams(league_id, SEASON)
+    except Exception as exc:
+        app.logger.error("api_football_teams failed: %s", exc)
+        return jsonify({"error": "Unable to load teams", "league": league_id, "season": SEASON}), 503
+    return jsonify({"teams": teams or [], "league": league_id, "season": SEASON})
+
+
+@app.route("/api/football/squad", methods=["GET"])
+def api_football_squad():
+    team_id = int(request.args.get("team_id", 0) or 0)
+    if not team_id:
+        return jsonify({"error": "team_id is required"}), 400
+    try:
+        squad = ac.get_squad(team_id)
+    except Exception as exc:
+        app.logger.error("api_football_squad failed for team_id=%s: %s", team_id, exc)
+        return jsonify({"error": "Unable to load squad", "team_id": team_id}), 503
+    return jsonify({"team_id": team_id, "squad": squad or []})
+
+
+@app.route("/api/player-stats", methods=["GET"])
+def api_player_stats():
+    player_id = int(request.args.get("player_id", 0) or 0)
+    if not player_id:
+        return jsonify({"error": "player_id is required"}), 400
+    season = int(request.args.get("season", SEASON) or SEASON)
+    league = int(request.args.get("league", LEAGUE) or LEAGUE)
+    try:
+        stats = ac.get_player_stats(player_id, season=season, league=league)
+    except Exception as exc:
+        app.logger.error(
+            "api_player_stats failed for player_id=%s season=%s league=%s: %s",
+            player_id,
+            season,
+            league,
+            exc,
+        )
+        return jsonify({"error": "Unable to load player stats", "player_id": player_id}), 503
+    return jsonify({"player_id": player_id, "stats": stats or []})
 
 
 @app.route("/today-soccer-predictions", methods=["GET"])
@@ -1469,4 +1558,6 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    debug = str(os.getenv("FLASK_DEBUG", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    port = int(os.getenv("PORT", "5001"))
+    app.run(debug=debug, port=port)
