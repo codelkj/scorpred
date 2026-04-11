@@ -398,6 +398,11 @@ def _chat_reply(message: str, history: list[dict] | None = None) -> str:
 
 @app.route("/", methods=["GET"])
 def index():
+    return render_template("home.html", **_page_context())
+
+
+@app.route("/soccer", methods=["GET"])
+def soccer():
     _set_data_refresh()
     load_error = None
     teams = []
@@ -418,7 +423,7 @@ def index():
         app.logger.error("Failed to fetch upcoming fixtures: %s", exc)
 
     return render_template(
-        "index.html",
+        "soccer.html",
         **_page_context(
             data_source=fixtures_source,
             teams=teams or [],

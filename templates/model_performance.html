@@ -34,15 +34,13 @@
   </div>
 
   <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
-    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Completed</div>
-    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#3b82f6;">{{ metrics.finalized_predictions or 0 }}</div>
+    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Wins</div>
+    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#00ff87;">{{ metrics.wins or 0 }}</div>
   </div>
 
   <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
-    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Pending</div>
-    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#f59e0b;">
-      {{ metrics.total_predictions - (metrics.finalized_predictions or 0) }}
-    </div>
+    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Losses</div>
+    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#ef4444;">{{ metrics.losses or 0 }}</div>
   </div>
 
   <div class="card glow-card gradient-border" style="text-align:center; padding:1.25rem 1rem;">
@@ -82,19 +80,16 @@
         {{ pred.total_label }}
       </div>
       {% endif %}
+      <div style="font-size:.75rem; margin-bottom:.3rem;">
+        <span style="color:{% if pred.winner_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ pred.winner_display }}</span>
+      </div>
       {% if pred.ou_display %}
       <div style="font-size:.75rem; margin-bottom:.3rem;">
         <span style="color:{% if pred.ou_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ pred.ou_display }}</span>
       </div>
       {% endif %}
-      <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
-        Predicted Winner: {{ pred.predicted_winner }}
-      </div>
-      <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
-        Actual Winner: {{ pred.actual_winner }}
-      </div>
-      <div style="font-size:.75rem;">
-        <span style="color:{% if pred.winner_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ pred.winner_display }}</span>
+      <div style="font-size:.75rem; margin-bottom:.3rem;">
+        <span style="color:{% if pred.game_win %}#00ff87{% else %}#ef4444{% endif %}; font-weight:600;">Overall Result: {{ pred.overall_game_result }}</span>
       </div>
       {% if pred.confidence %}
       <div style="margin-top:.5rem;">
@@ -127,7 +122,9 @@
       {% else %}
         <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#ef4444;">{{ sport_data.accuracy }}%</div>
       {% endif %}
-      <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">{{ sport_data.count }} finalized</div>
+      <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">
+        Wins: {{ sport_data.wins }} Losses: {{ sport_data.losses }}
+      </div>
       <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.6rem; overflow:hidden;">
         <div style="width:{{ sport_data.accuracy }}%; height:100%;
           background:{% if sport_data.accuracy >= 55 %}#00ff87{% elif sport_data.accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
@@ -154,7 +151,9 @@
     {% else %}
       <div style="font-size:.85rem; color:#8b949e; margin-top:.5rem;">—</div>
     {% endif %}
-    <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">{{ metrics.finalized_predictions or 0 }} finalized</div>
+    <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">
+      Wins: {{ metrics.wins or 0 }} Losses: {{ metrics.losses or 0 }}
+    </div>
     <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.6rem; overflow:hidden;">
       <div style="width:{% if metrics.overall_accuracy %}{{ metrics.overall_accuracy }}{% else %}0{% endif %}%; height:100%;
         background:{% if metrics.overall_accuracy and metrics.overall_accuracy >= 55 %}#00ff87{% elif metrics.overall_accuracy and metrics.overall_accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
@@ -184,7 +183,7 @@
     <div class="card glow-card" style="padding:1.1rem 1.25rem;">
       <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.6rem;">
         <span class="confidence-badge conf-{{ conf_level | lower }}">{{ conf_level }}</span>
-        <span style="font-size:.78rem; color:#8b949e;">{{ cd.count }} predictions</span>
+        <span style="font-size:.78rem; color:#8b949e;">Wins: {{ cd.wins }} Losses: {{ cd.losses }}</span>
       </div>
       {% if cd.accuracy >= 55 %}
         <div class="stat-number" style="font-size:1.6rem; font-weight:800; color:#00ff87;">{{ cd.accuracy }}%</div>

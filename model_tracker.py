@@ -214,20 +214,26 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
 
 def get_summary_metrics() -> dict[str, Any]:
     """
-    Compute summary metrics across all predictions.
+    Compute summary metrics across all predictions using parlay-style grading.
+    
+    Each completed game is graded as Win/Loss based on whether ALL included picks hit.
+    Accuracy = wins / completed_games
     
     Returns:
         {
             "total_predictions": int,
+            "finalized_predictions": int,
+            "wins": int,
+            "losses": int,
             "overall_accuracy": float,  # 0-100%
             "by_confidence": {
-                "High": {"accuracy": float, "count": int},
-                "Medium": {"accuracy": float, "count": int},
-                "Low": {"accuracy": float, "count": int},
+                "High": {"accuracy": float, "count": int, "wins": int, "losses": int},
+                "Medium": {"accuracy": float, "count": int, "wins": int, "losses": int},
+                "Low": {"accuracy": float, "count": int, "wins": int, "losses": int},
             },
             "by_sport": {
-                "soccer": {"accuracy": float, "count": int},
-                "nba": {"accuracy": float, "count": int},
+                "soccer": {"accuracy": float, "count": int, "wins": int, "losses": int},
+                "nba": {"accuracy": float, "count": int, "wins": int, "losses": int},
             },
             "recent_predictions": list  # Last 10
         }
@@ -238,6 +244,8 @@ def get_summary_metrics() -> dict[str, Any]:
         return {
             "total_predictions": 0,
             "finalized_predictions": 0,
+            "wins": 0,
+            "losses": 0,
             "overall_accuracy": None,
             "by_confidence": {},
             "by_sport": {},
@@ -251,25 +259,37 @@ def get_summary_metrics() -> dict[str, Any]:
         return {
             "total_predictions": len(predictions),
             "finalized_predictions": 0,
+            "wins": 0,
+            "losses": 0,
             "overall_accuracy": None,
             "by_confidence": {},
             "by_sport": {},
             "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
         }
     
-    # Overall accuracy
-    correct_count = sum(1 for p in finalized if p.get("is_correct"))
-    overall_accuracy = (correct_count / len(finalized)) * 100 if finalized else 0
+    # Calculate game-level wins/losses (parlay logic)
+    def is_game_win(pred):
+        winner_hit = pred.get("winner_hit", False)
+        has_totals = bool(pred.get("ou_display"))
+        totals_hit = pred.get("ou_hit", True) if has_totals else True  # If no totals, don't count as miss
+        return winner_hit and totals_hit
+    
+    wins = sum(1 for p in finalized if is_game_win(p))
+    losses = len(finalized) - wins
+    overall_accuracy = (wins / len(finalized)) * 100 if finalized else 0
     
     # By confidence level
     by_confidence = {}
     for conf_level in ("High", "Medium", "Low"):
         conf_preds = [p for p in finalized if p.get("confidence") == conf_level]
         if conf_preds:
-            conf_correct = sum(1 for p in conf_preds if p.get("is_correct"))
+            conf_wins = sum(1 for p in conf_preds if is_game_win(p))
+            conf_losses = len(conf_preds) - conf_wins
             by_confidence[conf_level] = {
-                "accuracy": round((conf_correct / len(conf_preds)) * 100, 1),
+                "accuracy": round((conf_wins / len(conf_preds)) * 100, 1) if conf_preds else 0,
                 "count": len(conf_preds),
+                "wins": conf_wins,
+                "losses": conf_losses,
             }
     
     # By sport
@@ -277,15 +297,20 @@ def get_summary_metrics() -> dict[str, Any]:
     for sport in ("soccer", "nba"):
         sport_preds = [p for p in finalized if p.get("sport") == sport]
         if sport_preds:
-            sport_correct = sum(1 for p in sport_preds if p.get("is_correct"))
+            sport_wins = sum(1 for p in sport_preds if is_game_win(p))
+            sport_losses = len(sport_preds) - sport_wins
             by_sport[sport] = {
-                "accuracy": round((sport_correct / len(sport_preds)) * 100, 1),
+                "accuracy": round((sport_wins / len(sport_preds)) * 100, 1) if sport_preds else 0,
                 "count": len(sport_preds),
+                "wins": sport_wins,
+                "losses": sport_losses,
             }
     
     return {
         "total_predictions": len(predictions),
         "finalized_predictions": len(finalized),
+        "wins": wins,
+        "losses": losses,
         "overall_accuracy": round(overall_accuracy, 1),
         "by_confidence": by_confidence,
         "by_sport": by_sport,
@@ -380,5 +405,11 @@ def get_completed_predictions(limit: int = 50) -> list[dict]:
         # Winner pick result
         pred["winner_hit"] = pred.get("is_correct", False)
         pred["winner_display"] = f"Winner Pick: {'Hit' if pred['winner_hit'] else 'Miss'}"
+        
+        # Overall game result (parlay logic)
+        has_totals = bool(pred.get("ou_display"))
+        totals_hit = pred.get("ou_hit", True) if has_totals else True
+        pred["game_win"] = pred["winner_hit"] and totals_hit
+        pred["overall_game_result"] = "Win" if pred["game_win"] else "Loss"
     
     return completed

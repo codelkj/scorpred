@@ -29,9 +29,10 @@
       <span>ScorPred</span>
     </a>
     <div class="nav-links">
-      <a href="/" class="{% if not request.path.startswith('/nba') and request.path not in ['/today-soccer-predictions', '/model-performance', '/update-prediction-results', '/top-picks-today'] %}active{% endif %}">Home</a>
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
+      <a href="/soccer" class="{% if request.path == '/soccer' or request.path in ['/today-soccer-predictions', '/fixtures'] %}active{% endif %}">Soccer</a>
+      <a href="/nba/" class="{% if request.path.startswith('/nba') %}active{% endif %}">NBA</a>
       <a href="/today-soccer-predictions" class="{% if request.path == '/today-soccer-predictions' %}active{% endif %}">Today Soccer</a>
-      <a href="/nba/" class="{% if request.path == '/nba/' or request.path == '/nba' %}active{% endif %}">NBA</a>
       <a href="/nba/today-predictions" class="{% if request.path == '/nba/today-predictions' %}active{% endif %}">Today NBA</a>
       <a href="/top-picks-today" class="{% if request.path == '/top-picks-today' %}active{% endif %}">Top Picks Today</a>
       <a href="/model-performance" class="{% if request.path == '/model-performance' %}active{% endif %}">Performance</a>
