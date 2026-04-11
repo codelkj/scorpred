@@ -1,199 +1,255 @@
 {% extends "base.html" %}
-
 {% block title %}Model Performance | ScorPred{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row mb-4">
-        <div class="col-md-8">
-            <h1>📊 Model Performance Tracker</h1>
-            <p class="text-muted">Track Scorpred's prediction accuracy over time</p>
-        </div>
-        <div class="col-md-4 text-end">
-            <a href="{{ url_for('update_prediction_results') }}" class="btn btn-info">
-                🔄 Update Results
-            </a>
-        </div>
-    </div>
-
-    {% if metrics.total_predictions == 0 %}
-    <div class="alert alert-info" role="alert">
-        <h5>No predictions tracked yet</h5>
-        <p>Predictions will be tracked automatically when you generate them. Start by making a prediction on the <a href="/">Home</a> or <a href="/nba/">NBA</a> pages.</p>
-    </div>
-    {% else %}
-
-    <!-- Overall Stats -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card text-center">
-                <div class="card-body">
-                    <h5 class="card-title">Total Predictions</h5>
-                    <h2 class="text-primary">{{ metrics.total_predictions }}</h2>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card text-center">
-                <div class="card-body">
-                    <h5 class="card-title">Finalized</h5>
-                    <h2 class="text-info">{{ metrics.finalized_predictions or 0 }}</h2>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-6">
-            {# Guard None before numeric comparison — None >= 55 raises TypeError in Python 3 #}
-            {% if metrics.overall_accuracy is not none and metrics.overall_accuracy >= 55 %}
-              {% set acc_class = "bg-success text-white" %}
-            {% elif metrics.overall_accuracy is not none and metrics.overall_accuracy >= 45 %}
-              {% set acc_class = "bg-warning text-dark" %}
-            {% elif metrics.overall_accuracy is not none %}
-              {% set acc_class = "bg-danger text-white" %}
-            {% else %}
-              {% set acc_class = "bg-secondary text-white" %}
-            {% endif %}
-            <div class="card text-center {{ acc_class }}">
-                <div class="card-body">
-                    <h5 class="card-title">Overall Accuracy</h5>
-                    {% if metrics.overall_accuracy is not none %}
-                    <h2>{{ metrics.overall_accuracy }}%</h2>
-                    {% else %}
-                    <p class="mb-0">Waiting for results…</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- By Confidence Level -->
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <h3>Accuracy by Confidence Level</h3>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        {% for conf_level in ['High', 'Medium', 'Low'] %}
-            {% if metrics.by_confidence.get(conf_level) %}
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h5 class="card-title">{{ conf_level }} Confidence</h5>
-                        <h3 class="{% if metrics.by_confidence[conf_level].accuracy >= 55 %}text-success{% elif metrics.by_confidence[conf_level].accuracy >= 45 %}text-warning{% else %}text-danger{% endif %}">
-                            {{ metrics.by_confidence[conf_level].accuracy }}%
-                        </h3>
-                        <p class="text-muted">{{ metrics.by_confidence[conf_level].count }} predictions</p>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-        {% endfor %}
-        
-        {% if not metrics.by_confidence %}
-        <div class="col-md-12">
-            <p class="text-muted">Waiting for finalized predictions...</p>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- By Sport -->
-    {% if metrics.by_sport %}
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <h3>Accuracy by Sport</h3>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        {% for sport, data in metrics.by_sport.items() %}
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5 class="card-title">{{ sport | upper }}</h5>
-                    <h3 class="{% if data.accuracy >= 55 %}text-success{% elif data.accuracy >= 45 %}text-warning{% else %}text-danger{% endif %}">
-                        {{ data.accuracy }}%
-                    </h3>
-                    <p class="text-muted">{{ data.count }} predictions</p>
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <!-- Recent Predictions -->
-    {% if metrics.recent_predictions %}
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <h3>Recent Predictions</h3>
-            <table class="table table-sm table-hover">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Sport</th>
-                        <th>Matchup</th>
-                        <th>Predicted</th>
-                        <th>Confidence</th>
-                        <th>Result</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for pred in metrics.recent_predictions %}
-                    <tr>
-                        <td><small>{{ pred.created_at[:10] }}</small></td>
-                        <td><span class="badge bg-secondary">{{ pred.sport }}</span></td>
-                        <td>{{ pred.team_a }} vs {{ pred.team_b }}</td>
-                        <td>
-                            {{ pred.predicted_winner }}
-                            <br/>
-                            <small class="text-muted">
-                                (A: {{ pred.prob_a }}%, B: {{ pred.prob_b }}%
-                                {% if pred.prob_draw %}, Draw: {{ pred.prob_draw }}%{% endif %})
-                            </small>
-                        </td>
-                        <td><span class="badge bg-info">{{ pred.confidence }}</span></td>
-                        <td>
-                            {% if pred.actual_result %}
-                                <strong>{{ pred.actual_result }}</strong>
-                            {% else %}
-                                <span class="text-muted">—</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if pred.is_correct is none %}
-                                <small class="text-muted">Pending</small>
-                            {% elif pred.is_correct %}
-                                <span class="badge bg-success">✓ Correct</span>
-                            {% else %}
-                                <span class="badge bg-danger">✗ Wrong</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    {% endif %}
-
-    {% endif %}
-
-    <div class="row">
-        <div class="col-md-12">
-            <a href="/" class="btn btn-secondary">Back Home</a>
-        </div>
-    </div>
+<div class="page-header">
+  <h1>Model <span class="accent">Performance</span></h1>
+  <p class="page-sub">Scorpred prediction accuracy — updated automatically as results come in</p>
 </div>
 
-<style>
-    .card {
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .badge {
-        font-size: 0.85rem;
-        padding: 0.4rem 0.6rem;
-    }
-</style>
+{# ── Auto-update button ─────────────────────────────────────────────────── #}
+<div style="display:flex; justify-content:flex-end; margin-bottom:1.25rem;">
+  <a href="{{ url_for('update_prediction_results') }}" class="btn btn-secondary btn-sm btn-glow">
+    Refresh Results
+  </a>
+</div>
+
+{% if metrics.total_predictions == 0 %}
+<div class="card glow-card" style="padding:1.5rem; text-align:center;">
+  <div style="font-size:1.3rem; margin-bottom:.5rem;">📊</div>
+  <h3 style="margin-bottom:.4rem;">No predictions tracked yet</h3>
+  <p style="color:#8b949e; font-size:.85rem; margin-bottom:1rem;">
+    Predictions are tracked automatically when you generate them. Start with a matchup on the
+    <a href="/">Home</a> page or the <a href="/nba/">NBA</a> section.
+  </p>
+</div>
+{% else %}
+
+{# ── Top-level summary row ─────────────────────────────────────────────── #}
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+
+  <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
+    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Total Tracked</div>
+    <div class="stat-number accent" style="font-size:2.2rem; font-weight:800;">{{ metrics.total_predictions }}</div>
+  </div>
+
+  <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
+    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Wins</div>
+    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#00ff87;">{{ metrics.wins or 0 }}</div>
+  </div>
+
+  <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
+    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Losses</div>
+    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#ef4444;">{{ metrics.losses or 0 }}</div>
+  </div>
+
+  <div class="card glow-card gradient-border" style="text-align:center; padding:1.25rem 1rem;">
+    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Overall Accuracy</div>
+    {% if metrics.overall_accuracy is not none %}
+      {% if metrics.overall_accuracy >= 55 %}
+        <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#00ff87;">{{ metrics.overall_accuracy }}%</div>
+      {% elif metrics.overall_accuracy >= 45 %}
+        <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#f59e0b;">{{ metrics.overall_accuracy }}%</div>
+      {% else %}
+        <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#ef4444;">{{ metrics.overall_accuracy }}%</div>
+      {% endif %}
+    {% else %}
+      <div style="font-size:.85rem; color:#8b949e; margin-top:.5rem;">Awaiting results…</div>
+    {% endif %}
+  </div>
+
+</div>
+
+{# ── Completed Results ────────────────────────────────────────────────── #}
+{% if completed_predictions %}
+<div class="section-title">
+  Completed Results{% if sport_filter %} — {{ 'Soccer' if sport_filter == 'soccer' else 'NBA' }}{% endif %}
+</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+  {% for pred in completed_predictions %}
+  <div class="card glow-card" style="padding:1.25rem;">
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:1.1rem; font-weight:600; color:#e6edf3; margin-bottom:.5rem;">
+        {{ pred.team_a }} vs {{ pred.team_b }}
+      </div>
+      <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
+        Final Score: {{ pred.final_score_display }}
+      </div>
+      {% if pred.total_label %}
+      <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
+        {{ pred.total_label }}
+      </div>
+      {% endif %}
+      <div style="font-size:.75rem; margin-bottom:.3rem;">
+        <span style="color:{% if pred.winner_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ pred.winner_display }}</span>
+      </div>
+      {% if pred.ou_display %}
+      <div style="font-size:.75rem; margin-bottom:.3rem;">
+        <span style="color:{% if pred.ou_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ pred.ou_display }}</span>
+      </div>
+      {% endif %}
+      <div style="font-size:.75rem; margin-bottom:.3rem;">
+        <span style="color:{% if pred.game_win %}#00ff87{% else %}#ef4444{% endif %}; font-weight:600;">Overall Result: {{ pred.overall_game_result }}</span>
+      </div>
+      {% if pred.confidence %}
+      <div style="margin-top:.5rem;">
+        <span class="confidence-badge conf-{{ pred.confidence | lower }}" style="font-size:.7rem;">{{ pred.confidence }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── By Sport ─────────────────────────────────────────────────────────── #}
+{% if metrics.by_sport %}
+<div class="section-title">Accuracy by Sport</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+  {% for sport_key in ['soccer', 'nba'] %}
+    {% if metrics.by_sport.get(sport_key) %}
+    {% set sport_data = metrics.by_sport[sport_key] %}
+    <a href="{{ url_for('model_performance', sport=sport_key) }}" class="card glow-card" style="padding:1.25rem; text-align:center; text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
+       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
+       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
+      <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.5rem;">
+        {{ '⚽ Soccer' if sport_key == 'soccer' else '🏀 NBA' }}
+      </div>
+      {% if sport_data.accuracy >= 55 %}
+        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#00ff87;">{{ sport_data.accuracy }}%</div>
+      {% elif sport_data.accuracy >= 45 %}
+        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#f59e0b;">{{ sport_data.accuracy }}%</div>
+      {% else %}
+        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#ef4444;">{{ sport_data.accuracy }}%</div>
+      {% endif %}
+      <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">
+        Wins: {{ sport_data.wins }} Losses: {{ sport_data.losses }}
+      </div>
+      <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.6rem; overflow:hidden;">
+        <div style="width:{{ sport_data.accuracy }}%; height:100%;
+          background:{% if sport_data.accuracy >= 55 %}#00ff87{% elif sport_data.accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
+          transition:width .6s ease;"></div>
+      </div>
+    </a>
+    {% endif %}
+  {% endfor %}
+  {# All sports option #}
+  <a href="{{ url_for('model_performance') }}" class="card glow-card" style="padding:1.25rem; text-align:center; text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
+     onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
+     onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
+    <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.5rem;">
+      📊 All Sports
+    </div>
+    {% if metrics.overall_accuracy is not none %}
+      {% if metrics.overall_accuracy >= 55 %}
+        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#00ff87;">{{ metrics.overall_accuracy }}%</div>
+      {% elif metrics.overall_accuracy >= 45 %}
+        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#f59e0b;">{{ metrics.overall_accuracy }}%</div>
+      {% else %}
+        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#ef4444;">{{ metrics.overall_accuracy }}%</div>
+      {% endif %}
+    {% else %}
+      <div style="font-size:.85rem; color:#8b949e; margin-top:.5rem;">—</div>
+    {% endif %}
+    <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">
+      Wins: {{ metrics.wins or 0 }} Losses: {{ metrics.losses or 0 }}
+    </div>
+    <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.6rem; overflow:hidden;">
+      <div style="width:{% if metrics.overall_accuracy %}{{ metrics.overall_accuracy }}{% else %}0{% endif %}%; height:100%;
+        background:{% if metrics.overall_accuracy and metrics.overall_accuracy >= 55 %}#00ff87{% elif metrics.overall_accuracy and metrics.overall_accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
+        transition:width .6s ease;"></div>
+    </div>
+  </a>
+</div>
+{% endif %}
+
+{# ── Active Filter Indicator ───────────────────────────────────────────── #}
+{% if sport_filter %}
+<div style="margin-bottom:1rem;">
+  <div style="display:inline-flex; align-items:center; gap:.5rem; background:rgba(0,255,135,.1); color:#00ff87; border-radius:6px; padding:.4rem .8rem; font-size:.85rem; font-weight:600;">
+    <span>Showing: {{ '⚽ Soccer' if sport_filter == 'soccer' else '🏀 NBA' }} completed results</span>
+    <a href="{{ url_for('model_performance') }}" style="color:#00ff87; text-decoration:none; font-size:.7rem; opacity:.8;" title="Clear filter">✕</a>
+  </div>
+</div>
+{% endif %}
+
+{# ── By Confidence Level ───────────────────────────────────────────────── #}
+{% if metrics.by_confidence %}
+<div class="section-title">Accuracy by Confidence Level</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+  {% for conf_level in ['High', 'Medium', 'Low'] %}
+    {% if metrics.by_confidence.get(conf_level) %}
+    {% set cd = metrics.by_confidence[conf_level] %}
+    <div class="card glow-card" style="padding:1.1rem 1.25rem;">
+      <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.6rem;">
+        <span class="confidence-badge conf-{{ conf_level | lower }}">{{ conf_level }}</span>
+        <span style="font-size:.78rem; color:#8b949e;">Wins: {{ cd.wins }} Losses: {{ cd.losses }}</span>
+      </div>
+      {% if cd.accuracy >= 55 %}
+        <div class="stat-number" style="font-size:1.6rem; font-weight:800; color:#00ff87;">{{ cd.accuracy }}%</div>
+      {% elif cd.accuracy >= 45 %}
+        <div class="stat-number" style="font-size:1.6rem; font-weight:800; color:#f59e0b;">{{ cd.accuracy }}%</div>
+      {% else %}
+        <div class="stat-number" style="font-size:1.6rem; font-weight:800; color:#ef4444;">{{ cd.accuracy }}%</div>
+      {% endif %}
+      <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.5rem; overflow:hidden;">
+        <div style="width:{{ cd.accuracy }}%; height:100%;
+          background:{% if cd.accuracy >= 55 %}#00ff87{% elif cd.accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
+          transition:width .6s ease;"></div>
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+</div>
+{% elif metrics.finalized_predictions == 0 %}
+<div class="card glow-card" style="padding:1rem 1.25rem; color:#8b949e; font-size:.85rem;">
+  Awaiting finalized predictions — confidence breakdown will appear here once results are resolved.
+</div>
+{% endif %}
+
+{# ── Pending Predictions table ─────────────────────────────────────────── #}
+{% if pending_predictions %}
+<div class="section-title">Pending Predictions</div>
+<div class="card glow-card" style="padding:0; overflow:hidden; margin-bottom:1.25rem;">
+  <table style="width:100%; border-collapse:collapse; font-size:.82rem;">
+    <thead>
+      <tr style="background:rgba(255,255,255,.03); border-bottom:1px solid #262626;">
+        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Date</th>
+        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Sport</th>
+        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Matchup</th>
+        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Pick</th>
+        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Conf</th>
+        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pred in pending_predictions %}
+      <tr style="border-bottom:1px solid #1a1a1a;">
+        <td style="padding:.55rem .9rem; color:#8b949e;">{{ pred.created_at[:10] if pred.created_at else '—' }}</td>
+        <td style="padding:.55rem .9rem;">
+          <span style="font-size:.72rem; background:rgba(255,255,255,.06); color:#8b949e;
+            border-radius:4px; padding:.1rem .4rem; text-transform:uppercase;">{{ pred.sport }}</span>
+        </td>
+        <td style="padding:.55rem .9rem; color:#e6edf3;">{{ pred.team_a }} vs {{ pred.team_b }}</td>
+        <td style="padding:.55rem .9rem; color:#00ff87; font-weight:600;">{{ pred.predicted_winner }}</td>
+        <td style="padding:.55rem .9rem;">
+          <span class="confidence-badge conf-{{ pred.confidence | lower }}" style="font-size:.7rem;">{{ pred.confidence }}</span>
+        </td>
+        <td style="padding:.55rem .9rem;">
+          <span style="color:#f59e0b; font-size:.75rem;">Pending</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endif %}{# end total_predictions > 0 #}
+
+<div class="nav-cta">
+  <a href="/" class="btn btn-secondary btn-glow">Home</a>
+  <a href="{{ url_for('today_soccer_predictions') }}" class="btn btn-secondary btn-glow">Today Soccer</a>
+  <a href="{{ url_for('nba.today_predictions') }}" class="btn btn-secondary btn-glow">Today NBA</a>
+</div>
 {% endblock %}

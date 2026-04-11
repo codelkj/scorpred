@@ -398,6 +398,11 @@ def _chat_reply(message: str, history: list[dict] | None = None) -> str:
 
 @app.route("/", methods=["GET"])
 def index():
+    return render_template("home.html", **_page_context())
+
+
+@app.route("/soccer", methods=["GET"])
+def soccer():
     _set_data_refresh()
     load_error = None
     teams = []
@@ -418,7 +423,7 @@ def index():
         app.logger.error("Failed to fetch upcoming fixtures: %s", exc)
 
     return render_template(
-        "index.html",
+        "soccer.html",
         **_page_context(
             data_source=fixtures_source,
             teams=teams or [],
@@ -431,12 +436,13 @@ def index():
     )
 
 
-@app.route("/select", methods=["POST"])
+@app.route("/select", methods=["GET", "POST"])
+@app.route("/select-game", methods=["GET", "POST"])
 @app.route("/matchup", methods=["POST"])
-def select():
+def select_game():
     _set_data_refresh()
-    a_id_raw = request.form.get("team_a", "").strip()
-    b_id_raw = request.form.get("team_b", "").strip()
+    a_id_raw = (request.form.get("team_a") or request.args.get("team_a") or "").strip()
+    b_id_raw = (request.form.get("team_b") or request.args.get("team_b") or "").strip()
     fixture_context = _fixture_context_from_form()
     source = (fixture_context or {}).get("data_source", "configured")
 
@@ -1133,7 +1139,15 @@ _EMPTY_METRICS = {
 def model_performance():
     """Display model accuracy metrics and recent predictions."""
     try:
+        sport_filter = request.args.get('sport', '').lower()
         metrics = mt.get_summary_metrics()
+        completed_predictions = mt.get_completed_predictions()
+        pending_predictions = mt.get_pending_predictions()
+        
+        # Filter completed predictions by sport if specified
+        if sport_filter in ['soccer', 'nba']:
+            completed_predictions = [p for p in completed_predictions if p.get('sport', '').lower() == sport_filter]
+        
         # Guarantee every key the template expects is present
         metrics.setdefault("finalized_predictions", 0)
         metrics.setdefault("by_confidence", {})
@@ -1142,11 +1156,16 @@ def model_performance():
     except Exception as exc:
         app.logger.error("model_performance: get_summary_metrics failed — %s", exc, exc_info=True)
         metrics = dict(_EMPTY_METRICS)
+        completed_predictions = []
+        pending_predictions = []
 
     return render_template(
         "model_performance.html",
         **_page_context(
             metrics=metrics,
+            completed_predictions=completed_predictions,
+            pending_predictions=pending_predictions,
+            sport_filter=sport_filter,
         ),
     )
 
@@ -1294,6 +1313,252 @@ def chat():
 def chat_clear():
     session.pop("chat_history", None)
     return jsonify({"status": "cleared", "last_updated": _now_stamp()})
+
+
+@app.route("/top-picks-today")
+def top_picks_today():
+    """
+    Show the strongest model-backed picks across soccer and NBA for today.
+    Only displays high-confidence recommendations.
+    """
+    _set_data_refresh()
+    load_error = None
+    
+    # ── Soccer Totals ───────────────────────────────────────────────────
+    soccer_totals = []
+    try:
+        upcoming_fixtures = ac.get_upcoming_fixtures(LEAGUE, SEASON, next_n=20)
+        standings_list = ac.get_standings(LEAGUE, SEASON)
+        opp_strengths = _build_opp_strengths(standings_list)
+        for fixture in upcoming_fixtures or []:
+            try:
+                home_id = fixture["teams"]["home"]["id"]
+                away_id = fixture["teams"]["away"]["id"]
+                home_name = fixture["teams"]["home"]["name"]
+                away_name = fixture["teams"]["away"]["name"]
+                
+                # Fetch data (same as above)
+                h2h_raw = ac.get_h2h(home_id, away_id, last=10)
+                fixtures_home = ac.get_team_fixtures(home_id, LEAGUE, SEASON, last=10)
+                fixtures_away = ac.get_team_fixtures(away_id, LEAGUE, SEASON, last=10)
+                injuries_home = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, home_id))
+                injuries_away = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, away_id))
+                
+                h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
+                fixtures_home = pred.filter_recent_completed_fixtures(fixtures_home, current_season=SEASON)
+                fixtures_away = pred.filter_recent_completed_fixtures(fixtures_away, current_season=SEASON)
+                
+                form_home = pred.extract_form(fixtures_home, home_id)[:5]
+                form_away = pred.extract_form(fixtures_away, away_id)[:5]
+                h2h_form_home = pred.extract_form(h2h_raw, home_id)[:5]
+                h2h_form_away = pred.extract_form(h2h_raw, away_id)[:5]
+                
+                prediction = se.scorpred_predict(
+                    form_a=form_home,
+                    form_b=form_away,
+                    h2h_form_a=h2h_form_home,
+                    h2h_form_b=h2h_form_away,
+                    injuries_a=injuries_home,
+                    injuries_b=injuries_away,
+                    team_a_is_home=True,
+                    team_a_name=home_name,
+                    team_b_name=away_name,
+                    sport="soccer",
+                    opp_strengths=opp_strengths,
+                )
+                
+                best_pick = prediction.get("best_pick", {})
+                confidence = best_pick.get("confidence", "Low")
+                team_a_score = prediction.get("team_a_score", 0)
+                team_b_score = prediction.get("team_b_score", 0)
+                expected_total = team_a_score + team_b_score
+
+                # Determine Over/Under pick based on expected total goals
+                if expected_total > 2.5:
+                    pick = "Over 2.5 Goals"
+                    # Probability based on how much over 2.5
+                    over_probability = min(95, 50 + (expected_total - 2.5) * 20)
+                else:
+                    pick = "Under 2.5 Goals"
+                    # Probability based on how much under 2.5
+                    over_probability = max(5, 50 - (2.5 - expected_total) * 20)
+
+                # Adjust confidence based on prediction strength
+                if abs(expected_total - 2.5) >= 1.0:
+                    confidence = "High"
+                elif abs(expected_total - 2.5) >= 0.5:
+                    confidence = "Medium"
+                else:
+                    confidence = "Low"
+
+                # Generate specific matchup-based note
+                home_avg_goals = sum([1 if result in ['W', 'D'] else 0 for result in form_home]) / len(form_home) if form_home else 0
+                away_avg_goals = sum([1 if result in ['W', 'D'] else 0 for result in form_away]) / len(form_away) if form_away else 0
+
+                if expected_total > 3.5:
+                    if team_a_score > team_b_score:
+                        note = f"{home_name}'s strong home form and {away_name}'s defensive struggles suggest a high-scoring game."
+                    else:
+                        note = f"Both teams' recent attacking displays and {away_name}'s away goal concessions point to over 2.5 goals."
+                elif expected_total > 3.0:
+                    note = f"{home_name}'s scoring trend and {away_name}'s recent matches indicate this could go over 2.5."
+                elif expected_total < 2.0:
+                    note = f"{home_name} and {away_name} have combined for low-scoring games in recent fixtures."
+                elif expected_total < 2.5:
+                    if team_a_score < team_b_score:
+                        note = f"{away_name}'s defensive solidity and {home_name}'s scoring drought suggest under 2.5 goals."
+                    else:
+                        note = f"Recent form shows {home_name} and {away_name} involved in low-scoring encounters."
+                else:
+                    if abs(team_a_score - team_b_score) < 0.3:
+                        note = f"Balanced matchup between {home_name} and {away_name} with moderate goal expectations."
+                    else:
+                        note = f"{home_name if team_a_score > team_b_score else away_name}'s edge and recent trends make this total competitive."
+
+                # Filter for strong picks: High confidence OR >60% probability
+                if confidence == "High" or over_probability > 60:
+                    soccer_totals.append({
+                        "fixture": fixture,
+                        "home_team": fixture["teams"]["home"],
+                        "away_team": fixture["teams"]["away"],
+                        "pick": pick,
+                        "probability": round(over_probability),
+                        "confidence": confidence,
+                        "note": note,
+                        "expected_total": round(expected_total, 1),
+                    })
+
+            except Exception as exc:
+                app.logger.warning("Totals prediction failed for soccer fixture %s: %s", fixture.get("fixture", {}).get("id"), exc)
+                continue
+
+    except Exception as exc:
+        app.logger.error("Failed to process soccer totals: %s", exc)
+
+    # ── NBA Winners ────────────────────────────────────────────────────────
+    
+    # ── NBA Winners ────────────────────────────────────────────────────────
+    nba_winners = []
+    try:
+        import nba_live_client as nc
+        import nba_predictor as np_nba
+        
+        today_games = nc.get_today_games()
+        if not today_games:
+            today_games = nc.get_upcoming_games(next_n=12, days_ahead=2)
+        
+        team_map = {str(t["id"]): t for t in nc.get_teams()}
+        
+        # Build opponent strengths
+        nba_opp_strengths = {}
+        try:
+            nba_standings = nc.get_standings()
+            flat_standings = []
+            if isinstance(nba_standings, dict):
+                for conf_teams in nba_standings.values():
+                    if isinstance(conf_teams, list):
+                        flat_standings.extend(conf_teams)
+            
+            ranked = []
+            for i, entry in enumerate(flat_standings):
+                if isinstance(entry, dict):
+                    team_info = entry.get("team") or entry
+                    name = team_info.get("name") or team_info.get("nickname", "")
+                    rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
+                    if name:
+                        ranked.append({"team": {"name": name}, "rank": rank})
+            
+            nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+        except Exception:
+            pass
+        
+        for game in today_games or []:
+            try:
+                if not isinstance(game, dict):
+                    continue
+                teams_block = game.get("teams") or {}
+                home_raw = teams_block.get("home") or {}
+                away_raw = teams_block.get("visitors") or {}
+                
+                home_id = str(home_raw.get("id") or "")
+                away_id = str(away_raw.get("id") or "")
+                
+                if not home_id or not away_id:
+                    continue
+                
+                home_team = team_map.get(home_id) or home_raw
+                away_team = team_map.get(away_id) or away_raw
+                
+                # Fetch data
+                h2h_raw = nc.get_h2h(home_id, away_id)
+                form_home_raw = nc.get_team_recent_form(home_id)
+                form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
+                form_away_raw = nc.get_team_recent_form(away_id)
+                form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
+                injuries_home = nc.get_team_injuries(home_id)
+                injuries_away = nc.get_team_injuries(away_id)
+                
+                h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
+                h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
+                
+                prediction = se.scorpred_predict(
+                    form_a=form_home,
+                    form_b=form_away,
+                    h2h_form_a=h2h_form_home,
+                    h2h_form_b=h2h_form_away,
+                    injuries_a=injuries_home,
+                    injuries_b=injuries_away,
+                    team_a_is_home=True,
+                    team_a_name=home_team.get("nickname") or home_team.get("name") or "Home",
+                    team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
+                    sport="nba",
+                    opp_strengths=nba_opp_strengths,
+                )
+                
+                best_pick = prediction.get("best_pick", {})
+                probs = prediction.get("win_probabilities", {})
+                confidence = best_pick.get("confidence", "Low")
+                prob_home = probs.get("a", 50)
+                prob_away = probs.get("b", 50)
+                
+                # Filter for strong picks: High confidence OR >60% probability
+                if confidence == "High" or prob_home > 60 or prob_away > 60:
+                    predicted_winner = best_pick.get("prediction", "—")
+                    winner_team = home_team.get("name") if predicted_winner == "Home" else away_team.get("name") if predicted_winner == "Away" else "—"
+                    
+                    nba_winners.append({
+                        "game": game,
+                        "home_team": home_team,
+                        "away_team": away_team,
+                        "predicted_winner": winner_team,
+                        "win_probability": prob_home if predicted_winner == "Home" else prob_away,
+                        "confidence": confidence,
+                        "reasoning": best_pick.get("reasoning", ""),
+                    })
+                    
+            except Exception as exc:
+                app.logger.warning("Prediction failed for NBA game %s: %s", game.get("id"), exc)
+                continue
+                
+    except Exception as exc:
+        app.logger.error("Failed to fetch NBA data: %s", exc)
+        if not load_error:
+            load_error = str(exc)
+    
+    # Sort each section by confidence then probability
+    conf_order = {"High": 0, "Medium": 1, "Low": 2}
+    
+    soccer_totals.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["probability"]))
+    nba_winners.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["win_probability"]))
+    
+    return render_template(
+        "top_picks_today.html",
+        **_page_context(
+            soccer_totals=soccer_totals,
+            nba_winners=nba_winners,
+            load_error=load_error,
+        ),
+    )
 
 
 @app.route("/api/football/leagues")
