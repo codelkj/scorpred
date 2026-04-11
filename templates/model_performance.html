@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Model Performance | ScorPred{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1>📊 Model Performance Tracker</h1>
+            <p class="text-muted">Track Scorpred's prediction accuracy over time</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{{ url_for('update_prediction_results') }}" class="btn btn-info">
+                🔄 Update Results
+            </a>
+        </div>
+    </div>
+
+    {% if metrics.total_predictions == 0 %}
+    <div class="alert alert-info" role="alert">
+        <h5>No predictions tracked yet</h5>
+        <p>Predictions will be tracked automatically when you generate them. Start by making a prediction on the <a href="/">Home</a> or <a href="/nba/">NBA</a> pages.</p>
+    </div>
+    {% else %}
+
+    <!-- Overall Stats -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">Total Predictions</h5>
+                    <h2 class="text-primary">{{ metrics.total_predictions }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">Finalized</h5>
+                    <h2 class="text-info">{{ metrics.finalized_predictions or 0 }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            {# Guard None before numeric comparison — None >= 55 raises TypeError in Python 3 #}
+            {% if metrics.overall_accuracy is not none and metrics.overall_accuracy >= 55 %}
+              {% set acc_class = "bg-success text-white" %}
+            {% elif metrics.overall_accuracy is not none and metrics.overall_accuracy >= 45 %}
+              {% set acc_class = "bg-warning text-dark" %}
+            {% elif metrics.overall_accuracy is not none %}
+              {% set acc_class = "bg-danger text-white" %}
+            {% else %}
+              {% set acc_class = "bg-secondary text-white" %}
+            {% endif %}
+            <div class="card text-center {{ acc_class }}">
+                <div class="card-body">
+                    <h5 class="card-title">Overall Accuracy</h5>
+                    {% if metrics.overall_accuracy is not none %}
+                    <h2>{{ metrics.overall_accuracy }}%</h2>
+                    {% else %}
+                    <p class="mb-0">Waiting for results…</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- By Confidence Level -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h3>Accuracy by Confidence Level</h3>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        {% for conf_level in ['High', 'Medium', 'Low'] %}
+            {% if metrics.by_confidence.get(conf_level) %}
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">{{ conf_level }} Confidence</h5>
+                        <h3 class="{% if metrics.by_confidence[conf_level].accuracy >= 55 %}text-success{% elif metrics.by_confidence[conf_level].accuracy >= 45 %}text-warning{% else %}text-danger{% endif %}">
+                            {{ metrics.by_confidence[conf_level].accuracy }}%
+                        </h3>
+                        <p class="text-muted">{{ metrics.by_confidence[conf_level].count }} predictions</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        {% endfor %}
+        
+        {% if not metrics.by_confidence %}
+        <div class="col-md-12">
+            <p class="text-muted">Waiting for finalized predictions...</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- By Sport -->
+    {% if metrics.by_sport %}
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h3>Accuracy by Sport</h3>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        {% for sport, data in metrics.by_sport.items() %}
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">{{ sport | upper }}</h5>
+                    <h3 class="{% if data.accuracy >= 55 %}text-success{% elif data.accuracy >= 45 %}text-warning{% else %}text-danger{% endif %}">
+                        {{ data.accuracy }}%
+                    </h3>
+                    <p class="text-muted">{{ data.count }} predictions</p>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Recent Predictions -->
+    {% if metrics.recent_predictions %}
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h3>Recent Predictions</h3>
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Sport</th>
+                        <th>Matchup</th>
+                        <th>Predicted</th>
+                        <th>Confidence</th>
+                        <th>Result</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pred in metrics.recent_predictions %}
+                    <tr>
+                        <td><small>{{ pred.created_at[:10] }}</small></td>
+                        <td><span class="badge bg-secondary">{{ pred.sport }}</span></td>
+                        <td>{{ pred.team_a }} vs {{ pred.team_b }}</td>
+                        <td>
+                            {{ pred.predicted_winner }}
+                            <br/>
+                            <small class="text-muted">
+                                (A: {{ pred.prob_a }}%, B: {{ pred.prob_b }}%
+                                {% if pred.prob_draw %}, Draw: {{ pred.prob_draw }}%{% endif %})
+                            </small>
+                        </td>
+                        <td><span class="badge bg-info">{{ pred.confidence }}</span></td>
+                        <td>
+                            {% if pred.actual_result %}
+                                <strong>{{ pred.actual_result }}</strong>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pred.is_correct is none %}
+                                <small class="text-muted">Pending</small>
+                            {% elif pred.is_correct %}
+                                <span class="badge bg-success">✓ Correct</span>
+                            {% else %}
+                                <span class="badge bg-danger">✗ Wrong</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+
+    <div class="row">
+        <div class="col-md-12">
+            <a href="/" class="btn btn-secondary">Back Home</a>
+        </div>
+    </div>
+</div>
+
+<style>
+    .card {
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .badge {
+        font-size: 0.85rem;
+        padding: 0.4rem 0.6rem;
+    }
+</style>
+{% endblock %}

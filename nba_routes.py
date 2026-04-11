@@ -22,6 +22,7 @@ from flask import (
 import nba_live_client as nc
 import nba_predictor as np_nba
 import scorpred_engine as se
+import model_tracker as mt
 
 nba_bp = Blueprint(
     "nba",
@@ -414,11 +415,12 @@ def select():
     return redirect(url_for("nba.matchup"))
 
 
-@nba_bp.route("/select-game", methods=["POST"])
+@nba_bp.route("/select-game", methods=["GET", "POST"])
 def select_game():
     _apply_refresh()
-    a_id = request.form.get("team_a", "").strip()
-    b_id = request.form.get("team_b", "").strip()
+    # Support both GET (card links) and POST (form submissions)
+    a_id = (request.form.get("team_a") or request.args.get("team_a") or "").strip()
+    b_id = (request.form.get("team_b") or request.args.get("team_b") or "").strip()
 
     if not a_id or not b_id or a_id == b_id:
         return redirect(url_for("nba.index"))
@@ -433,7 +435,10 @@ def select_game():
         return redirect(url_for("nba.index"))
 
     _store_nba_teams(team_map[a_id], team_map[b_id])
-    _store_selected_game_from_form()
+    if request.method == "POST":
+        _store_selected_game_from_form()
+    else:
+        session.pop("nba_selected_game", None)
     return redirect(url_for("nba.matchup"))
 
 
@@ -733,7 +738,6 @@ def prediction():
 
     id_a, id_b = str(team_a["id"]), str(team_b["id"])
     error = None
-    result = None
     h2h_games = []
     h2h_games_filtered = []
     form_a_raw = []
@@ -793,30 +797,8 @@ def prediction():
     except Exception as e:
         _log_err("Stats B for prediction", e)
 
-    try:
-        result = np_nba.predict_winner(
-            team_a, team_b,
-            h2h_games=h2h_games_filtered,
-            form_a=form_a_filtered,
-            form_b=form_b_filtered,
-            injuries_a=injuries_a,
-            injuries_b=injuries_b,
-            stats_a=stats_a,
-            stats_b=stats_b,
-            team_a_is_home=True,
-        )
-    except Exception as e:
-        _log_err("Prediction model", e)
-        error = str(e)
-
-    best_bets_list = []
-    if result:
-        try:
-            best_bets_list = np_nba.best_bets(
-                result, [], [], team_a["name"], team_b["name"]
-            )
-        except Exception as e:
-            _log_err("Best bets", e)
+    # NOTE: Removed legacy nba_predictor.predict_winner() - using ONLY Scorpred Engine now
+    # This ensures a single source of truth for all predictions
 
     form_a_display = np_nba.extract_form_for_display(form_a_filtered, id_a)
     form_b_display = np_nba.extract_form_for_display(form_b_filtered, id_b)
@@ -876,6 +858,25 @@ def prediction():
         "Analysis uses only completed games (final/post state) for accurate recent form and H2H history.",
     ]
 
+    # Track this prediction
+    try:
+        if scorpred:
+            best_pick = scorpred.get("best_pick", {})
+            pred_winner = best_pick.get("team", "")
+            probs = scorpred.get("win_probabilities", {})
+            conf = best_pick.get("confidence", "Medium")
+            
+            mt.save_prediction(
+                sport="nba",
+                team_a=team_a.get("nickname") or team_a["name"],
+                team_b=team_b.get("nickname") or team_b["name"],
+                predicted_winner=pred_winner,
+                win_probs=probs,
+                confidence=conf,
+            )
+    except Exception:
+        pass  # Silent fail if tracking fails
+
     return render_template(
         "nba/prediction.html",
         **_page_context(
@@ -883,18 +884,184 @@ def prediction():
             team_b=team_b,
             selected_game=selected_game or {},
             game_snapshot=game_snapshot or {},
-            result=result or {},
-            best_bets=best_bets_list,
             injuries_a=injuries_a,
             injuries_b=injuries_b,
             stats_a=stats_a or {},
             stats_b=stats_b or {},
             form_a=form_a_display,
             form_b=form_b_display,
-            scorpred=scorpred,
+            prediction=scorpred,
+            scorpred=scorpred,    # template guards on {% if scorpred %} — expose it directly
             data_notes=data_notes,
             error=error,
             route_support=_support("prediction"),
+        ),
+    )
+
+
+@nba_bp.route("/today-predictions")
+def today_predictions():
+    """
+    Show all NBA predictions for today's games in one view.
+    """
+    _apply_refresh()
+    load_error = None
+    today_games = []
+    teams = []
+    team_map = {}
+
+    try:
+        teams = nc.get_teams()
+        team_map = {str(t["id"]): t for t in teams}
+    except Exception as e:
+        _log_err("Teams fetch for today predictions", e)
+
+    try:
+        today_games = nc.get_today_games()
+    except Exception as e:
+        _log_err("Today games fetch", e)
+        load_error = str(e)
+
+    # Build predictions for each game
+    predictions_for_games = []
+    for game in today_games or []:
+        try:
+            home_id = str(game.get("home", {}).get("id") or "")
+            away_id = str(game.get("away", {}).get("id") or "")
+            
+            if not home_id or not away_id or home_id not in team_map or away_id not in team_map:
+                continue
+            
+            home_team = team_map[home_id]
+            away_team = team_map[away_id]
+            
+            # Fetch form and H2H data for prediction
+            h2h_raw = []
+            form_home = []
+            form_away = []
+            injuries_home = []
+            injuries_away = []
+            
+            try:
+                h2h_raw = nc.get_h2h(home_id, away_id)
+            except Exception:
+                pass
+            
+            try:
+                form_home_raw = nc.get_team_recent_form(home_id)
+                form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
+            except Exception:
+                pass
+            
+            try:
+                form_away_raw = nc.get_team_recent_form(away_id)
+                form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
+            except Exception:
+                pass
+            
+            try:
+                injuries_home = nc.get_team_injuries(home_id)
+            except Exception:
+                pass
+            
+            try:
+                injuries_away = nc.get_team_injuries(away_id)
+            except Exception:
+                pass
+            
+            # H2H form
+            h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
+            h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
+            
+            # Build opponent strength lookup from standings
+            nba_opp_strengths = {}
+            try:
+                nba_standings = nc.get_standings()
+                flat = []
+                if isinstance(nba_standings, dict):
+                    for conf_teams in nba_standings.values():
+                        flat.extend(conf_teams)
+                else:
+                    flat = list(nba_standings)
+                ranked = []
+                for i, entry in enumerate(flat):
+                    team_info = entry.get("team") or entry
+                    name = team_info.get("name") or team_info.get("nickname", "")
+                    rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
+                    if name:
+                        ranked.append({"team": {"name": name}, "rank": rank})
+                nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+            except Exception:
+                pass
+            
+            # Run Scorpred prediction
+            prediction = se.scorpred_predict(
+                form_a=form_home,
+                form_b=form_away,
+                h2h_form_a=h2h_form_home,
+                h2h_form_b=h2h_form_away,
+                injuries_a=injuries_home,
+                injuries_b=injuries_away,
+                team_a_is_home=True,
+                team_a_name=home_team.get("nickname") or home_team["name"],
+                team_b_name=away_team.get("nickname") or away_team["name"],
+                sport="nba",
+                opp_strengths=nba_opp_strengths,
+            )
+            
+            # Extract key info for display
+            best_pick = prediction.get("best_pick", {})
+            probs = prediction.get("win_probabilities", {})
+            
+            # Add to predictions list with game info
+            predictions_for_games.append({
+                "game": game,
+                "home_team": home_team,
+                "away_team": away_team,
+                "prediction": prediction,
+                "predicted_winner": best_pick.get("prediction", "—"),
+                "confidence": best_pick.get("confidence", "Low"),
+                "prob_home": probs.get("a", 50),
+                "prob_away": probs.get("b", 50),
+                "reasoning": best_pick.get("reasoning", ""),
+            })
+        except Exception as e:
+            _log_err(f"Prediction for game {game.get('id')}", e)
+            continue
+    
+    # Sort by confidence (High first, then Medium, then Low) and prob difference
+    conf_order = {"High": 0, "Medium": 1, "Low": 2}
+    predictions_for_games.sort(
+        key=lambda x: (
+            conf_order.get(x["confidence"], 3),
+            -abs(x["prob_home"] - x["prob_away"]),
+        )
+    )
+    
+    # ── Yesterday section: completed predictions from tracker ─────────────────
+    from datetime import date, timedelta
+    yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+    today_str = date.today().strftime("%Y-%m-%d")
+    try:
+        recent = mt.get_recent_predictions(limit=50)
+        yesterday_results = [
+            p for p in recent
+            if p.get("sport") == "nba"
+            and p.get("date", "") in (yesterday_str, today_str)
+            and p.get("is_correct") is not None
+        ]
+    except Exception:
+        yesterday_results = []
+
+    return render_template(
+        "nba/today_predictions.html",
+        **_page_context(
+            predictions=predictions_for_games,
+            total_games=len(today_games),
+            total_predictions=len(predictions_for_games),
+            load_error=load_error,
+            yesterday_results=yesterday_results,
+            route_support=_support("today_predictions"),
         ),
     )
 

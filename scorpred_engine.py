@@ -430,45 +430,91 @@ def _opp_strength_score(
     }
 
 
+def _logistic_probability(gap: float, steepness: float = 1.0) -> float:
+    """
+    Convert score gap to probability using logistic function.
+    
+    Larger gap → probability closer to 0 or 1 (more confident).
+    Smaller gap → probability closer to 0.5 (less confident).
+    
+    Logistic: P = 1 / (1 + exp(-steepness * gap))
+    """
+    import math
+    try:
+        return 1.0 / (1.0 + math.exp(-steepness * gap))
+    except (ValueError, OverflowError):
+        return 0.5 if gap <= 0 else 0.95 if gap > 0 else 0.05
+
+
+def _score_to_confidence_level(gap: float, sport: str = "soccer") -> str:
+    """
+    Determine confidence label based on score gap.
+    
+    Gap is absolute difference between scores (0-10 scale).
+    Very small gap → Low confidence
+    Medium gap → Medium confidence
+    Large gap → High confidence
+    """
+    # Thresholds vary by sport and scale
+    if sport == "nba":
+        if gap >= 1.5:
+            return "High"
+        elif gap >= 0.5:
+            return "Medium"
+        else:
+            return "Low"
+    else:  # soccer
+        if gap >= 2.0:
+            return "High"
+        elif gap >= 0.8:
+            return "Medium"
+        else:
+            return "Low"
+
+
 def _win_probabilities(score_a: float, score_b: float, sport: str = "soccer") -> dict[str, float]:
-    """Convert two normalized scores into a probability distribution."""
+    """
+    Convert two normalized scores (0-10) into a probability distribution.
+    
+    Uses logistic function to map score differences to win probabilities.
+    Ensures all probabilities sum to 100%.
+    """
     if score_a is None or score_b is None:
         return {"a": 33.3, "draw": 33.4, "b": 33.3} if sport == "soccer" else {"a": 50.0, "b": 50.0}
 
+    # Calculate score gap (favorable for team A if positive)
     gap = score_a - score_b
-    gap_strength = max(-4.0, min(4.0, gap))
+    
+    # Logistic scaling: larger gap = more extreme probability
+    # Steepness=0.5 ensures reasonable probability diffusion
+    steepness = 0.5
+    prob_a_raw = _logistic_probability(gap, steepness)
+    prob_b_raw = 1.0 - prob_a_raw
+    
     if sport == "soccer":
-        draw = max(10.0, min(35.0, 28.0 - abs(gap_strength) * 4.0))
-        base_ratio = (score_a + 1.0) / (score_a + score_b + 2.0)
-        a = base_ratio + gap_strength * 0.03
-        b = 1.0 - base_ratio + gap_strength * 0.03
-        a = max(0.05, min(0.95, a))
-        b = max(0.05, min(0.95, b))
-        total = a + b
-        a = a / total
-        b = b / total
-        win_a = round((100.0 - draw) * a, 1)
-        win_b = round((100.0 - draw) * b, 1)
+        # For soccer, allocate a draw probability based on score gap
+        # Close scores favor draws; distant scores favor decisive outcomes
+        gap_abs = abs(gap)
+        draw_pct = max(10.0, min(45.0, 35.0 - gap_abs * 3.0))
+        
+        # Remaining probability split between A and B
+        remaining = 100.0 - draw_pct
+        win_a = round(prob_a_raw * remaining, 1)
+        win_b = round(prob_b_raw * remaining, 1)
         draw = round(100.0 - win_a - win_b, 1)
-        if draw < 0:
-            draw = 0.0
-            total = win_a + win_b or 1.0
-            win_a = round(win_a / total * 100.0, 1)
-            win_b = round(win_b / total * 100.0, 1)
-        if win_a + draw + win_b != 100.0:
-            diff = 100.0 - (win_a + draw + win_b)
-            win_a = round(win_a + diff, 1)
-        return {"a": win_a, "draw": draw, "b": win_b}
-
-    # NBA / no-draw probability mapping
-    a = (score_a + 1.0) ** 1.75
-    b = (score_b + 1.0) ** 1.75
-    total = a + b or 1.0
-    win_a = round(a / total * 100.0, 1)
-    win_b = round(100.0 - win_a, 1)
-    if win_a + win_b != 100.0:
+        
+        # Normalize to ensure 100%
+        total = win_a + win_b + draw
+        if total != 100.0:
+            diff = 100.0 - total
+            win_a += diff
+        
+        return {"a": max(0.0, win_a), "draw": max(0.0, draw), "b": max(0.0, win_b)}
+    else:
+        # NBA / no-draw: pure logistic probability
+        win_a = round(prob_a_raw * 100.0, 1)
         win_b = round(100.0 - win_a, 1)
-    return {"a": win_a, "b": win_b}
+        return {"a": win_a, "b": win_b}
 
 
 def _prediction_history_path() -> str:
@@ -784,6 +830,30 @@ def calculate_team_score(
 
 # ── Main prediction entry point ────────────────────────────────────────────────
 
+def _fallback_team_components() -> dict[str, Any]:
+    """Return safe fallback component scores when calculations fail."""
+    return {
+        "form": 5.0,
+        "offense": 5.0,
+        "defense": 5.0,
+        "h2h": 5.0,
+        "home_away": 5.0,
+        "squad": 5.0,
+        "opp_strength": 5.0,
+        "match_context": 5.0,
+        "details": {
+            "form": {"details": [], "note": "Fallback — form data unavailable"},
+            "offense": {"avg": 0, "trend": "neutral", "note": "Fallback — offensive data unavailable"},
+            "defense": {"avg": 0, "note": "Fallback — defensive data unavailable"},
+            "h2h": {"details": [], "note": "Fallback — H2H data unavailable"},
+            "home_away": {"venue": "Unknown", "base": 5.0, "adjusted": 5.0, "venue_matches": 0},
+            "squad": {"total_injured": 0, "penalty": 0.0, "offense_penalty": 0.0, "defense_penalty": 0.0},
+            "opp_strength": {"avg_opp_strength": 5.0, "note": "Fallback — opponent strength unavailable"},
+            "match_context": {"days_since_last": None, "category": "neutral", "note": "Fallback — match context unavailable"},
+        },
+    }
+
+
 def scorpred_predict(
     form_a: list[dict],
     form_b: list[dict],
@@ -799,6 +869,10 @@ def scorpred_predict(
 ) -> dict[str, Any]:
     """
     Run the full Scorpred prediction model for a match.
+    
+    RELIABILITY GUARANTEE: This function ALWAYS returns a valid prediction dict.
+    If any component fails, fallback neutral/conservative values are used.
+    No None values are ever returned — every prediction is guaranteed.
 
     Args:
         form_a / form_b         — last 5 matches per team (team's perspective)
@@ -812,21 +886,41 @@ def scorpred_predict(
                                    to neutral 5.0 for opponent quality
 
     Returns a dict with:
-        team_a_score / team_b_score  — final 0-10 scores
-        score_gap                    — absolute difference
+        team_a_score / team_b_score  — final 0-10 scores (ALWAYS valid, never None)
+        score_gap                    — absolute difference (ALWAYS ≥ 0)
         components_a / components_b  — per-component scores
         comparison                   — which team leads each component
         key_edges                    — top 2-3 biggest advantages
         matchup_reading              — analytical explanation
         best_pick                    — prediction, confidence, reasoning
         optional_picks               — over/under and BTTS suggestions
+        debug_info                   — fallback usage and data quality notes
     """
-    score_a, comp_a = calculate_team_score(
-        form_a, h2h_form_a, injuries_a, team_a_is_home, opp_strengths, sport
-    )
-    score_b, comp_b = calculate_team_score(
-        form_b, h2h_form_b, injuries_b, not team_a_is_home, opp_strengths, sport
-    )
+    debug_info = {"fallbacks_used": [], "data_quality": "optimal"}
+    
+    try:
+        score_a, comp_a = calculate_team_score(
+            form_a, h2h_form_a, injuries_a, team_a_is_home, opp_strengths, sport
+        )
+    except Exception as exc:
+        debug_info["fallbacks_used"].append(f"Team A score calculation failed: {exc}")
+        debug_info["data_quality"] = "degraded"
+        score_a = 5.0  # Neutral fallback
+        comp_a = _fallback_team_components()
+    
+    try:
+        score_b, comp_b = calculate_team_score(
+            form_b, h2h_form_b, injuries_b, not team_a_is_home, opp_strengths, sport
+        )
+    except Exception as exc:
+        debug_info["fallbacks_used"].append(f"Team B score calculation failed: {exc}")
+        debug_info["data_quality"] = "degraded"
+        score_b = 5.0  # Neutral fallback
+        comp_b = _fallback_team_components()
+    
+    # Ensure scores are sempre valid (0-10 range)
+    score_a = max(0.0, min(10.0, float(score_a or 5.0)))
+    score_b = max(0.0, min(10.0, float(score_b or 5.0)))
 
     def _edge(a: float, b: float) -> str:
         if a > b + 0.3:
@@ -835,36 +929,36 @@ def scorpred_predict(
             return "B"
         return "equal"
 
-    a_trend = comp_a["details"]["offense"].get("trend", "neutral")
-    b_trend = comp_b["details"]["offense"].get("trend", "neutral")
-    if a_trend == "increasing" and b_trend != "increasing":
-        trending_up = "A"
-    elif b_trend == "increasing" and a_trend != "increasing":
-        trending_up = "B"
-    elif a_trend == "increasing" and b_trend == "increasing":
-        trending_up = "both"
-    else:
-        trending_up = "neither"
+    try:
+        a_trend = comp_a["details"]["offense"].get("trend", "neutral")
+        b_trend = comp_b["details"]["offense"].get("trend", "neutral")
+        if a_trend == "increasing" and b_trend != "increasing":
+            trending_up = "A"
+        elif b_trend == "increasing" and a_trend != "increasing":
+            trending_up = "B"
+        elif a_trend == "increasing" and b_trend == "increasing":
+            trending_up = "both"
+        else:
+            trending_up = "neither"
 
-    comparison = {
-        "form":                _edge(comp_a["form"],         comp_b["form"]),
-        "offense":             _edge(comp_a["offense"],      comp_b["offense"]),
-        "defense":             _edge(comp_a["defense"],      comp_b["defense"]),
-        "h2h":                 _edge(comp_a["h2h"],          comp_b["h2h"]),
-        "home_away":           _edge(comp_a["home_away"],    comp_b["home_away"]),
-        "squad":               _edge(comp_a["squad"],        comp_b["squad"]),
-        "opp_strength":        _edge(comp_a["opp_strength"], comp_b["opp_strength"]),
-        "trending_up_offense": trending_up,
-    }
-
-    # Best pick + confidence
+        comparison = {
+            "form":                _edge(comp_a["form"],         comp_b["form"]),
+            "offense":             _edge(comp_a["offense"],      comp_b["offense"]),
+            "defense":             _edge(comp_a["defense"],      comp_b["defense"]),
+            "h2h":                 _edge(comp_a["h2h"],          comp_b["h2h"]),
+            "home_away":           _edge(comp_a["home_away"],    comp_b["home_away"]),
+            "squad":               _edge(comp_a["squad"],        comp_b["squad"]),
+            "opp_strength":        _edge(comp_a["opp_strength"], comp_b["opp_strength"]),
+            "trending_up_offense": trending_up,
+        }
+    except Exception as exc:
+        debug_info["fallbacks_used"].append(f"Comparison calculation failed: {exc}")
+        comparison = {"form": "equal", "offense": "equal", "defense": "equal", "h2h": "equal", 
+                      "home_away": "equal", "squad": "equal", "opp_strength": "equal", "trending_up_offense": "neither"}
+    
+    # Best pick + confidence using unified confidence system
     gap = abs(score_a - score_b)
-    if gap >= 2.0:
-        confidence = "High"
-    elif gap >= 0.8:
-        confidence = "Medium"
-    else:
-        confidence = "Low"
+    confidence = _score_to_confidence_level(gap, sport)
 
     if score_a > score_b + 0.5:
         prediction = f"{team_a_name} Win"
@@ -880,24 +974,64 @@ def scorpred_predict(
             prediction = f"{team_a_name} Win" if score_a >= score_b else f"{team_b_name} Win"
             pick_team = "A" if score_a >= score_b else "B"
 
-    comp_keys = ("form", "offense", "defense", "h2h", "home_away", "squad", "opp_strength", "match_context")
-    comp_a_clean = {k: comp_a[k] for k in comp_keys}
-    comp_b_clean = {k: comp_b[k] for k in comp_keys}
+    # Initialize components with fallbacks
+    comp_a_clean = _fallback_team_components()
+    comp_b_clean = _fallback_team_components()
+    key_edges = [{"detail": f"{team_a_name} vs {team_b_name}", "edge": gap}]
+    matchup_reading = f"Matchup between {team_a_name} (score: {score_a}) and {team_b_name} (score: {score_b})."
+    
+    try:
+        comp_keys = ("form", "offense", "defense", "h2h", "home_away", "squad", "opp_strength", "match_context")
+        comp_a_clean = {k: comp_a[k] for k in comp_keys if k in comp_a}
+        comp_b_clean = {k: comp_b[k] for k in comp_keys if k in comp_b}
 
-    key_edges = _build_key_edges(comp_a_clean, comp_b_clean, team_a_name, team_b_name)
-    matchup_reading = _build_matchup_reading(
-        comp_a_clean, comp_b_clean, team_a_name, team_b_name, score_a, score_b, sport
-    )
-
-    top_edge_text = key_edges[0]["detail"] if key_edges else f"Scores are close ({score_a} vs {score_b})"
-    reasoning = f"{top_edge_text}. Gap: {gap:.1f}/10."
-    win_probs = _win_probabilities(score_a, score_b, sport)
+        key_edges = _build_key_edges(comp_a_clean, comp_b_clean, team_a_name, team_b_name)
+        matchup_reading = _build_matchup_reading(
+            comp_a_clean, comp_b_clean, team_a_name, team_b_name, score_a, score_b, sport
+        )
+    except Exception as exc:
+        debug_info["fallbacks_used"].append(f"Key edges/matchup reading failed: {exc}")
+    
+    try:
+        top_edge_text = key_edges[0]["detail"] if key_edges else f"Scores close ({score_a} vs {score_b})"
+        reasoning = f"{top_edge_text}. Gap: {gap:.1f}/10."
+    except Exception:
+        reasoning = f"{team_a_name} vs {team_b_name}. Gap: {gap:.1f}/10."
+    
+    try:
+        win_probs = _win_probabilities(score_a, score_b, sport)
+    except Exception as exc:
+        debug_info["fallbacks_used"].append(f"Win probability calculation failed: {exc}")
+        if sport == "soccer":
+            win_probs = {"a": 33.3, "draw": 33.4, "b": 33.3}
+        else:
+            win_probs = {"a": 50.0, "b": 50.0}
+    
+    try:
+        perf_summary = summarize_prediction_history()
+    except Exception as exc:
+        debug_info["fallbacks_used"].append(f"Performance summary failed: {exc}")
+        perf_summary = {"total_tracked": 0, "total_verified": 0, "accuracy": None, "confidence": {}}
+    
+    try:
+        optional = _optional_picks(form_a, form_b, sport)
+    except Exception as exc:
+        debug_info["fallbacks_used"].append(f"Optional picks failed: {exc}")
+        optional = []
 
     return {
-        "team_a_score":   score_a,
-        "team_b_score":   score_b,
+        "team_a_score":   round(score_a, 2),
+        "team_b_score":   round(score_b, 2),
         "score_gap":      round(gap, 2),
         "win_probabilities": win_probs,
+        "prob_a":         round(win_probs.get("a", 0.0), 1),
+        "prob_b":         round(win_probs.get("b", 0.0), 1),
+        "prob_draw":      round(win_probs.get("draw", 0.0), 1),
+        "home_pct":       round(win_probs.get("a", 0.0), 1),
+        "draw_pct":       round(win_probs.get("draw", 0.0), 1),
+        "away_pct":       round(win_probs.get("b", 0.0), 1),
+        "confidence":     confidence,
+        "winner_label":   prediction,
         "components_a":   comp_a_clean,
         "components_b":   comp_b_clean,
         "comparison":     comparison,
@@ -909,8 +1043,9 @@ def scorpred_predict(
             "confidence": confidence,
             "reasoning":  reasoning,
         },
-        "performance_summary": summarize_prediction_history(),
-        "optional_picks": _optional_picks(form_a, form_b, sport),
+        "performance_summary": perf_summary,
+        "optional_picks": optional,
+        "debug_info": debug_info,
     }
 
 

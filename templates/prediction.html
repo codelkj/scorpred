@@ -10,7 +10,7 @@
   </div>
   <div class="match-vs">
     <span class="vs-label">Prediction</span>
-    <span class="confidence-badge conf-{{ result.confidence | lower }}">{{ result.confidence }} Confidence</span>
+    <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }} Confidence</span>
   </div>
   <div class="match-team">
     <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="team-logo-lg team-badge" />
@@ -34,12 +34,14 @@
 </div>
 {% endif %}
 
-<!-- ── 1X2 ── -->
-<div class="section-title">Match Winner (1X2)</div>
+<!-- ── Scorpred Prediction Header ── -->
+<div class="section-title">Scorpred Prediction</div>
 <div class="prediction-card card glow-card">
   <div class="model-note">
-    Weighted model: H2H 25% · Form 30% · Home/Away 20% · Injuries 15% · xG proxy 10%
+    Scorpred Engine — Form 39% · Attack 14% · Defense 14% · H2H 9% · Venue 8% · Opp. Quality 7% · Squad 4% · Context 5%
   </div>
+
+  <!-- Win Probabilities -->
   <div class="win-probs">
     <div class="win-block">
       <div class="win-pct accent stat-number" data-target="{{ scorpred.win_probabilities.a }}">{{ scorpred.win_probabilities.a }}</div>
@@ -66,157 +68,30 @@
     </div>
   </div>
 
-  <div class="underlying-data">
-    <strong>Underlying data:</strong>
-    H2H — {{ result.h2h_record.a_wins }}W / {{ result.h2h_record.draws }}D / {{ result.h2h_record.b_wins }}L (last {{ result.h2h_record.total }} meetings) ·
-    λA={{ result.lambda_a }} goals/game · λB={{ result.lambda_b }} goals/game
-  </div>
-
+  <!-- Best Pick -->
   <div class="recommended-bet">
-    Recommended: <span class="accent">
-      {% if result.recommended_winner == 'Team A' %}{{ team_a.name }} Win
-      {% elif result.recommended_winner == 'Team B' %}{{ team_b.name }} Win
-      {% else %}Draw
-      {% endif %}
-    </span>
-    <span class="confidence-badge conf-{{ result.confidence | lower }}">{{ result.confidence }}</span>
+    Recommended: <span class="accent">{{ scorpred.best_pick.prediction }}</span>
+    <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }}</span>
     <span class="star-rating">
-      {% if result.confidence == 'High' %}★★★★★{% elif result.confidence == 'Medium' %}★★★★☆{% else %}★★★☆☆{% endif %}
+      {% if scorpred.best_pick.confidence == 'High' %}★★★★★{% elif scorpred.best_pick.confidence == 'Medium' %}★★★★☆{% else %}★★★☆☆{% endif %}
     </span>
   </div>
+  {% if scorpred.best_pick.reasoning %}
+  <div style="font-size:.82rem; color:#8b949e; margin-top:.5rem; padding:0 .5rem 0;">
+    {{ scorpred.best_pick.reasoning }}
+  </div>
+  {% endif %}
 </div>
 
-<!-- Prediction row: BTTS + Over/Under side by side -->
-<div class="pred-row">
-
-  <!-- ── BTTS ── -->
-  <div class="card glow-card pred-half">
-    <div class="section-title-sm">Both Teams To Score</div>
-    <div class="model-note">Based on scoring rates across last 5 games each team</div>
-    <div class="donut-wrap chart-container" style="height:240px;">
-      <canvas id="bttsChart" width="200" height="200"></canvas>
-    </div>
-    <div class="btts-labels">
-      <span class="btts-yes">BTTS Yes: <strong class="stat-number" data-target="{{ result.btts_yes }}">{{ result.btts_yes }}</strong>%</span>
-      <span class="btts-no">BTTS No: <strong class="stat-number" data-target="{{ result.btts_no }}">{{ result.btts_no }}</strong>%</span>
-    </div>
-    <div class="underlying-data">
-      Avg goals: {{ team_a.name }} scores {{ result.avg_gf_a }}/game, concedes {{ result.avg_ga_a }}/game.
-      {{ team_b.name }} scores {{ result.avg_gf_b }}/game, concedes {{ result.avg_ga_b }}/game.
-    </div>
-  </div>
-
-  <!-- ── Over/Under ── -->
-  <div class="card glow-card pred-half">
-    <div class="section-title-sm">Total Goals</div>
-    <div class="model-note">Poisson model · Expected total: {{ result.avg_total_goals }} goals</div>
-    <div class="ou-blocks">
-      <div class="ou-block">
-        <div class="ou-pct accent stat-number" data-target="{{ result.over25 }}">{{ result.over25 }}</div>
-        <div class="ou-label">Over 2.5</div>
-      </div>
-      <div class="ou-block">
-        <div class="ou-pct stat-number" data-target="{{ result.over15 }}">{{ result.over15 }}</div>
-        <div class="ou-label">Over 1.5</div>
-      </div>
-      <div class="ou-block">
-        <div class="ou-pct stat-number" data-target="{{ 100 - result.over25 }}">{{ 100 - result.over25 }}</div>
-        <div class="ou-label">Under 2.5</div>
-      </div>
-    </div>
-    <div class="chart-container" style="height:240px;">
-      <canvas id="ouChart" width="300" height="180"></canvas>
-    </div>
-    <div class="underlying-data">
-      Combined λ = {{ result.lambda_a }} + {{ result.lambda_b }} = {{ result.avg_total_goals }}
-    </div>
-  </div>
-
-</div>
-
-<!-- ── Correct Score ── -->
-<div class="section-title">Correct Score (Poisson)</div>
-<div class="card glow-card">
-  <div class="model-note">Poisson distribution with λA={{ result.lambda_a }} and λB={{ result.lambda_b }}</div>
-  <div class="score-predictions">
-    {% for s in result.top_scores %}
-    <div class="score-pred-card rank-{{ loop.index }}">
-      <div class="score-pred-rank">#{{ loop.index }}</div>
-      <div class="score-pred-score">{{ s.score }}</div>
-      <div class="score-pred-prob stat-number" data-target="{{ s.prob }}">{{ s.prob }}</div>
-      <div class="score-pred-bar">
-        <div class="score-pred-fill" style="width:{{ [s.prob * 5, 100] | min }}%"></div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</div>
-
-<!-- ── Corners ── -->
-<div class="section-title">Corner Kicks</div>
-<div class="card glow-card pred-corners">
-  <div class="model-note">Average from team form data (exact requires per-fixture stats endpoint)</div>
-  <div class="corners-stat">
-    <span class="corners-num accent stat-number" data-target="{{ result.corners_avg }}">{{ result.corners_avg }}</span>
-    <span class="corners-label">Avg corners per game</span>
-  </div>
-  <div class="ou-blocks">
-    <div class="ou-block">
-      <div class="ou-pct accent stat-number" data-target="{{ result.over95_corners }}">{{ result.over95_corners }}</div>
-      <div class="ou-label">Over 9.5 corners</div>
-    </div>
-    <div class="ou-block">
-      <div class="ou-pct stat-number" data-target="{{ 100 - result.over95_corners }}">{{ 100 - result.over95_corners }}</div>
-      <div class="ou-label">Under 9.5 corners</div>
-    </div>
-  </div>
-</div>
-
-<!-- ── First Goalscorer ── -->
-<div class="section-title">First Goalscorer Candidates</div>
-<div class="fgs-columns">
-  <div class="fgs-col card glow-card">
-    <h3><img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }}</h3>
-    {% if result.fgs_a %}
-    {% for p in result.fgs_a %}
-    <div class="fgs-row {{ 'injured' if p.injured else '' }}">
-      {% if p.photo %}<img src="{{ p.photo }}" class="player-photo-sm" alt="" />{% endif %}
-      <span class="fgs-name">{{ p.name }}{% if p.injured %} <span class="inj-flag">🩹</span>{% endif %}</span>
-      <span class="fgs-prob accent stat-number" data-target="{{ p.prob }}">{{ p.prob }}</span><span class="accent">%</span>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="empty-state">Squad data not available.</div>
-    {% endif %}
-  </div>
-  <div class="fgs-col card glow-card">
-    <h3><img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }}</h3>
-    {% if result.fgs_b %}
-    {% for p in result.fgs_b %}
-    <div class="fgs-row {{ 'injured' if p.injured else '' }}">
-      {% if p.photo %}<img src="{{ p.photo }}" class="player-photo-sm" alt="" />{% endif %}
-      <span class="fgs-name">{{ p.name }}{% if p.injured %} <span class="inj-flag">🩹</span>{% endif %}</span>
-      <span class="fgs-prob accent stat-number" data-target="{{ p.prob }}">{{ p.prob }}</span><span class="accent">%</span>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="empty-state">Squad data not available.</div>
-    {% endif %}
-  </div>
-</div>
-
-{% if scorpred %}
 <!-- ── Scorpred Engine Score ── -->
 <div class="section-title">Scorpred Engine Score</div>
 <div class="card glow-card gradient-border" style="padding:1.5rem 1.25rem;">
-  <div class="model-note" style="margin-bottom:1.25rem;">
-    Form 39% · Attack 14% · Defense 14% · H2H 9% · Venue 8% · Opp. Quality 7% · Squad 4% · Match Context 5%
-  </div>
 
   <!-- Score comparison -->
   <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:1rem; align-items:center; margin-bottom:1.25rem;">
     <div style="text-align:center;">
-      <div class="stat-number accent" data-target="{{ scorpred.team_a_score }}" style="font-size:3rem; font-weight:800; line-height:1;">{{ scorpred.team_a_score }}</div>
+      <div class="stat-number accent" data-target="{{ scorpred.team_a_score }}"
+           style="font-size:3rem; font-weight:800; line-height:1;">{{ scorpred.team_a_score }}</div>
       <div style="font-size:.85rem; color:#8b949e; margin-top:.3rem;">{{ team_a.name }}</div>
     </div>
     <div style="text-align:center;">
@@ -226,7 +101,8 @@
     </div>
     <div style="text-align:center;">
       <div class="stat-number" data-target="{{ scorpred.team_b_score }}"
-        style="font-size:3rem; font-weight:800; line-height:1; color:{% if scorpred.team_b_score > scorpred.team_a_score %}#00ff87{% else %}#e6edf3{% endif %};">
+           style="font-size:3rem; font-weight:800; line-height:1;
+                  color:{% if scorpred.team_b_score > scorpred.team_a_score %}#3b82f6{% else %}#e6edf3{% endif %};">
         {{ scorpred.team_b_score }}
       </div>
       <div style="font-size:.85rem; color:#8b949e; margin-top:.3rem;">{{ team_b.name }}</div>
@@ -241,16 +117,17 @@
     <div style="flex:1; background:#3b82f6;"></div>
   </div>
 
-  <!-- Component breakdown (7 components) -->
+  <!-- Component breakdown -->
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-bottom:1.5rem;">
     {% set components = [
-      ("Form (40%)",         scorpred.components_a.form,         scorpred.components_b.form),
-      ("Attack (15%)",       scorpred.components_a.offense,      scorpred.components_b.offense),
-      ("Defense (15%)",      scorpred.components_a.defense,      scorpred.components_b.defense),
-      ("H2H (10%)",          scorpred.components_a.h2h,          scorpred.components_b.h2h),
-      ("Venue (8%)",         scorpred.components_a.home_away,    scorpred.components_b.home_away),
-      ("Opp. Quality (7%)",  scorpred.components_a.opp_strength, scorpred.components_b.opp_strength),
-      ("Squad (5%)",         scorpred.components_a.squad,        scorpred.components_b.squad),
+      ("Form (39%)",        scorpred.components_a.form,          scorpred.components_b.form),
+      ("Attack (14%)",      scorpred.components_a.offense,       scorpred.components_b.offense),
+      ("Defense (14%)",     scorpred.components_a.defense,       scorpred.components_b.defense),
+      ("H2H (9%)",          scorpred.components_a.h2h,           scorpred.components_b.h2h),
+      ("Venue (8%)",        scorpred.components_a.home_away,     scorpred.components_b.home_away),
+      ("Opp. Quality (7%)", scorpred.components_a.opp_strength,  scorpred.components_b.opp_strength),
+      ("Squad (4%)",        scorpred.components_a.squad,         scorpred.components_b.squad),
+      ("Context (5%)",      scorpred.components_a.match_context, scorpred.components_b.match_context),
     ] %}
     {% for label, a_val, b_val in components %}
     <div style="background:rgba(255,255,255,.03); border-radius:6px; padding:.5rem .75rem;">
@@ -295,12 +172,13 @@
 
   <!-- Matchup Reading -->
   {% if scorpred.matchup_reading %}
-  <div style="background:rgba(255,255,255,.02); border-left:3px solid #30363d; border-radius:0 6px 6px 0; padding:.75rem 1rem; margin-bottom:1.25rem; font-size:.85rem; color:#8b949e; line-height:1.6;">
+  <div style="background:rgba(255,255,255,.02); border-left:3px solid #30363d; border-radius:0 6px 6px 0;
+              padding:.75rem 1rem; margin-bottom:1.25rem; font-size:.85rem; color:#8b949e; line-height:1.6;">
     {{ scorpred.matchup_reading }}
   </div>
   {% endif %}
 
-  <!-- Best Pick -->
+  <!-- Best Pick banner -->
   <div style="background:rgba(0,255,135,.07); border:1px solid rgba(0,255,135,.2); border-radius:8px; padding:1rem 1.25rem;">
     <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Scorpred Best Pick</div>
     <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
@@ -327,7 +205,6 @@
   </div>
   {% endif %}
 </div>
-{% endif %}
 
 <!-- ── Bettor's Slip ── -->
 <div class="section-title">Bettor's Slip</div>
@@ -338,34 +215,16 @@
   </div>
   <div class="slip-row">
     <span class="slip-market">Match Winner</span>
-    <span class="slip-pick accent">
-      {% if result.recommended_winner == 'Team A' %}{{ team_a.name }}
-      {% elif result.recommended_winner == 'Team B' %}{{ team_b.name }}
-      {% else %}Draw
-      {% endif %}
-    </span>
-    <span class="slip-conf conf-{{ result.confidence | lower }}">{{ result.confidence }}</span>
+    <span class="slip-pick accent">{{ scorpred.best_pick.prediction }}</span>
+    <span class="slip-conf conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }}</span>
   </div>
+  {% for pick in scorpred.optional_picks %}
   <div class="slip-row">
-    <span class="slip-market">BTTS</span>
-    <span class="slip-pick accent">{{ 'Yes' if result.btts_yes > 50 else 'No' }} ({{ [result.btts_yes, result.btts_no] | max }}%)</span>
+    <span class="slip-market">{{ pick.market }}</span>
+    <span class="slip-pick accent">{{ pick.lean }}</span>
     <span class="slip-conf conf-medium">Medium</span>
   </div>
-  <div class="slip-row">
-    <span class="slip-market">Total Goals</span>
-    <span class="slip-pick accent">{{ 'Over 2.5' if result.over25 > 50 else 'Under 2.5' }} ({{ result.over25 if result.over25 > 50 else 100 - result.over25 }}%)</span>
-    <span class="slip-conf conf-medium">Medium</span>
-  </div>
-  <div class="slip-row">
-    <span class="slip-market">Correct Score</span>
-    <span class="slip-pick accent">{{ result.top_scores[0].score }} ({{ result.top_scores[0].prob }}%)</span>
-    <span class="slip-conf conf-low">Low</span>
-  </div>
-  <div class="slip-row">
-    <span class="slip-market">Corner Kicks</span>
-    <span class="slip-pick accent">{{ 'Over 9.5' if result.over95_corners > 50 else 'Under 9.5' }} ({{ result.over95_corners }}%)</span>
-    <span class="slip-conf conf-medium">Medium</span>
-  </div>
+  {% endfor %}
   <div class="slip-disclaimer">
     ⚠️ For informational purposes only. Please gamble responsibly.
   </div>
@@ -380,59 +239,10 @@
 
 {% block scripts %}
 <script>
-  let bttsChart = null;
-  let ouChart = null;
-
-  // BTTS donut
-  if (window.bttsChart) { window.bttsChart.destroy(); }
-  window.bttsChart = new Chart(document.getElementById('bttsChart'), {
-    type: 'doughnut',
-    data: {
-      labels: ['BTTS Yes', 'BTTS No'],
-      datasets: [{
-        data: [{{ result.btts_yes }}, {{ result.btts_no }}],
-        backgroundColor: ['#00ff87', '#ff4757'],
-        borderColor: ['#00ff87', '#ff4757'],
-        borderWidth: 2,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '65%',
-      plugins: {
-        legend: { labels: { color: '#e6edf3' } }
-      }
-    }
-  });
-
-  // Over/Under bar
-  if (window.ouChart) { window.ouChart.destroy(); }
-  window.ouChart = new Chart(document.getElementById('ouChart'), {
-    type: 'bar',
-    data: {
-      labels: ['Over 1.5', 'Over 2.5', 'Under 2.5', 'Under 1.5'],
-      datasets: [{
-        data: [{{ result.over15 }}, {{ result.over25 }}, {{ 100 - result.over25 }}, {{ 100 - result.over15 }}],
-        backgroundColor: ['#00ff87','#f59e0b','#00b4ff','#ff4757'],
-        borderRadius: 4,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { min: 0, max: 100, grid: { color: '#21262d' }, ticks: { color: '#8b949e', callback: v => v + '%' } },
-        x: { grid: { display: false }, ticks: { color: '#8b949e' } }
-      }
-    }
-  });
-
   function copySlip() {
     const slip = document.getElementById('bettorsSlip');
     const lines = [];
-    lines.push(`⚽ {{ team_a.name }} vs {{ team_b.name }}`);
+    lines.push('⚽ {{ team_a.name }} vs {{ team_b.name }}');
     slip.querySelectorAll('.slip-row').forEach(row => {
       const market = row.querySelector('.slip-market')?.textContent.trim();
       const pick   = row.querySelector('.slip-pick')?.textContent.trim();
