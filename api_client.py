@@ -934,21 +934,49 @@ def get_upcoming_fixtures(
     except Exception:
         pass
 
+    # ESPN fallback: scan today + next 2 days (UTC) so we find upcoming fixtures
+    # even on days where the configured league has no matches.
+    # ESPN's soccer scoreboard only returns events for the requested date, so a
+    # single-day query silently returns empty on rest days.
     slug = _espn_slug(league_id)
-    payload = _espn_get_json(
-        f"{ESPN_BASE}/{slug}/scoreboard",
-        f"scoreboard:{league_id}:{datetime.now().strftime('%Y-%m-%d')}",
-        ttl_hours=0.5,
-    )
-    fixtures = []
-    for event in payload.get("events") or []:
-        fixture = _normalize_espn_fixture(event, league_id)
-        if not fixture:
+    now_utc = datetime.utcnow()
+    all_fixtures: list = []
+    seen_ids: set[str] = set()
+
+    _FINISHED = {"FT", "AET", "PEN", "SUSP", "ABD", "WO"}
+    _LIVE     = {"LIVE", "1H", "2H", "HT", "ET", "BT", "P", "INT"}
+
+    for day_offset in range(3):  # today, tomorrow, day after (UTC)
+        target = now_utc + timedelta(days=day_offset)
+        date_str = target.strftime("%Y%m%d")
+        try:
+            payload = _espn_get_json(
+                f"{ESPN_BASE}/{slug}/scoreboard?dates={date_str}",
+                f"scoreboard:{league_id}:{date_str}",
+                ttl_hours=0.5,
+            )
+        except Exception:
             continue
-        if (fixture.get("fixture") or {}).get("status", {}).get("short") == "NS":
-            fixtures.append(fixture)
-    fixtures.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""))
-    return fixtures[:next_n]
+
+        for event in payload.get("events") or []:
+            fixture = _normalize_espn_fixture(event, league_id)
+            if not fixture:
+                continue
+            fid = str((fixture.get("fixture") or {}).get("id") or "")
+            if fid and fid in seen_ids:
+                continue
+            if fid:
+                seen_ids.add(fid)
+            status_short = (fixture.get("fixture") or {}).get("status", {}).get("short", "NS")
+            # Keep not-started and any unknown status; skip finished and live
+            if status_short not in _FINISHED and status_short not in _LIVE:
+                all_fixtures.append(fixture)
+
+        if len(all_fixtures) >= next_n:
+            break
+
+    all_fixtures.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""))
+    return all_fixtures[:next_n]
 
 
 def get_espn_fixtures(espn_slug: str, next_n: int = 20) -> list:

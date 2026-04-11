@@ -902,99 +902,140 @@ def prediction():
 @nba_bp.route("/today-predictions")
 def today_predictions():
     """
-    Show all NBA predictions for today's games in one view.
+    Show NBA predictions for today's games (or next available games if none today).
     """
     _apply_refresh()
     load_error = None
     today_games = []
-    teams = []
     team_map = {}
 
+    # Build team_map from the teams directory (used as a name/logo supplement)
     try:
         teams = nc.get_teams()
         team_map = {str(t["id"]): t for t in teams}
     except Exception as e:
         _log_err("Teams fetch for today predictions", e)
 
+    # Fetch today's NBA scoreboard
+    now_utc = datetime.utcnow()
+    current_app.logger.info(
+        "today_predictions: UTC=%s — fetching today's scoreboard",
+        now_utc.strftime("%Y-%m-%d %H:%M"),
+    )
     try:
         today_games = nc.get_today_games()
+        current_app.logger.info("today_predictions: today_games=%d", len(today_games))
     except Exception as e:
         _log_err("Today games fetch", e)
         load_error = str(e)
+
+    # If no games today, fall back to the next 36 hours (days_ahead=2 scans today+2)
+    if not today_games:
+        current_app.logger.info(
+            "today_predictions: no games on today's scoreboard — scanning next 2 days for upcoming"
+        )
+        try:
+            today_games = nc.get_upcoming_games(next_n=12, days_ahead=2)
+            current_app.logger.info(
+                "today_predictions: upcoming fallback found %d games", len(today_games)
+            )
+        except Exception as e:
+            _log_err("Upcoming games fallback", e)
+
+    # Build opponent-strength lookup once (shared across all games)
+    nba_opp_strengths = {}
+    try:
+        nba_standings = nc.get_standings()
+        flat: list = []
+        if isinstance(nba_standings, dict):
+            for conf_teams in nba_standings.values():
+                flat.extend(conf_teams)
+        else:
+            flat = list(nba_standings)
+        ranked = []
+        for i, entry in enumerate(flat):
+            team_info = entry.get("team") or entry
+            name = team_info.get("name") or team_info.get("nickname", "")
+            rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
+            if name:
+                ranked.append({"team": {"name": name}, "rank": rank})
+        nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+    except Exception:
+        pass
 
     # Build predictions for each game
     predictions_for_games = []
     for game in today_games or []:
         try:
-            home_id = str(game.get("home", {}).get("id") or "")
-            away_id = str(game.get("away", {}).get("id") or "")
-            
-            if not home_id or not away_id or home_id not in team_map or away_id not in team_map:
+            # ── Fix: normalized games use game["teams"]["home"] / ["visitors"],
+            #         NOT game["home"] / game["away"] ──────────────────────────
+            teams_block = game.get("teams") or {}
+            home_raw = teams_block.get("home") or {}
+            away_raw = teams_block.get("visitors") or {}
+
+            home_id = str(home_raw.get("id") or "")
+            away_id = str(away_raw.get("id") or "")
+
+            if not home_id or not away_id:
+                current_app.logger.debug(
+                    "today_predictions: skipping game %s — missing team IDs (home=%r away=%r)",
+                    game.get("id"), home_id, away_id,
+                )
                 continue
-            
-            home_team = team_map[home_id]
-            away_team = team_map[away_id]
-            
-            # Fetch form and H2H data for prediction
+
+            # Prefer team_map entry (has logo/nickname from directory); fall back to game data
+            home_team = team_map.get(home_id) or home_raw
+            away_team = team_map.get(away_id) or away_raw
+
+            # Normalise game start time for the template
+            game_date_start = (game.get("date") or {}).get("start") or ""
+            game_date = game_date_start[:10] if game_date_start else ""
+            game_time = game_date_start[11:16] if len(game_date_start) > 10 else ""
+
+            current_app.logger.debug(
+                "today_predictions: processing %s vs %s on %s",
+                home_team.get("name") or home_team.get("nickname"),
+                away_team.get("name") or away_team.get("nickname"),
+                game_date or "unknown date",
+            )
+
+            # Fetch form and H2H for prediction
             h2h_raw = []
             form_home = []
             form_away = []
             injuries_home = []
             injuries_away = []
-            
+
             try:
                 h2h_raw = nc.get_h2h(home_id, away_id)
             except Exception:
                 pass
-            
+
             try:
                 form_home_raw = nc.get_team_recent_form(home_id)
                 form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
             except Exception:
                 pass
-            
+
             try:
                 form_away_raw = nc.get_team_recent_form(away_id)
                 form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
             except Exception:
                 pass
-            
+
             try:
                 injuries_home = nc.get_team_injuries(home_id)
             except Exception:
                 pass
-            
+
             try:
                 injuries_away = nc.get_team_injuries(away_id)
             except Exception:
                 pass
-            
-            # H2H form
+
             h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
             h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
-            
-            # Build opponent strength lookup from standings
-            nba_opp_strengths = {}
-            try:
-                nba_standings = nc.get_standings()
-                flat = []
-                if isinstance(nba_standings, dict):
-                    for conf_teams in nba_standings.values():
-                        flat.extend(conf_teams)
-                else:
-                    flat = list(nba_standings)
-                ranked = []
-                for i, entry in enumerate(flat):
-                    team_info = entry.get("team") or entry
-                    name = team_info.get("name") or team_info.get("nickname", "")
-                    rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
-                    if name:
-                        ranked.append({"team": {"name": name}, "rank": rank})
-                nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
-            except Exception:
-                pass
-            
-            # Run Scorpred prediction
+
             prediction = se.scorpred_predict(
                 form_a=form_home,
                 form_b=form_away,
@@ -1003,19 +1044,19 @@ def today_predictions():
                 injuries_a=injuries_home,
                 injuries_b=injuries_away,
                 team_a_is_home=True,
-                team_a_name=home_team.get("nickname") or home_team["name"],
-                team_b_name=away_team.get("nickname") or away_team["name"],
+                team_a_name=home_team.get("nickname") or home_team.get("name") or "Home",
+                team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
                 sport="nba",
                 opp_strengths=nba_opp_strengths,
             )
-            
-            # Extract key info for display
+
             best_pick = prediction.get("best_pick", {})
             probs = prediction.get("win_probabilities", {})
-            
-            # Add to predictions list with game info
+
             predictions_for_games.append({
                 "game": game,
+                "game_date": game_date,
+                "game_time": game_time,
                 "home_team": home_team,
                 "away_team": away_team,
                 "prediction": prediction,
@@ -1028,8 +1069,13 @@ def today_predictions():
         except Exception as e:
             _log_err(f"Prediction for game {game.get('id')}", e)
             continue
-    
-    # Sort by confidence (High first, then Medium, then Low) and prob difference
+
+    current_app.logger.info(
+        "today_predictions: built %d predictions from %d games",
+        len(predictions_for_games), len(today_games),
+    )
+
+    # Sort by confidence then probability gap
     conf_order = {"High": 0, "Medium": 1, "Low": 2}
     predictions_for_games.sort(
         key=lambda x: (
@@ -1037,7 +1083,7 @@ def today_predictions():
             -abs(x["prob_home"] - x["prob_away"]),
         )
     )
-    
+
     # ── Yesterday section: completed predictions from tracker ─────────────────
     from datetime import date, timedelta
     yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")

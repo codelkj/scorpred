@@ -79,21 +79,21 @@
 
   <!-- 1X2 probability bars -->
   <div class="fpred-probs">
-    <div class="fpred-prob-block {{ 'active' if p.winner_label == 'Home Win' }}">
+    <div class="fpred-prob-block {{ 'active' if p.best_pick.team == 'A' }}">
       <div class="fpred-prob-pct stat-number" data-target="{{ p.home_pct }}">{{ p.home_pct }}</div>
       <div class="prob-bar">
         <div class="prob-bar-fill" data-width="{{ p.home_pct }}" style="background:#00ff87"></div>
       </div>
       <div class="fpred-prob-label">Home Win</div>
     </div>
-    <div class="fpred-prob-block {{ 'active' if p.winner_label == 'Draw' }}">
+    <div class="fpred-prob-block {{ 'active' if p.best_pick.team == 'draw' }}">
       <div class="fpred-prob-pct stat-number" data-target="{{ p.draw_pct }}">{{ p.draw_pct }}</div>
       <div class="prob-bar">
         <div class="prob-bar-fill" data-width="{{ p.draw_pct }}" style="background:#f59e0b"></div>
       </div>
       <div class="fpred-prob-label">Draw</div>
     </div>
-    <div class="fpred-prob-block {{ 'active' if p.winner_label == 'Away Win' }}">
+    <div class="fpred-prob-block {{ 'active' if p.best_pick.team == 'B' }}">
       <div class="fpred-prob-pct stat-number" data-target="{{ p.away_pct }}">{{ p.away_pct }}</div>
       <div class="prob-bar">
         <div class="prob-bar-fill" data-width="{{ p.away_pct }}" style="background:#3b82f6"></div>
@@ -107,9 +107,8 @@
     <span class="fpred-winner-label">
       Predicted:
       <strong class="accent">
-        {% if p.winner_label == 'Home Win' %}{{ f.teams.home.name }}
-        {% elif p.winner_label == 'Away Win' %}{{ f.teams.away.name }}
-        {% else %}Draw
+        {% if p.best_pick.prediction %}{{ p.best_pick.prediction }}
+        {% else %}No prediction available
         {% endif %}
       </strong>
     </span>

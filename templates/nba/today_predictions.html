@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Today's NBA Predictions | ScorPred{% endblock %}
+{% block title %}Upcoming NBA Predictions | ScorPred{% endblock %}
 
 {% block content %}
 <div class="container-fluid mt-4">
   <div class="row mb-4">
     <div class="col-md-12">
-      <h1>Today's NBA Predictions</h1>
+      <h1>Upcoming NBA Predictions</h1>
       <p class="text-muted">
         {% if total_games > 0 %}
           {{ total_predictions }} of {{ total_games }} games predicted — sorted by confidence
         {% else %}
-          No games today
+          No NBA games found in the next 36 hours
         {% endif %}
       </p>
     </div>
@@ -25,7 +25,7 @@
   </div>
   {% endif %}
 
-  <!-- ── TODAY'S PREDICTIONS ─────────────────────────────────────────── -->
+  <!-- ── UPCOMING PREDICTIONS ───────────────────────────────────────── -->
   {% if predictions | length > 0 %}
 
   <div class="row">
@@ -45,9 +45,9 @@
           </div>
 
           <div class="card-body">
-            <!-- Game Time -->
+            <!-- Game Time — use pre-extracted strings, not the raw game.date dict -->
             <p class="card-text text-muted small mb-1">
-              {% if item.game.date %}{{ item.game.date[:10] }}{% if item.game.time %} {{ item.game.time }}{% endif %}{% else %}TBD{% endif %}
+              {% if item.game_date %}{{ item.game_date }}{% if item.game_time %} · {{ item.game_time }} UTC{% endif %}{% else %}TBD{% endif %}
             </p>
 
             <!-- Teams and Probabilities -->
@@ -126,8 +126,8 @@
     <div class="col-md-8 mx-auto">
       <div class="card text-center">
         <div class="card-body py-5">
-          <h5>No NBA games today</h5>
-          <p class="text-muted mb-3">There are no NBA games scheduled for today.</p>
+          <h5>No upcoming NBA games</h5>
+          <p class="text-muted mb-3">No NBA games were found in the next 36 hours. Check back soon.</p>
           <a href="{{ url_for('nba.index') }}" class="btn btn-primary">View All Games</a>
         </div>
       </div>

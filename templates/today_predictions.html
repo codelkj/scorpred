@@ -6,12 +6,12 @@
 <div class="container-fluid mt-4">
   <div class="row mb-4">
     <div class="col-md-12">
-      <h1>Today's Soccer Predictions</h1>
+      <h1>Upcoming Soccer Predictions</h1>
       <p class="text-muted">
         {% if total_fixtures > 0 %}
           {{ total_predictions }} of {{ total_fixtures }} matches predicted — sorted by confidence
         {% else %}
-          No matches scheduled
+          No matches found in the next 36 hours
         {% endif %}
       </p>
     </div>
