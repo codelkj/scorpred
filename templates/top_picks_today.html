@@ -21,63 +21,6 @@
   </div>
   {% endif %}
 
-  <!-- ── SOCCER WINNERS ────────────────────────────────────────────── -->
-  <div class="row mb-4">
-    <div class="col-md-12">
-      <h2 class="mb-3">Soccer Winners</h2>
-    </div>
-  </div>
-
-  {% if soccer_winners | length > 0 %}
-  <div class="row mb-4">
-    {% for pick in soccer_winners %}
-    <div class="col-lg-6 col-xl-4 mb-3">
-      <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
-        <div class="card h-100 fpred-card
-            {% if pick.confidence == 'High' %}border-success{% elif pick.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
-
-          <div class="card-body text-center">
-            <!-- Teams -->
-            <div class="mb-2">
-              <strong>{{ pick.home_team.name }} vs {{ pick.away_team.name }}</strong>
-            </div>
-
-            <!-- Confidence -->
-            <div class="mb-2">
-              <span class="badge
-                  {% if pick.confidence == 'High' %}bg-success{% elif pick.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                {{ pick.confidence }}
-              </span>
-            </div>
-
-            <!-- Probability -->
-            <div class="text-muted small mb-1">
-              Win Probability: {{ "%.0f"|format(pick.win_probability) }}%
-            </div>
-
-            <!-- Pick -->
-            <div class="text-muted small">
-              Pick: {{ pick.predicted_winner }} Win
-            </div>
-          </div>
-        </div>
-      </a>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="row mb-4">
-    <div class="col-md-8 mx-auto">
-      <div class="card text-center">
-        <div class="card-body py-4">
-          <h5>No high-confidence soccer winner picks today</h5>
-          <p class="text-muted">Check back later or view <a href="/today-soccer-predictions">all soccer predictions</a></p>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
   <!-- ── SOCCER TOTALS ──────────────────────────────────────────── -->
   <div class="row mb-4">
     <div class="col-md-12">
@@ -201,19 +144,16 @@
   {% endif %}
 
   <!-- Summary Stats -->
-  {% if (soccer_winners | length + soccer_scorelines | length + nba_winners | length) > 0 %}
+  {% if (soccer_totals | length + nba_winners | length) > 0 %}
   <div class="row mt-3 mb-4">
     <div class="col-md-12">
       <div class="card bg-light">
         <div class="card-body py-3">
           <div class="row text-center">
-            <div class="col-md-4">
-              <strong>Soccer Winners:</strong> {{ soccer_winners | length }}
-            </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
               <strong>Soccer Totals:</strong> {{ soccer_totals | length }}
             </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
               <strong>NBA Winners:</strong> {{ nba_winners | length }}
             </div>
           </div>
@@ -265,19 +205,21 @@
 
   .prob-bar {
     width: 100%;
-    height: 6px;
-    background: #374151;
-    border-radius: 6px;
-    margin-top: 6px;
-    margin-bottom: 8px;
+    height: 10px;
+    background: #2d3748;
+    border-radius: 10px;
+    margin-top: 8px;
+    margin-bottom: 10px;
     overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
   }
 
   .prob-fill {
     height: 100%;
     background: #22c55e;
-    border-radius: 6px;
-    transition: width 0.3s ease;
+    border-radius: 10px;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2);
   }
 
   .badge {

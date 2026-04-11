@@ -1306,87 +1306,12 @@ def top_picks_today():
     _set_data_refresh()
     load_error = None
     
-    # ── Soccer Winners ──────────────────────────────────────────────────────
-    soccer_winners = []
+    # ── Soccer Totals ───────────────────────────────────────────────────
+    soccer_totals = []
     try:
         upcoming_fixtures = ac.get_upcoming_fixtures(LEAGUE, SEASON, next_n=20)
         standings_list = ac.get_standings(LEAGUE, SEASON)
         opp_strengths = _build_opp_strengths(standings_list)
-        
-        for fixture in upcoming_fixtures or []:
-            try:
-                home_id = fixture["teams"]["home"]["id"]
-                away_id = fixture["teams"]["away"]["id"]
-                home_name = fixture["teams"]["home"]["name"]
-                away_name = fixture["teams"]["away"]["name"]
-                
-                # Fetch data for prediction
-                h2h_raw = ac.get_h2h(home_id, away_id, last=10)
-                fixtures_home = ac.get_team_fixtures(home_id, LEAGUE, SEASON, last=10)
-                fixtures_away = ac.get_team_fixtures(away_id, LEAGUE, SEASON, last=10)
-                injuries_home = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, home_id))
-                injuries_away = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, away_id))
-                
-                # Filter completed matches
-                h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
-                fixtures_home = pred.filter_recent_completed_fixtures(fixtures_home, current_season=SEASON)
-                fixtures_away = pred.filter_recent_completed_fixtures(fixtures_away, current_season=SEASON)
-                
-                # Extract form
-                form_home = pred.extract_form(fixtures_home, home_id)[:5]
-                form_away = pred.extract_form(fixtures_away, away_id)[:5]
-                h2h_form_home = pred.extract_form(h2h_raw, home_id)[:5]
-                h2h_form_away = pred.extract_form(h2h_raw, away_id)[:5]
-                
-                # Run prediction
-                prediction = se.scorpred_predict(
-                    form_a=form_home,
-                    form_b=form_away,
-                    h2h_form_a=h2h_form_home,
-                    h2h_form_b=h2h_form_away,
-                    injuries_a=injuries_home,
-                    injuries_b=injuries_away,
-                    team_a_is_home=True,
-                    team_a_name=home_name,
-                    team_b_name=away_name,
-                    sport="soccer",
-                    opp_strengths=opp_strengths,
-                )
-                
-                best_pick = prediction.get("best_pick", {})
-                probs = prediction.get("win_probabilities", {})
-                confidence = best_pick.get("confidence", "Low")
-                prob_home = probs.get("a", 33.3)
-                prob_away = probs.get("b", 33.3)
-                
-                # Filter for strong picks: High confidence OR >60% probability
-                if confidence == "High" or prob_home > 60 or prob_away > 60:
-                    predicted_winner = best_pick.get("prediction", "—")
-                    winner_team = home_name if predicted_winner == "Home" else away_name if predicted_winner == "Away" else "Draw"
-                    
-                    soccer_winners.append({
-                        "fixture": fixture,
-                        "home_team": fixture["teams"]["home"],
-                        "away_team": fixture["teams"]["away"],
-                        "predicted_winner": winner_team,
-                        "win_probability": prob_home if predicted_winner == "Home" else prob_away if predicted_winner == "Away" else 0,
-                        "confidence": confidence,
-                        "reasoning": best_pick.get("reasoning", ""),
-                        "score_gap": prediction.get("score_gap", 0),
-                    })
-                    
-            except Exception as exc:
-                app.logger.warning("Prediction failed for soccer fixture %s: %s", fixture.get("fixture", {}).get("id"), exc)
-                continue
-                
-    except Exception as exc:
-        app.logger.error("Failed to fetch soccer data: %s", exc)
-        load_error = str(exc)
-    
-    # ── Soccer Totals ───────────────────────────────────────────────────
-    soccer_totals = []
-    try:
-        # Reuse the same fixtures and predictions from above
         for fixture in upcoming_fixtures or []:
             try:
                 home_id = fixture["teams"]["home"]["id"]
@@ -1448,17 +1373,29 @@ def top_picks_today():
                 else:
                     confidence = "Low"
 
-                # Generate note based on model edges
-                if team_a_score > team_b_score + 0.5:
-                    note = "Strong attacking edge from home"
-                elif team_b_score > team_a_score + 0.5:
-                    note = "Strong attacking edge from away"
-                elif expected_total > 3.5:
-                    note = "Weak defenses on both sides"
+                # Generate specific matchup-based note
+                home_avg_goals = sum([1 if result in ['W', 'D'] else 0 for result in form_home]) / len(form_home) if form_home else 0
+                away_avg_goals = sum([1 if result in ['W', 'D'] else 0 for result in form_away]) / len(form_away) if form_away else 0
+
+                if expected_total > 3.5:
+                    if team_a_score > team_b_score:
+                        note = f"{home_name}'s strong home form and {away_name}'s defensive struggles suggest a high-scoring game."
+                    else:
+                        note = f"Both teams' recent attacking displays and {away_name}'s away goal concessions point to over 2.5 goals."
+                elif expected_total > 3.0:
+                    note = f"{home_name}'s scoring trend and {away_name}'s recent matches indicate this could go over 2.5."
                 elif expected_total < 2.0:
-                    note = "Balanced teams with low scoring profile"
+                    note = f"{home_name} and {away_name} have combined for low-scoring games in recent fixtures."
+                elif expected_total < 2.5:
+                    if team_a_score < team_b_score:
+                        note = f"{away_name}'s defensive solidity and {home_name}'s scoring drought suggest under 2.5 goals."
+                    else:
+                        note = f"Recent form shows {home_name} and {away_name} involved in low-scoring encounters."
                 else:
-                    note = "Moderate tempo matchup"
+                    if abs(team_a_score - team_b_score) < 0.3:
+                        note = f"Balanced matchup between {home_name} and {away_name} with moderate goal expectations."
+                    else:
+                        note = f"{home_name if team_a_score > team_b_score else away_name}'s edge and recent trends make this total competitive."
 
                 # Filter for strong picks: High confidence OR >60% probability
                 if confidence == "High" or over_probability > 60:
@@ -1593,14 +1530,12 @@ def top_picks_today():
     # Sort each section by confidence then probability
     conf_order = {"High": 0, "Medium": 1, "Low": 2}
     
-    soccer_winners.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["win_probability"]))
     soccer_totals.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["probability"]))
     nba_winners.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["win_probability"]))
     
     return render_template(
         "top_picks_today.html",
         **_page_context(
-            soccer_winners=soccer_winners,
             soccer_totals=soccer_totals,
             nba_winners=nba_winners,
             load_error=load_error,
