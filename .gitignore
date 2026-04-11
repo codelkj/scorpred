@@ -1,6 +1,7 @@
 # Environment & secrets
 .env
-.env.*
+.env.local
+.env.*.local
 !.env.example
 
 # Python
@@ -15,18 +16,20 @@ build/
 *.egg
 *.whl
 pip-wheel-metadata/
+.pytest_cache/
 
 # Virtual environments
 venv/
 env/
 .venv/
+venv313/
 ENV/
 
 # API response cache
 cache/
 
 # IDE / OS
-.vscode/*.code-workspace
+.vscode/
 .idea/
 *.swp
 *.swo
@@ -37,10 +40,8 @@ desktop.ini
 # Logs
 *.log
 
-# Large utility scripts not part of the app
-get-pip.py
-
 # Local AI/tooling state
 .claude/
 .tmp/
+tmp/
 tmp_work/
