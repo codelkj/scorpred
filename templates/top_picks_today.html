@@ -32,61 +32,33 @@
   <div class="row mb-4">
     {% for pick in soccer_winners %}
     <div class="col-lg-6 col-xl-4 mb-3">
-      <a href="/select?team_a={{ pick.home_team.id }}&team_b={{ pick.away_team.id }}" class="text-decoration-none">
-        <div class="card h-100 game-card
+      <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
+        <div class="card h-100 fpred-card
             {% if pick.confidence == 'High' %}border-success{% elif pick.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
 
-          <!-- Confidence Badge -->
-          <div class="position-absolute top-0 end-0 p-2">
-            <span class="badge
-                {% if pick.confidence == 'High' %}bg-success{% elif pick.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-              {{ pick.confidence }}
-            </span>
-          </div>
-
-          <div class="card-body">
-            <!-- Match Info -->
-            <p class="card-text text-muted small mb-2">
-              {% if pick.fixture.fixture.date %}
-                {{ pick.fixture.fixture.date[:10] }}
-                {% if pick.fixture.fixture.date|length > 10 %} {{ pick.fixture.fixture.date[11:16] }} UTC{% endif %}
-              {% else %}
-                TBD
-              {% endif %}
-              {% if pick.fixture.league %}· {{ pick.fixture.league.name }}{% endif %}
-            </p>
-
+          <div class="card-body text-center">
             <!-- Teams -->
-            <div class="mb-3">
-              <div class="d-flex align-items-center mb-2">
-                {% if pick.home_team.logo %}
-                <img src="{{ pick.home_team.logo }}" alt="{{ pick.home_team.name }}" style="height:24px; margin-right:8px;">
-                {% endif %}
-                <span class="{% if pick.predicted_winner == pick.home_team.name %}fw-bold text-success{% endif %}">{{ pick.home_team.name }}</span>
-              </div>
-              <div class="text-center text-muted small mb-2">vs</div>
-              <div class="d-flex align-items-center">
-                {% if pick.away_team.logo %}
-                <img src="{{ pick.away_team.logo }}" alt="{{ pick.away_team.name }}" style="height:24px; margin-right:8px;">
-                {% endif %}
-                <span class="{% if pick.predicted_winner == pick.away_team.name %}fw-bold text-success{% endif %}">{{ pick.away_team.name }}</span>
-              </div>
+            <div class="mb-2">
+              <strong>{{ pick.home_team.name }} vs {{ pick.away_team.name }}</strong>
             </div>
 
-            <!-- Prediction -->
-            <div class="alert alert-info mb-2 py-2">
-              <strong>Winner:</strong> {{ pick.predicted_winner }}<br>
-              <small>{{ "%.1f"|format(pick.win_probability) }}% probability</small>
+            <!-- Confidence -->
+            <div class="mb-2">
+              <span class="badge
+                  {% if pick.confidence == 'High' %}bg-success{% elif pick.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                {{ pick.confidence }}
+              </span>
             </div>
 
-            <!-- Reasoning -->
-            {% if pick.reasoning %}
-            <p class="card-text small text-muted">{{ pick.reasoning }}</p>
-            {% endif %}
-          </div>
+            <!-- Probability -->
+            <div class="text-muted small mb-1">
+              Win Probability: {{ "%.0f"|format(pick.win_probability) }}%
+            </div>
 
-          <div class="card-footer bg-light text-center">
-            <small>Click for full analysis</small>
+            <!-- Pick -->
+            <div class="text-muted small">
+              Pick: {{ pick.predicted_winner }} Win
+            </div>
           </div>
         </div>
       </a>
@@ -106,65 +78,52 @@
   </div>
   {% endif %}
 
-  <!-- ── SOCCER SCORELINES ──────────────────────────────────────────── -->
+  <!-- ── SOCCER TOTALS ──────────────────────────────────────────── -->
   <div class="row mb-4">
     <div class="col-md-12">
-      <h2 class="mb-3">Soccer Scorelines</h2>
+      <h2 class="mb-3">Soccer Totals</h2>
     </div>
   </div>
 
-  {% if soccer_scorelines | length > 0 %}
+  {% if soccer_totals | length > 0 %}
   <div class="row mb-4">
-    {% for pick in soccer_scorelines %}
+    {% for pick in soccer_totals %}
     <div class="col-lg-6 col-xl-4 mb-3">
-      <a href="/select?team_a={{ pick.home_team.id }}&team_b={{ pick.away_team.id }}" class="text-decoration-none">
-        <div class="card h-100 game-card border-primary">
+      <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
+        <div class="card h-100 fpred-card border-primary">
 
-          <!-- Likelihood Badge -->
-          <div class="position-absolute top-0 end-0 p-2">
-            <span class="badge bg-primary">
-              {{ pick.likelihood }}
-            </span>
-          </div>
-
-          <div class="card-body">
-            <!-- Match Info -->
-            <p class="card-text text-muted small mb-2">
-              {% if pick.fixture.fixture.date %}
-                {{ pick.fixture.fixture.date[:10] }}
-                {% if pick.fixture.fixture.date|length > 10 %} {{ pick.fixture.fixture.date[11:16] }} UTC{% endif %}
-              {% else %}
-                TBD
-              {% endif %}
-              {% if pick.fixture.league %}· {{ pick.fixture.league.name }}{% endif %}
-            </p>
-
+          <div class="card-body text-center">
             <!-- Teams -->
-            <div class="mb-3">
-              <div class="d-flex align-items-center mb-2">
-                {% if pick.home_team.logo %}
-                <img src="{{ pick.home_team.logo }}" alt="{{ pick.home_team.name }}" style="height:24px; margin-right:8px;">
-                {% endif %}
-                <span>{{ pick.home_team.name }}</span>
-              </div>
-              <div class="text-center text-muted small mb-2">vs</div>
-              <div class="d-flex align-items-center">
-                {% if pick.away_team.logo %}
-                <img src="{{ pick.away_team.logo }}" alt="{{ pick.away_team.name }}" style="height:24px; margin-right:8px;">
-                {% endif %}
-                <span>{{ pick.away_team.name }}</span>
-              </div>
+            <div class="mb-2">
+              <strong>{{ pick.home_team.name }} vs {{ pick.away_team.name }}</strong>
             </div>
 
-            <!-- Scoreline Prediction -->
-            <div class="alert alert-primary mb-2 py-2">
-              <strong>Scoreline:</strong> {{ pick.predicted_scoreline }}<br>
-              <small>{{ pick.note }}</small>
+            <!-- Confidence -->
+            <div class="mb-2">
+              <span class="badge bg-primary">
+                {{ pick.confidence }}
+              </span>
             </div>
-          </div>
 
-          <div class="card-footer bg-light text-center">
-            <small>Click for full analysis</small>
+            <!-- Pick -->
+            <div class="text-muted small mb-1">
+              Pick: {{ pick.pick }}
+            </div>
+
+            <!-- Probability -->
+            <div class="text-muted small mb-2">
+              Probability: {{ pick.probability }}%
+            </div>
+
+            <!-- Probability Bar -->
+            <div class="prob-bar">
+              <div class="prob-fill" style="width: {{ pick.probability }}%;"></div>
+            </div>
+
+            <!-- Note -->
+            <div class="text-muted small">
+              Note: {{ pick.note }}
+            </div>
           </div>
         </div>
       </a>
@@ -176,7 +135,7 @@
     <div class="col-md-8 mx-auto">
       <div class="card text-center">
         <div class="card-body py-4">
-          <h5>No high-confidence soccer scoreline picks today</h5>
+          <h5>No high-confidence soccer totals picks today</h5>
           <p class="text-muted">Check back later or view <a href="/today-soccer-predictions">all soccer predictions</a></p>
         </div>
       </div>
@@ -195,60 +154,33 @@
   <div class="row mb-4">
     {% for pick in nba_winners %}
     <div class="col-lg-6 col-xl-4 mb-3">
-      <a href="{{ url_for('nba.select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="text-decoration-none">
-        <div class="card h-100 game-card
+      <a href="{{ url_for('nba.select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
+        <div class="card h-100 fpred-card
             {% if pick.confidence == 'High' %}border-success{% elif pick.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
 
-          <!-- Confidence Badge -->
-          <div class="position-absolute top-0 end-0 p-2">
-            <span class="badge
-                {% if pick.confidence == 'High' %}bg-success{% elif pick.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-              {{ pick.confidence }}
-            </span>
-          </div>
-
-          <div class="card-body">
-            <!-- Match Info -->
-            <p class="card-text text-muted small mb-2">
-              {% if pick.game.date.start %}
-                {{ pick.game.date.start[:10] }}
-                {% if pick.game.date.start|length > 10 %} {{ pick.game.date.start[11:16] }} ET{% endif %}
-              {% else %}
-                TBD
-              {% endif %}
-            </p>
-
+          <div class="card-body text-center">
             <!-- Teams -->
-            <div class="mb-3">
-              <div class="d-flex align-items-center mb-2">
-                {% if pick.home_team.logo %}
-                <img src="{{ pick.home_team.logo }}" alt="{{ pick.home_team.name }}" style="height:24px; margin-right:8px;">
-                {% endif %}
-                <span class="{% if pick.predicted_winner == pick.home_team.name %}fw-bold text-success{% endif %}">{{ pick.home_team.name }}</span>
-              </div>
-              <div class="text-center text-muted small mb-2">@</div>
-              <div class="d-flex align-items-center">
-                {% if pick.away_team.logo %}
-                <img src="{{ pick.away_team.logo }}" alt="{{ pick.away_team.name }}" style="height:24px; margin-right:8px;">
-                {% endif %}
-                <span class="{% if pick.predicted_winner == pick.away_team.name %}fw-bold text-success{% endif %}">{{ pick.away_team.name }}</span>
-              </div>
+            <div class="mb-2">
+              <strong>{{ pick.home_team.name }} vs {{ pick.away_team.name }}</strong>
             </div>
 
-            <!-- Prediction -->
-            <div class="alert alert-info mb-2 py-2">
-              <strong>Winner:</strong> {{ pick.predicted_winner }}<br>
-              <small>{{ "%.1f"|format(pick.win_probability) }}% probability</small>
+            <!-- Confidence -->
+            <div class="mb-2">
+              <span class="badge
+                  {% if pick.confidence == 'High' %}bg-success{% elif pick.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                {{ pick.confidence }}
+              </span>
             </div>
 
-            <!-- Reasoning -->
-            {% if pick.reasoning %}
-            <p class="card-text small text-muted">{{ pick.reasoning }}</p>
-            {% endif %}
-          </div>
+            <!-- Probability -->
+            <div class="text-muted small mb-1">
+              Win Probability: {{ "%.0f"|format(pick.win_probability) }}%
+            </div>
 
-          <div class="card-footer bg-light text-center">
-            <small>Click for full analysis</small>
+            <!-- Pick -->
+            <div class="text-muted small">
+              Pick: {{ pick.predicted_winner }} Win
+            </div>
           </div>
         </div>
       </a>
@@ -279,7 +211,7 @@
               <strong>Soccer Winners:</strong> {{ soccer_winners | length }}
             </div>
             <div class="col-md-4">
-              <strong>Soccer Scorelines:</strong> {{ soccer_scorelines | length }}
+              <strong>Soccer Totals:</strong> {{ soccer_totals | length }}
             </div>
             <div class="col-md-4">
               <strong>NBA Winners:</strong> {{ nba_winners | length }}
@@ -303,13 +235,53 @@
 </div>
 
 <style>
-  .game-card {
-    transition: transform 0.2s, box-shadow 0.2s;
-    border-width: 2px;
+  .pick-card-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    cursor: pointer;
   }
-  .game-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+
+  .pick-card-link:hover {
+    text-decoration: none;
+  }
+
+  .fpred-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border-width: 2px;
+    background-color: #1a1a1a;
+    color: #ffffff;
+  }
+
+  .fpred-card .card-body {
+    padding: 1.5rem 1rem;
+  }
+
+  .pick-card-link:hover .fpred-card {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+
+  .prob-bar {
+    width: 100%;
+    height: 6px;
+    background: #374151;
+    border-radius: 6px;
+    margin-top: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+
+  .prob-fill {
+    height: 100%;
+    background: #22c55e;
+    border-radius: 6px;
+    transition: width 0.3s ease;
+  }
+
+  .badge {
+    font-size: 0.75rem;
   }
 </style>
 

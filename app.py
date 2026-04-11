@@ -431,12 +431,13 @@ def index():
     )
 
 
-@app.route("/select", methods=["POST"])
+@app.route("/select", methods=["GET", "POST"])
+@app.route("/select-game", methods=["GET", "POST"])
 @app.route("/matchup", methods=["POST"])
-def select():
+def select_game():
     _set_data_refresh()
-    a_id_raw = request.form.get("team_a", "").strip()
-    b_id_raw = request.form.get("team_b", "").strip()
+    a_id_raw = (request.form.get("team_a") or request.args.get("team_a") or "").strip()
+    b_id_raw = (request.form.get("team_b") or request.args.get("team_b") or "").strip()
     fixture_context = _fixture_context_from_form()
     source = (fixture_context or {}).get("data_source", "configured")
 
@@ -1382,8 +1383,8 @@ def top_picks_today():
         app.logger.error("Failed to fetch soccer data: %s", exc)
         load_error = str(exc)
     
-    # ── Soccer Scorelines ───────────────────────────────────────────────────
-    soccer_scorelines = []
+    # ── Soccer Totals ───────────────────────────────────────────────────
+    soccer_totals = []
     try:
         # Reuse the same fixtures and predictions from above
         for fixture in upcoming_fixtures or []:
@@ -1427,40 +1428,59 @@ def top_picks_today():
                 confidence = best_pick.get("confidence", "Low")
                 team_a_score = prediction.get("team_a_score", 0)
                 team_b_score = prediction.get("team_b_score", 0)
-                
-                # Only include if High confidence and clear scoreline
-                if confidence == "High" and abs(team_a_score - team_b_score) >= 0.5:
-                    predicted_scoreline = f"{round(team_a_score)}-{round(team_b_score)}"
-                    likelihood = "High" if abs(team_a_score - team_b_score) >= 1.0 else "Medium"
-                    
-                    # Determine short note
-                    if team_a_score > team_b_score:
-                        note = "Home win"
-                    elif team_b_score > team_a_score:
-                        note = "Away win"
-                    else:
-                        note = "Draw"
-                    
-                    if abs(team_a_score - team_b_score) >= 2.0:
-                        note += " - decisive"
-                    elif abs(team_a_score - team_b_score) < 1.0:
-                        note += " - narrow"
-                    
-                    soccer_scorelines.append({
+                expected_total = team_a_score + team_b_score
+
+                # Determine Over/Under pick based on expected total goals
+                if expected_total > 2.5:
+                    pick = "Over 2.5 Goals"
+                    # Probability based on how much over 2.5
+                    over_probability = min(95, 50 + (expected_total - 2.5) * 20)
+                else:
+                    pick = "Under 2.5 Goals"
+                    # Probability based on how much under 2.5
+                    over_probability = max(5, 50 - (2.5 - expected_total) * 20)
+
+                # Adjust confidence based on prediction strength
+                if abs(expected_total - 2.5) >= 1.0:
+                    confidence = "High"
+                elif abs(expected_total - 2.5) >= 0.5:
+                    confidence = "Medium"
+                else:
+                    confidence = "Low"
+
+                # Generate note based on model edges
+                if team_a_score > team_b_score + 0.5:
+                    note = "Strong attacking edge from home"
+                elif team_b_score > team_a_score + 0.5:
+                    note = "Strong attacking edge from away"
+                elif expected_total > 3.5:
+                    note = "Weak defenses on both sides"
+                elif expected_total < 2.0:
+                    note = "Balanced teams with low scoring profile"
+                else:
+                    note = "Moderate tempo matchup"
+
+                # Filter for strong picks: High confidence OR >60% probability
+                if confidence == "High" or over_probability > 60:
+                    soccer_totals.append({
                         "fixture": fixture,
                         "home_team": fixture["teams"]["home"],
                         "away_team": fixture["teams"]["away"],
-                        "predicted_scoreline": predicted_scoreline,
-                        "likelihood": likelihood,
+                        "pick": pick,
+                        "probability": round(over_probability),
+                        "confidence": confidence,
                         "note": note,
+                        "expected_total": round(expected_total, 1),
                     })
-                    
+
             except Exception as exc:
-                app.logger.warning("Scoreline prediction failed for soccer fixture %s: %s", fixture.get("fixture", {}).get("id"), exc)
+                app.logger.warning("Totals prediction failed for soccer fixture %s: %s", fixture.get("fixture", {}).get("id"), exc)
                 continue
-                
+
     except Exception as exc:
-        app.logger.error("Failed to process soccer scorelines: %s", exc)
+        app.logger.error("Failed to process soccer totals: %s", exc)
+
+    # ── NBA Winners ────────────────────────────────────────────────────────
     
     # ── NBA Winners ────────────────────────────────────────────────────────
     nba_winners = []
@@ -1574,14 +1594,14 @@ def top_picks_today():
     conf_order = {"High": 0, "Medium": 1, "Low": 2}
     
     soccer_winners.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["win_probability"]))
-    soccer_scorelines.sort(key=lambda x: (0 if x["likelihood"] == "High" else 1, -abs(float(x["predicted_scoreline"].split("-")[0]) - float(x["predicted_scoreline"].split("-")[1]))))
+    soccer_totals.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["probability"]))
     nba_winners.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["win_probability"]))
     
     return render_template(
         "top_picks_today.html",
         **_page_context(
             soccer_winners=soccer_winners,
-            soccer_scorelines=soccer_scorelines,
+            soccer_totals=soccer_totals,
             nba_winners=nba_winners,
             load_error=load_error,
         ),
