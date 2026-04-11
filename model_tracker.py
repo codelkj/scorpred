@@ -19,12 +19,39 @@ _TRACKING_FILE = os.path.join(os.path.dirname(__file__), "cache", "prediction_tr
 def _ensure_tracking_file() -> None:
     """Create tracking file if it doesn't exist."""
     if os.path.exists(_TRACKING_FILE):
+        # Migrate existing predictions to add status field
+        _migrate_predictions()
         return
     folder = os.path.dirname(_TRACKING_FILE)
     if folder and not os.path.isdir(folder):
         os.makedirs(folder, exist_ok=True)
     with open(_TRACKING_FILE, "w", encoding="utf-8") as f:
         json.dump({"predictions": []}, f, indent=2)
+
+
+def _migrate_predictions() -> None:
+    """Migrate existing predictions to add status field if missing."""
+    try:
+        with open(_TRACKING_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        predictions = data.get("predictions", [])
+        migrated = False
+        
+        for pred in predictions:
+            if "status" not in pred:
+                # Set status based on whether result is known
+                if pred.get("is_correct") is not None:
+                    pred["status"] = "completed"
+                else:
+                    pred["status"] = "pending"
+                migrated = True
+        
+        if migrated:
+            with open(_TRACKING_FILE, "w", encoding="utf-8") as f:
+                json.dump({"predictions": predictions}, f, indent=2)
+    except Exception:
+        pass  # Silent fail if migration fails
 
 
 def _normalize_date(date_str: str | None) -> str:
@@ -58,6 +85,13 @@ def _save_predictions(predictions: list[dict]) -> None:
         pass  # Silent fail if file can't be written
 
 
+def _get_game_key(sport: str, date: str, team_a: str, team_b: str) -> str:
+    """Generate a unique key for a game to prevent duplicates."""
+    # Normalize teams by sorting alphabetically
+    teams = sorted([team_a.lower().strip(), team_b.lower().strip()])
+    return f"{sport.lower()}|{date}|{teams[0]}|{teams[1]}"
+
+
 def save_prediction(
     sport: str,
     team_a: str,
@@ -71,12 +105,28 @@ def save_prediction(
     Save a new prediction to the tracking file.
     
     Returns the prediction ID for later updates.
+    Checks for duplicates based on sport, date, and teams.
+    If a duplicate exists, returns the existing ID without saving.
     """
     predictions = _load_predictions()
     
+    game_date_normalized = _normalize_date(game_date)
+    game_key = _get_game_key(sport, game_date_normalized, team_a, team_b)
+    
+    # Check for existing prediction with same game key
+    for existing in predictions:
+        existing_key = _get_game_key(
+            existing.get("sport", ""),
+            existing.get("date", ""),
+            existing.get("team_a", ""),
+            existing.get("team_b", "")
+        )
+        if existing_key == game_key:
+            # Duplicate found, return existing ID without saving new one
+            return existing.get("id", "")
+    
     pred_id = str(uuid.uuid4())[:8]
     now = datetime.utcnow().isoformat() + "Z"
-    game_date_normalized = _normalize_date(game_date)
     
     prediction = {
         "id": pred_id,
@@ -90,6 +140,7 @@ def save_prediction(
         "prob_b": round(win_probs.get("b", 0), 1),
         "prob_draw": round(win_probs.get("draw", 0), 1),
         "confidence": confidence,
+        "status": "pending",
         "actual_result": None,
         "is_correct": None,
         "created_at": now,
@@ -100,6 +151,39 @@ def save_prediction(
     _save_predictions(predictions)
     
     return pred_id
+
+
+def clean_duplicate_predictions() -> int:
+    """
+    Remove duplicate predictions, keeping the most recent one for each game.
+    
+    Returns the number of duplicates removed.
+    """
+    predictions = _load_predictions()
+    seen_keys = {}
+    to_keep = []
+    removed = 0
+    
+    # Sort by updated_at descending to keep the latest
+    predictions.sort(key=lambda p: p.get("updated_at", ""), reverse=True)
+    
+    for pred in predictions:
+        game_key = _get_game_key(
+            pred.get("sport", ""),
+            pred.get("date", ""),
+            pred.get("team_a", ""),
+            pred.get("team_b", "")
+        )
+        if game_key not in seen_keys:
+            seen_keys[game_key] = True
+            to_keep.append(pred)
+        else:
+            removed += 1
+    
+    if removed > 0:
+        _save_predictions(to_keep)
+    
+    return removed
 
 
 def update_prediction_result(pred_id: str, actual_result: str, final_score: dict | None = None) -> bool:
@@ -119,6 +203,7 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
         if pred.get("id") == pred_id:
             pred["actual_result"] = actual_result
             pred["is_correct"] = (pred.get("predicted_winner") == actual_result)
+            pred["status"] = "completed"
             pred["final_score"] = final_score
             pred["updated_at"] = datetime.utcnow().isoformat() + "Z"
             _save_predictions(predictions)
@@ -159,8 +244,8 @@ def get_summary_metrics() -> dict[str, Any]:
             "recent_predictions": [],
         }
 
-    # Filter to only finalized predictions
-    finalized = [p for p in predictions if p.get("is_correct") is not None]
+    # Filter to only finalized predictions (status = completed)
+    finalized = [p for p in predictions if p.get("status") == "completed"]
 
     if not finalized:
         return {
@@ -212,3 +297,88 @@ def get_recent_predictions(limit: int = 20) -> list[dict]:
     """Get the most recent predictions (finalized or not)."""
     predictions = _load_predictions()
     return sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:limit]
+
+
+def get_pending_predictions(limit: int = 20) -> list[dict]:
+    """Get the most recent pending predictions."""
+    predictions = _load_predictions()
+    pending = [p for p in predictions if p.get("status") != "completed"]
+    return sorted(pending, key=lambda p: p.get("created_at", ""), reverse=True)[:limit]
+
+
+def get_completed_predictions(limit: int = 50) -> list[dict]:
+    """
+    Get completed predictions with detailed result information.
+    
+    Returns predictions with status="completed" including:
+    - Final score
+    - Total scored (goals/points)
+    - Over/Under result
+    - Winner pick result
+    """
+    predictions = _load_predictions()
+    completed = [p for p in predictions if p.get("status") == "completed"]
+    
+    # Sort by most recent first
+    completed = sorted(completed, key=lambda p: p.get("updated_at", ""), reverse=True)[:limit]
+    
+    # Enhance with calculated fields
+    for pred in completed:
+        sport = pred.get("sport", "").lower()
+        final_score = pred.get("final_score", {})
+        
+        # Calculate total scored
+        if final_score and isinstance(final_score, dict):
+            if sport == "soccer":
+                total_goals = final_score.get("a", 0) + final_score.get("b", 0)
+                pred["total_scored"] = total_goals
+                pred["total_label"] = f"Total Goals: {total_goals}"
+                
+                # Determine O/U result (using 2.5 as default line)
+                ou_line = 2.5
+                if total_goals > ou_line:
+                    pred["ou_result"] = "Over"
+                    pred["ou_hit"] = True
+                else:
+                    pred["ou_result"] = "Under" 
+                    pred["ou_hit"] = False
+                pred["ou_display"] = f"U/O {ou_line}: {'Hit' if pred['ou_hit'] else 'Miss'}"
+                
+            elif sport == "nba":
+                total_points = final_score.get("a", 0) + final_score.get("b", 0)
+                pred["total_scored"] = total_points
+                pred["total_label"] = f"Total Points: {total_points}"
+                
+                # For NBA, use a dynamic line based on typical NBA totals
+                # This is a simple approximation - in reality you'd want historical data
+                ou_line = 220.5  # Default NBA total line
+                if total_points > ou_line:
+                    pred["ou_result"] = "Over"
+                    pred["ou_hit"] = True
+                else:
+                    pred["ou_result"] = "Under"
+                    pred["ou_hit"] = False
+                pred["ou_display"] = f"U/O {ou_line}: {'Hit' if pred['ou_hit'] else 'Miss'}"
+        
+        # Format final score display
+        if final_score and isinstance(final_score, dict):
+            pred["final_score_display"] = f"{final_score.get('a', 0)}-{final_score.get('b', 0)}"
+        else:
+            pred["final_score_display"] = "Unknown"
+        
+        # Determine actual winner
+        actual_result = pred.get("actual_result", "")
+        if actual_result == "A":
+            pred["actual_winner"] = pred.get("team_a", "Unknown")
+        elif actual_result == "B":
+            pred["actual_winner"] = pred.get("team_b", "Unknown")
+        elif actual_result == "draw":
+            pred["actual_winner"] = "Draw"
+        else:
+            pred["actual_winner"] = "Unknown"
+        
+        # Winner pick result
+        pred["winner_hit"] = pred.get("is_correct", False)
+        pred["winner_display"] = f"Winner Pick: {'Hit' if pred['winner_hit'] else 'Miss'}"
+    
+    return completed

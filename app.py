@@ -1134,7 +1134,15 @@ _EMPTY_METRICS = {
 def model_performance():
     """Display model accuracy metrics and recent predictions."""
     try:
+        sport_filter = request.args.get('sport', '').lower()
         metrics = mt.get_summary_metrics()
+        completed_predictions = mt.get_completed_predictions()
+        pending_predictions = mt.get_pending_predictions()
+        
+        # Filter completed predictions by sport if specified
+        if sport_filter in ['soccer', 'nba']:
+            completed_predictions = [p for p in completed_predictions if p.get('sport', '').lower() == sport_filter]
+        
         # Guarantee every key the template expects is present
         metrics.setdefault("finalized_predictions", 0)
         metrics.setdefault("by_confidence", {})
@@ -1143,11 +1151,16 @@ def model_performance():
     except Exception as exc:
         app.logger.error("model_performance: get_summary_metrics failed — %s", exc, exc_info=True)
         metrics = dict(_EMPTY_METRICS)
+        completed_predictions = []
+        pending_predictions = []
 
     return render_template(
         "model_performance.html",
         **_page_context(
             metrics=metrics,
+            completed_predictions=completed_predictions,
+            pending_predictions=pending_predictions,
+            sport_filter=sport_filter,
         ),
     )
 

@@ -95,9 +95,20 @@ def fetch_soccer_result(
     except Exception:
         fixtures = []
 
-    # Attempt 2: API-Football recent fixtures (requires valid team_id so we skip that path)
+    # Attempt 2: API-Football recent fixtures for the league
     if not fixtures:
-        return None
+        try:
+            fixtures = ac.get_fixtures_by_league(league_id, season, last=20)
+        except Exception:
+            fixtures = []
+    
+    # Attempt 3: Try yesterday's fixtures in case some finished late
+    if not fixtures:
+        try:
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            fixtures = ac.get_fixtures_by_date(yesterday, league_id, season)
+        except Exception:
+            pass
     
     for fixture in fixtures:
         try:
@@ -187,7 +198,8 @@ def fetch_nba_result(
     """
     target_date = _parse_date(date_str)
     
-    # Try fetching from recent games
+    # Try fetching from recent games - check both today and yesterday
+    # to catch games that finished late or early
     all_games = []
     
     try:
@@ -198,12 +210,22 @@ def fetch_nba_result(
     except Exception:
         pass
     
-    # If not found, try recent form for both teams
-    # This is more expensive but helps find historical games
+    # Also try yesterday's games in case some finished late
+    try:
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        yesterday_games = nc.get_games_by_date(yesterday)
+        if yesterday_games:
+            all_games.extend(yesterday_games)
+    except Exception:
+        pass
+    
+    # If still not found, try recent completed games
     if not all_games:
         try:
-            # We'd need team IDs here, which we don't have, so skip
-            pass
+            # Get recent games from the API
+            recent_games = nc.get_upcoming_games(next_n=50, days_ahead=0)
+            if recent_games:
+                all_games.extend(recent_games)
         except Exception:
             pass
     
@@ -285,8 +307,8 @@ def update_pending_predictions() -> dict[str, Any]:
             "errors": [],
         }
     
-    # Filter to pending predictions only
-    pending = [p for p in predictions if p.get("is_correct") is None]
+    # Filter to pending predictions only (status != completed)
+    pending = [p for p in predictions if p.get("status") != "completed"]
     
     stats = {
         "checked": len(pending),
@@ -326,6 +348,9 @@ def update_pending_predictions() -> dict[str, Any]:
             # Update the prediction with result and final score
             if mt.update_prediction_result(pred_id, actual_winner, final_score):
                 stats["updated"] += 1
+        else:
+            # Log why the result wasn't found
+            stats["errors"].append(f"{pred_id} ({team_a} vs {team_b} on {date_str}): No result found - game may not be finished yet")
     
     return stats
 
@@ -345,7 +370,7 @@ def get_update_summary() -> dict[str, Any]:
     predictions = mt._load_predictions()
     
     total = len(predictions)
-    completed = sum(1 for p in predictions if p.get("is_correct") is not None)
+    completed = sum(1 for p in predictions if p.get("status") == "completed")
     pending = total - completed
     
     completion_rate = (completed / total * 100) if total > 0 else 0
