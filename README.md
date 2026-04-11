@@ -39,7 +39,7 @@ cp .env.example .env
 
 ```bash
 python app.py
-# Visit http://localhost:5000
+# Visit http://localhost:5001 (or PORT if set)
 ```
 
 ---
@@ -50,12 +50,12 @@ Copy `.env.example` to `.env` and set the following:
 
 | Variable | Required | Description |
 |---|---|---|
-| `API_FOOTBALL_KEY` | Yes | RapidAPI key for API-Football |
-| `NBA_API_KEY` | Yes | RapidAPI key for NBA data |
+| `API_FOOTBALL_KEY` | Recommended | RapidAPI key for API-Football (fallback sources are used when missing) |
+| `NBA_API_KEY` | Recommended | RapidAPI key for NBA data (fallback sources are used when missing) |
 | `ANTHROPIC_API_KEY` | No | Enables Claude AI chatbot (falls back to rule-based replies without it) |
-| `SECRET_KEY` | Yes | Flask session secret — change to a long random string in production |
+| `SECRET_KEY` | Yes (production) | Flask session secret — change to a long random string in production |
 | `FLASK_DEBUG` | No | Set to `1` for debug mode (default: `0`) |
-| `PORT` | No | Server port (default: `5000`) |
+| `PORT` | No | Server port (default: `5001`) |
 
 Get your RapidAPI key at [rapidapi.com](https://rapidapi.com). The app requires:
 - `api-football-v1.p.rapidapi.com` — Football data
@@ -81,9 +81,10 @@ ScorPred/
 │
 ├── templates/
 │   ├── base.html           # Master layout (navbar, chat widget, footer)
-│   ├── index.html          # Home — team selector + upcoming fixtures
+│   ├── home.html           # Landing page
+│   ├── soccer.html         # Football selector + upcoming fixtures
 │   ├── matchup.html        # H2H analysis
-│   ├── player.html         # Squad comparison
+│   ├── player.html         # Squad/key threats comparison
 │   ├── prediction.html     # Win probability results
 │   ├── props.html          # Props bet builder
 │   ├── fixtures.html       # Fixture list
@@ -96,7 +97,7 @@ ScorPred/
 │   └── charts.js           # Chart.js visualisations
 │
 ├── tests/
-│   ├── test_routes.py      # Flask route integration tests (53 total)
+│   ├── test_routes.py      # Flask route integration tests
 │   └── test_predictor.py   # Predictor unit tests
 │
 ├── .env.example            # Template for environment variables
@@ -112,11 +113,11 @@ ScorPred/
 
 | Route | Method | Description |
 |---|---|---|
-| `/` | GET | Home — team list + upcoming fixtures |
+| `/` | GET | Home / landing |
+| `/soccer` | GET | Football team list + upcoming fixtures |
 | `/select` | POST | Select teams A and B |
 | `/matchup` | GET | H2H and form analysis |
-| `/player` | GET | Squad side-by-side comparison |
-| `/player/analyze` | POST | Fetch per-player stats (JSON) |
+| `/players` | GET | Squad side-by-side comparison |
 | `/prediction` | GET | Win probability with Poisson model |
 | `/fixtures` | GET | Upcoming fixtures with quick predictions |
 | `/worldcup` | GET/POST | World Cup predictor |
@@ -140,9 +141,7 @@ ScorPred/
 |---|---|
 | `/api/football/leagues` | List supported leagues |
 | `/api/football/teams` | Teams for a league |
-| `/api/football/team-form` | Last 5 form for a team |
 | `/api/football/squad` | Squad list with positions |
-| `/api/football/relevant-competitions` | Competitions a player has played in |
 | `/api/player-stats` | Player season stats |
 | `/chat` | POST — AI chatbot message |
 | `/chat/clear` | POST — Clear chat history |
@@ -211,15 +210,10 @@ Force a cache refresh on any page by appending `?refresh=1`.
 ## Running Tests
 
 ```bash
-pip install pytest
-pytest tests/ -v
+pytest -q
 ```
 
-Tests use `unittest.mock` to patch API calls — no real network requests are made.
-
-```
-53 passed in ~6s
-```
+Tests use `unittest.mock` to patch API calls, so no live network APIs are required.
 
 ---
 

@@ -58,7 +58,9 @@ def filter_recent_completed_fixtures(
     current_season: int = CURRENT_SEASON,
     seasons_back: int = 2,
 ) -> list[dict]:
-    valid_seasons = {current_season - i for i in range(seasons_back)}
+    # Include current season plus the requested number of prior seasons.
+    # Example: seasons_back=2 -> {current, current-1, current-2}
+    valid_seasons = {current_season - i for i in range(seasons_back + 1)}
     filtered = []
     for fixture in fixtures or []:
         if not _is_completed_fixture(fixture):
