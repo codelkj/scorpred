@@ -163,7 +163,7 @@ def _assistant_totals_pick_display(prediction: dict) -> str | None:
     return str(totals_leg.get("market") or pick or "").strip() or None
 
 
-def _assistant_prediction_context(prediction: dict, team_a_name: str, team_b_name: str) -> dict:
+def _assistant_prediction_context(prediction: dict, team_a_name: str, team_b_name: str, market_analysis: dict | None = None) -> dict:
     best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
     return {
         "sport": "nba",
@@ -173,7 +173,8 @@ def _assistant_prediction_context(prediction: dict, team_a_name: str, team_b_nam
         "winner_probability": _assistant_pick_probability(prediction, team_a_name, team_b_name),
         "confidence": best_pick.get("confidence") or prediction.get("confidence") or "",
         "reasoning": str(best_pick.get("reasoning") or "").strip(),
-        "totals_pick": _assistant_totals_pick_display(prediction),
+        "totals_pick": ((market_analysis or {}).get("totals_leg") or {}).get("recommendation") or _assistant_totals_pick_display(prediction),
+        "spread_pick": ((market_analysis or {}).get("spread_leg") or {}).get("recommendation") or "",
         "top_factors": _assistant_extract_top_factors(prediction),
     }
 
@@ -979,6 +980,7 @@ def prediction():
 
     # ── Scorpred Engine ────────────────────────────────────────────────────────
     scorpred = None
+    market_analysis = None
     try:
         nba_form_a = np_nba.extract_recent_form(form_a_filtered, id_a, n=5)
         nba_form_b = np_nba.extract_recent_form(form_b_filtered, id_b, n=5)
@@ -1022,6 +1024,19 @@ def prediction():
             sport="nba",
             opp_strengths=nba_opp_strengths,
         )
+        market_analysis = np_nba.build_market_recommendations(
+            team_a,
+            team_b,
+            scorpred,
+            nba_form_a,
+            nba_form_b,
+            h2h_games_filtered,
+            injuries_a,
+            injuries_b,
+            stats_a=stats_a,
+            stats_b=stats_b,
+            team_a_is_home=True,
+        )
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
 
@@ -1030,6 +1045,7 @@ def prediction():
         "Season records, PPG, and net rating are live from the standings feed.",
         "Recent form, head-to-head history, rosters, and injuries are all based on real schedule and roster data.",
         "Analysis uses only completed games (final/post state) for accurate recent form and H2H history.",
+        "Spread and total points recommendations are model-derived from ScorPred inputs rather than sportsbook lines.",
     ]
 
     # Track this prediction
@@ -1039,7 +1055,14 @@ def prediction():
             pred_winner = best_pick.get("prediction", "")
             probs = scorpred.get("win_probabilities", {})
             conf = best_pick.get("confidence", "Medium")
-            totals_leg = _extract_totals_leg(scorpred) or {}
+            totals_leg_data = (market_analysis or {}).get("totals_leg") or {}
+            totals_pick_text = str(totals_leg_data.get("recommendation") or "").strip()
+            totals_match = re.match(r"^(Over|Under)\s+([0-9]+(?:\.[0-9]+)?)$", totals_pick_text, flags=re.IGNORECASE)
+            totals_leg = {
+                "pick": totals_match.group(1).title() if totals_match else None,
+                "line": float(totals_match.group(2)) if totals_match else None,
+                "market": f"Total Points O/U {totals_match.group(2)}" if totals_match else None,
+            }
             
             mt.save_prediction(
                 sport="nba",
@@ -1067,6 +1090,7 @@ def prediction():
             scorpred or {},
             team_a.get("nickname") or team_a["name"],
             team_b.get("nickname") or team_b["name"],
+            market_analysis=market_analysis,
         ),
     )
 
@@ -1084,6 +1108,7 @@ def prediction():
             form_a=form_a_display,
             form_b=form_b_display,
             h2h_rows=h2h_rows,
+            market_analysis=market_analysis or {},
             prediction=scorpred,
             scorpred=scorpred,    # template guards on {% if scorpred %} — expose it directly
             data_notes=data_notes,

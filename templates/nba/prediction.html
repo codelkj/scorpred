@@ -81,6 +81,45 @@
 
   {% if scorpred %}
 
+  {% if market_analysis and market_analysis.winner_leg %}
+  <div class="nba-card glow-card" style="padding:1.2rem 1.25rem; margin-bottom:1.2rem;">
+    <div class="nba-card-title">🎯 NBA Market Analysis</div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.9rem; margin-bottom:1rem;">
+      <div style="background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.2); border-radius:10px; padding:.95rem 1rem;">
+        <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:var(--nba-muted); margin-bottom:.35rem;">Winner / Moneyline</div>
+        <div style="font-size:1.15rem; font-weight:700; color:var(--nba-gold); margin-bottom:.35rem;">{{ market_analysis.winner_leg.recommendation }}</div>
+        <span class="nba-badge {% if market_analysis.winner_leg.confidence == 'High' %}nba-badge-high{% elif market_analysis.winner_leg.confidence == 'Medium' %}nba-badge-med{% else %}nba-badge-low{% endif %}">{{ market_analysis.winner_leg.confidence }}</span>
+        <div style="font-size:.82rem; color:var(--nba-muted); margin-top:.55rem; line-height:1.55;">{{ market_analysis.winner_leg.explanation }}</div>
+      </div>
+      <div style="background:rgba(59,130,246,.08); border:1px solid rgba(59,130,246,.22); border-radius:10px; padding:.95rem 1rem;">
+        <div style="display:flex; justify-content:space-between; gap:.5rem; align-items:center; margin-bottom:.35rem;">
+          <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:var(--nba-muted);">Spread</div>
+          <span class="nba-badge nba-badge-push">Model-derived</span>
+        </div>
+        <div style="font-size:1.15rem; font-weight:700; color:#60a5fa; margin-bottom:.35rem;">{{ market_analysis.spread_leg.recommendation }}</div>
+        <div style="font-size:.78rem; color:var(--nba-muted); margin-bottom:.35rem;">Expected margin: {{ market_analysis.spread_leg.expected_margin }}</div>
+        <span class="nba-badge {% if market_analysis.spread_leg.confidence == 'High' %}nba-badge-high{% elif market_analysis.spread_leg.confidence == 'Medium' %}nba-badge-med{% else %}nba-badge-low{% endif %}">{{ market_analysis.spread_leg.confidence }}</span>
+        <div style="font-size:.82rem; color:var(--nba-muted); margin-top:.55rem; line-height:1.55;">{{ market_analysis.spread_leg.explanation }}</div>
+      </div>
+      <div style="background:rgba(34,197,94,.08); border:1px solid rgba(34,197,94,.22); border-radius:10px; padding:.95rem 1rem;">
+        <div style="display:flex; justify-content:space-between; gap:.5rem; align-items:center; margin-bottom:.35rem;">
+          <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:var(--nba-muted);">Total Points</div>
+          <span class="nba-badge nba-badge-push">Model-derived</span>
+        </div>
+        <div style="font-size:1.15rem; font-weight:700; color:#22c55e; margin-bottom:.35rem;">{{ market_analysis.totals_leg.recommendation }}</div>
+        <div style="font-size:.78rem; color:var(--nba-muted); margin-bottom:.35rem;">Expected total: {{ market_analysis.totals_leg.expected_total }} points</div>
+        <span class="nba-badge {% if market_analysis.totals_leg.confidence == 'High' %}nba-badge-high{% elif market_analysis.totals_leg.confidence == 'Medium' %}nba-badge-med{% else %}nba-badge-low{% endif %}">{{ market_analysis.totals_leg.confidence }}</span>
+        <div style="font-size:.82rem; color:var(--nba-muted); margin-top:.55rem; line-height:1.55;">{{ market_analysis.totals_leg.explanation }}</div>
+      </div>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:.55rem; align-items:center; margin-bottom:.65rem;">
+      <span class="nba-badge {% if market_analysis.alignment.overall == 'Strong alignment' %}nba-badge-high{% elif market_analysis.alignment.overall == 'Selective alignment' %}nba-badge-med{% else %}nba-badge-low{% endif %}">{{ market_analysis.alignment.overall }}</span>
+      <span style="font-size:.82rem; color:var(--nba-muted);">{{ market_analysis.display_note }}</span>
+    </div>
+    <div style="font-size:.86rem; color:var(--nba-text); line-height:1.65;">{{ market_analysis.alignment.summary }}</div>
+  </div>
+  {% endif %}
+
   <!-- ── Win Probability ───────────────────────────────────────────────────── -->
   <div class="nba-card glow-card">
     <div class="nba-card-title">🏆 Match Winner Prediction</div>
@@ -121,6 +160,11 @@
       <div style="font-size:1.3rem; font-weight:700; color:var(--nba-gold);">
         {{ team_a.nickname or team_a.name if scorpred.best_pick.team == 'A' else team_b.nickname or team_b.name }}
       </div>
+      {% if market_analysis and market_analysis.winner_leg %}
+      <div style="margin-top:.65rem; font-size:.82rem; color:var(--nba-muted); line-height:1.6;">
+        {{ market_analysis.winner_leg.explanation }}
+      </div>
+      {% endif %}
     </div>
   </div>
 
@@ -141,6 +185,30 @@
       </div>
     </div>
     {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if market_analysis and market_analysis.parlay_checklist %}
+  <div class="nba-card glow-card">
+    <div class="nba-card-title">🧩 Parlay Checklist</div>
+    <div style="font-size:.84rem; color:var(--nba-muted); margin-bottom:.9rem; line-height:1.6;">{{ market_analysis.tracking_note }}</div>
+    <div style="display:grid; gap:.75rem; margin-bottom:1rem;">
+      {% for leg in market_analysis.parlay_checklist %}
+      <div style="border:1px solid var(--nba-border); border-radius:10px; padding:.85rem 1rem; background:rgba(255,255,255,.02);">
+        <div style="display:flex; justify-content:space-between; gap:.75rem; align-items:flex-start; flex-wrap:wrap; margin-bottom:.4rem;">
+          <div>
+            <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:var(--nba-muted); margin-bottom:.2rem;">{{ leg.leg_type }}</div>
+            <div style="font-size:1rem; font-weight:700; color:{% if leg.leg_key == 'winner' %}var(--nba-gold){% elif leg.leg_key == 'spread' %}#60a5fa{% else %}#22c55e{% endif %};">{{ leg.recommendation }}</div>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:.45rem; align-items:center; justify-content:flex-end;">
+            <span class="nba-badge {% if leg.confidence == 'High' %}nba-badge-high{% elif leg.confidence == 'Medium' %}nba-badge-med{% else %}nba-badge-low{% endif %}">{{ leg.confidence }}</span>
+            <span class="nba-badge nba-badge-push">{{ leg.tracking_status|replace('_', ' ')|title }}</span>
+          </div>
+        </div>
+        <div style="font-size:.84rem; color:var(--nba-muted); line-height:1.6;">{{ leg.explanation }}</div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
   {% endif %}
 
@@ -249,20 +317,32 @@
       <div style="font-size:.82rem; color:var(--nba-muted);">{{ scorpred.best_pick.reasoning }}</div>
     </div>
 
-    <!-- Optional Picks -->
-    {% if scorpred.optional_picks %}
-    <div style="margin-top:.9rem; display:flex; gap:.6rem; flex-wrap:wrap;">
-      {% for pick in scorpred.optional_picks %}
-      <div style="background:var(--nba-card-bg); border:1px solid var(--nba-border); border-radius:6px; padding:.4rem .7rem; font-size:.81rem;">
-        <span style="color:var(--nba-muted);">{{ pick.market }}:</span>
-        <span style="font-weight:700; margin:0 .25rem;
-          color:{% if pick.lean in ('Over','Yes') %}#22c55e{% else %}#f59e0b{% endif %};">{{ pick.lean }}</span>
-        <span style="color:var(--nba-muted);">— {{ pick.reasoning }}</span>
-      </div>
+  </div>
+
+  {% if market_analysis and market_analysis.evidence_points %}
+  <div class="nba-card glow-card">
+    <div class="nba-card-title">📌 Why The Spread And Total Look This Way</div>
+    <div style="display:grid; gap:.55rem; margin-bottom:.95rem;">
+      {% for point in market_analysis.evidence_points %}
+      <div style="padding:.65rem .8rem; border-left:3px solid rgba(245,158,11,.35); background:rgba(255,255,255,.02); color:var(--nba-text); font-size:.85rem; line-height:1.55;">{{ point }}</div>
       {% endfor %}
     </div>
-    {% endif %}
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.75rem;">
+      <div style="border:1px solid var(--nba-border); border-radius:8px; padding:.75rem .85rem; background:rgba(255,255,255,.02);">
+        <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:var(--nba-muted); margin-bottom:.2rem;">Model Spread</div>
+        <div style="font-size:1rem; font-weight:700; color:#60a5fa;">{{ market_analysis.model_spread_label }}</div>
+      </div>
+      <div style="border:1px solid var(--nba-border); border-radius:8px; padding:.75rem .85rem; background:rgba(255,255,255,.02);">
+        <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:var(--nba-muted); margin-bottom:.2rem;">Model Total</div>
+        <div style="font-size:1rem; font-weight:700; color:#22c55e;">{{ market_analysis.model_total_pick }}</div>
+      </div>
+      <div style="border:1px solid var(--nba-border); border-radius:8px; padding:.75rem .85rem; background:rgba(255,255,255,.02);">
+        <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:var(--nba-muted); margin-bottom:.2rem;">Expected Total</div>
+        <div style="font-size:1rem; font-weight:700; color:var(--nba-gold);">{{ market_analysis.expected_total }} points</div>
+      </div>
+    </div>
   </div>
+  {% endif %}
 
   <!-- ── Plain-English Explanation ──────────────────────────────────────────── -->
   <div class="nba-card glow-card">

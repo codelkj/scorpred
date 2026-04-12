@@ -15,6 +15,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import app as flask_app_module
+import nba_predictor as np_nba_module
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -1364,6 +1365,121 @@ class TestNbaFailureHandling:
         assert b"Scorpred Engine Score" in rv.data
         assert b"Score Projections" not in rv.data
         assert b"Key Prediction Factors" not in rv.data
+
+    def test_nba_prediction_renders_spread_total_and_parlay_sections(self, client):
+        with client.session_transaction() as sess:
+            sess["nba_team_a_id"] = "1"
+            sess["nba_team_a_name"] = "Boston Celtics"
+            sess["nba_team_a_logo"] = ""
+            sess["nba_team_a_nickname"] = "Celtics"
+            sess["nba_team_a_city"] = "Boston"
+            sess["nba_team_b_id"] = "2"
+            sess["nba_team_b_name"] = "Miami Heat"
+            sess["nba_team_b_logo"] = ""
+            sess["nba_team_b_nickname"] = "Heat"
+            sess["nba_team_b_city"] = "Miami"
+
+        scorpred = {
+            "team_a_score": 7.8,
+            "team_b_score": 5.6,
+            "score_gap": 2.2,
+            "prob_a": 64.0,
+            "prob_b": 36.0,
+            "confidence": "High",
+            "winner_label": "Celtics to win",
+            "components_a": {"form": 8, "offense": 7, "defense": 8, "h2h": 6, "home_away": 7, "opp_strength": 6, "squad": 8},
+            "components_b": {"form": 5, "offense": 6, "defense": 5, "h2h": 4, "home_away": 4, "opp_strength": 6, "squad": 5},
+            "best_pick": {"prediction": "Celtics to win", "confidence": "High", "reasoning": "Boston have the stronger two-way profile.", "team": "A"},
+            "optional_picks": [],
+            "key_edges": [{"team": "A", "team_name": "Celtics", "category": "Recent form", "margin": 2.2}],
+            "matchup_reading": "Boston have the cleaner profile.",
+            "win_probabilities": {"a": 64.0, "b": 36.0},
+        }
+        market_analysis = {
+            "winner_leg": {"leg_key": "winner", "leg_type": "Winner / Moneyline", "recommendation": "Celtics", "confidence": "High", "tracking_status": "tracked", "explanation": "Boston have the stronger overall winning case."},
+            "spread_leg": {"leg_key": "spread", "leg_type": "Spread", "recommendation": "Celtics -6.5", "confidence": "Medium", "tracking_status": "display_only", "expected_margin": 6.7, "explanation": "Boston project to win by multiple possessions."},
+            "totals_leg": {"leg_key": "total", "leg_type": "Total Points", "recommendation": "Over 223.5", "confidence": "Medium", "tracking_status": "future_ready", "expected_total": 226.1, "explanation": "The scoring environment points to an above-baseline total."},
+            "parlay_checklist": [
+                {"leg_key": "winner", "leg_type": "Winner / Moneyline", "recommendation": "Celtics", "confidence": "High", "tracking_status": "tracked", "explanation": "Boston have the stronger overall winning case."},
+                {"leg_key": "spread", "leg_type": "Spread", "recommendation": "Celtics -6.5", "confidence": "Medium", "tracking_status": "display_only", "explanation": "Boston project to win by multiple possessions."},
+                {"leg_key": "total", "leg_type": "Total Points", "recommendation": "Over 223.5", "confidence": "Medium", "tracking_status": "future_ready", "explanation": "The scoring environment points to an above-baseline total."},
+            ],
+            "alignment": {"overall": "Selective alignment", "summary": "Moneyline and spread align, but the total is a secondary leg.", "weak_legs": []},
+            "display_note": "Spread and total points recommendations are model-derived from ScorPred inputs.",
+            "tracking_note": "Winner is already tracked. Spread is display-only for now, and totals are structured for future-expanded NBA leg grading.",
+            "evidence_points": ["Recent form margin favors Boston.", "Net rating also favors Boston.", "The scoring baseline points toward 223.5+."],
+            "model_spread_label": "Celtics -6.5",
+            "model_total_pick": "Over 223.5",
+            "expected_total": 226.1,
+        }
+
+        with patch("nba_routes.nc.get_h2h", return_value=[]), \
+               patch("nba_routes.nc.get_team_recent_form", return_value=[]), \
+               patch("nba_routes.nc.get_team_injuries", return_value=[]), \
+               patch("nba_routes.nc.get_team_season_stats", return_value={"ppg": 116, "opp_ppg": 109, "net_rtg": 7.0}), \
+               patch("nba_routes.nc.get_standings", return_value=[]), \
+               patch("nba_routes.nc.get_route_support", return_value={}), \
+               patch("nba_routes.se.scorpred_predict", return_value=scorpred), \
+               patch("nba_routes.np_nba.build_market_recommendations", return_value=market_analysis), \
+               patch("nba_routes.mt.save_prediction", return_value=None) as mock_save_prediction:
+            rv = client.get("/nba/prediction")
+
+        assert rv.status_code == 200
+        assert b"NBA Market Analysis" in rv.data
+        assert b"Celtics -6.5" in rv.data
+        assert b"Over 223.5" in rv.data
+        assert b"Parlay Checklist" in rv.data
+        assert b"display only" in rv.data.lower()
+        assert b"Model-derived" in rv.data
+        assert mock_save_prediction.call_args.kwargs["totals_pick"] == "Over"
+        assert mock_save_prediction.call_args.kwargs["totals_line"] == 223.5
+
+    def test_nba_market_recommendations_flag_weak_legs_honestly(self):
+        team_a = {"name": "Boston Celtics", "nickname": "Celtics"}
+        team_b = {"name": "Miami Heat", "nickname": "Heat"}
+        scorpred = {
+            "prob_a": 52.0,
+            "prob_b": 48.0,
+            "confidence": "Low",
+            "team_a_score": 5.4,
+            "team_b_score": 5.2,
+            "best_pick": {"prediction": "Celtics to win", "confidence": "Low", "reasoning": "Very small edge.", "team": "A"},
+        }
+        recent_form_a = [
+            {"our_pts": 110, "their_pts": 108, "result": "W"},
+            {"our_pts": 108, "their_pts": 107, "result": "W"},
+            {"our_pts": 105, "their_pts": 106, "result": "L"},
+        ]
+        recent_form_b = [
+            {"our_pts": 109, "their_pts": 108, "result": "W"},
+            {"our_pts": 107, "their_pts": 106, "result": "W"},
+            {"our_pts": 104, "their_pts": 105, "result": "L"},
+        ]
+        stats_a = {"ppg": 111.0, "opp_ppg": 109.5, "net_rtg": 1.5}
+        stats_b = {"ppg": 110.5, "opp_ppg": 109.0, "net_rtg": 1.4}
+
+        analysis = np_nba_module.build_market_recommendations(
+            team_a,
+            team_b,
+            scorpred,
+            recent_form_a,
+            recent_form_b,
+            [],
+            [],
+            [],
+            stats_a=stats_a,
+            stats_b=stats_b,
+            team_a_is_home=True,
+        )
+
+        assert analysis["winner_leg"]["leg_type"] == "Winner / Moneyline"
+        assert analysis["spread_leg"]["leg_type"] == "Spread"
+        assert analysis["totals_leg"]["leg_type"] == "Total Points"
+        assert analysis["spread_leg"]["confidence"] == "Low"
+        assert analysis["totals_leg"]["confidence"] == "Low"
+        assert analysis["alignment"]["overall"] == "Selective alignment"
+        assert "Spread" in analysis["alignment"]["weak_legs"]
+        assert "Total Points" in analysis["alignment"]["weak_legs"]
 
     def test_worldcup_same_team_shows_error(self, client):
         with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
