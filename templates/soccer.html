@@ -8,6 +8,15 @@
 </div>
 
 <div class="card glow-card">
+  <form method="GET" action="/soccer" style="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;margin-bottom:1rem;">
+    <label for="league" style="font-size:.82rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">League</label>
+    <select id="league" name="league" onchange="this.form.submit()" style="min-width:220px;">
+      {% for league in supported_leagues %}
+      <option value="{{ league.id }}" {% if league.id == current_league_id %}selected{% endif %}>{{ league.flag }} {{ league.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
   <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
     <div>
       <h2 class="card-title" style="margin-bottom:.2rem;">Upcoming Fixtures</h2>
@@ -66,6 +75,7 @@
           </strong>
         </span>
         <form method="POST" action="/select" style="display:inline">
+          <input type="hidden" name="league_id" value="{{ f.league.id if f.league and f.league.id else current_league_id }}" />
           <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
           <input type="hidden" name="team_b" value="{{ f.teams.away.id }}" />
           <input type="hidden" name="team_a_name" value="{{ f.teams.home.name }}" />
@@ -99,6 +109,7 @@
   {% else %}
 
   <form method="POST" action="/select" id="teamForm">
+    <input type="hidden" name="league_id" id="league_id" value="{{ current_league_id }}" />
     <div class="team-pickers">
 
       <!-- Team A -->
@@ -166,10 +177,10 @@
 </div>
 
 <div class="features-grid">
-  <a href="/fixtures" class="feature-card glow-card feature-link">
+  <a href="/fixtures?league={{ current_league_id }}" class="feature-card glow-card feature-link">
     <div class="feature-icon">📅</div>
     <h3>Fixtures</h3>
-    <p>Upcoming Premier League matches with AI-predicted winners.</p>
+    <p>Upcoming selected-league matches with AI-predicted winners.</p>
     <span class="feature-cta">View Fixtures →</span>
   </a>
   <a href="/worldcup" class="feature-card glow-card feature-link">
@@ -207,12 +218,14 @@
 
 {% block scripts %}
 <script>
+  const ACTIVE_LEAGUE_ID = {{ current_league_id }};
+
   async function loadTeamForm(teamId, targetId) {
     const target = document.getElementById(targetId);
     if (!teamId || !target) return;
     target.textContent = 'Last 5 form: loading...';
     try {
-      const response = await fetch(`/api/football/team-form?team_id=${teamId}`);
+      const response = await fetch(`/api/football/team-form?team_id=${teamId}&league=${ACTIVE_LEAGUE_ID}`);
       const data = await response.json();
       target.textContent = `Last 5 form: ${data.form_string || 'No recent data'}`;
     } catch (error) {

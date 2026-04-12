@@ -53,6 +53,7 @@ app.register_blueprint(nba_bp)
 
 LEAGUE = DEFAULT_LEAGUE_ID
 SEASON = CURRENT_SEASON
+LEAGUE_SESSION_KEY = "football_league_id"
 
 _EMPTY_METRICS = {
     "finalized_predictions": 0,
@@ -120,13 +121,17 @@ def _display_injuries(items: list[dict]) -> list[dict]:
     return _clean_injuries(items)
 
 
-def _fetch_team_squad(team_id: int, season: int = SEASON) -> list[dict]:
+def _fetch_team_squad(team_id: int, season: int = SEASON, league_id: int | None = None) -> list[dict]:
+    selected_league_id = _coerce_league_id(league_id if league_id is not None else _active_league_id())
     getter = getattr(ac, "get_players", None)
     if callable(getter):
-        data = getter(team_id, season)
+        try:
+            data = getter(team_id, season, selected_league_id)
+        except TypeError:
+            data = getter(team_id, season)
         if data:
             return data
-    return ac.get_squad(team_id, season)
+    return ac.get_squad(team_id, season, selected_league_id)
 
 
 def _group_squad_by_position(squad: list[dict]) -> dict[str, list[dict]]:
@@ -179,8 +184,8 @@ def _normalise_probs(win_prob: dict) -> dict:
 
 def _football_supported_leagues() -> list[dict]:
     leagues = []
-    for key, league_id in getattr(ac, "LEAGUES", {}).items():
-        config = LEAGUE_BY_ID.get(league_id, {})
+    for key, config in SUPPORTED_LEAGUES.items():
+        league_id = config.get("id")
         leagues.append(
             {
                 "key": key,
@@ -190,6 +195,7 @@ def _football_supported_leagues() -> list[dict]:
                 "flag": config.get("flag", ""),
                 "difficulty": config.get("difficulty", 1.0),
                 "type": config.get("type", "competition"),
+                "espn_slug": getattr(ac, "ESPN_SLUG_BY_LEAGUE", {}).get(league_id, ""),
             }
         )
     return leagues
@@ -214,6 +220,58 @@ def _safe_int(value, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _clear_selected_matchup() -> None:
+    for key in (
+        "team_a_id",
+        "team_a_name",
+        "team_a_logo",
+        "team_b_id",
+        "team_b_name",
+        "team_b_logo",
+        "selected_fixture",
+    ):
+        session.pop(key, None)
+
+
+def _coerce_league_id(value, default: int = DEFAULT_LEAGUE_ID) -> int:
+    league_id = _safe_int(value, default)
+    if league_id not in SUPPORTED_LEAGUE_IDS:
+        return default
+    return league_id
+
+
+def _active_league_id() -> int:
+    requested = request.args.get("league")
+    if requested is None:
+        requested = request.args.get("league_id")
+    if requested is None:
+        requested = request.form.get("league_id")
+
+    if requested is not None and str(requested).strip() != "":
+        return _coerce_league_id(requested)
+
+    return _coerce_league_id(session.get(LEAGUE_SESSION_KEY), DEFAULT_LEAGUE_ID)
+
+
+def _set_active_league(league_id: int) -> int:
+    normalized = _coerce_league_id(league_id)
+    previous = _coerce_league_id(session.get(LEAGUE_SESSION_KEY), DEFAULT_LEAGUE_ID)
+    session[LEAGUE_SESSION_KEY] = normalized
+    if previous != normalized:
+        _clear_selected_matchup()
+    return normalized
+
+
+def _league_context(league_id: int | None = None) -> dict:
+    selected_id = _coerce_league_id(league_id if league_id is not None else _active_league_id())
+    selected_cfg = LEAGUE_BY_ID.get(selected_id, LEAGUE_BY_ID.get(DEFAULT_LEAGUE_ID, {}))
+    return {
+        "supported_leagues": _football_supported_leagues(),
+        "current_league_id": selected_id,
+        "current_league": selected_cfg,
+    }
 
 
 def _tracking_window_dates() -> tuple[set[str], list[str]]:
@@ -304,7 +362,7 @@ def _bootstrap_model_tracking() -> dict[str, int]:
         home_name = home.get("name", "Home")
         away_name = away.get("name", "Away")
 
-        league_id = (fixture.get("league") or {}).get("id") or LEAGUE
+        league_id = (fixture.get("league") or {}).get("id") or DEFAULT_LEAGUE_ID
         if league_id not in standings_cache:
             try:
                 standings_cache[league_id] = ac.get_standings(league_id, SEASON)
@@ -609,6 +667,7 @@ def _fixture_context_from_form() -> dict | None:
     return {
         "id": fixture_id,
         "date": fixture_date,
+        "league_id": _safe_int(request.form.get("league_id", DEFAULT_LEAGUE_ID), DEFAULT_LEAGUE_ID),
         "league_name": request.form.get("league_name", "").strip(),
         "round": request.form.get("round", "").strip(),
         "venue_name": request.form.get("venue_name", "").strip(),
@@ -624,23 +683,20 @@ def _selected_fixture() -> dict:
     return session.get("selected_fixture", {})
 
 
-def _load_upcoming_fixtures(next_n: int = 20):
+def _load_upcoming_fixtures(next_n: int = 20, league_id: int | None = None):
+    selected_league_id = _coerce_league_id(league_id if league_id is not None else _active_league_id())
     load_error = None
     fixtures_with_pred = []
     data_source = _football_data_source()
 
     try:
-        upcoming = ac.get_upcoming_fixtures(LEAGUE, SEASON, next_n=next_n)
+        upcoming = ac.get_upcoming_fixtures(selected_league_id, SEASON, next_n=next_n)
     except Exception as exc:
         upcoming = []
         load_error = str(exc)
         app.logger.error("Upcoming fixtures fetch failed: %s", exc)
 
-    try:
-        standings_list = ac.get_standings(LEAGUE, SEASON)
-    except Exception as exc:
-        standings_list = []
-        app.logger.warning("Standings unavailable for quick predictions: %s", exc)
+    standings_cache: dict[int, list[dict]] = {}
 
     for fixture in upcoming:
         try:
@@ -648,6 +704,13 @@ def _load_upcoming_fixtures(next_n: int = 20):
             away_id = fixture["teams"]["away"]["id"]
             home_name = fixture["teams"]["home"]["name"]
             away_name = fixture["teams"]["away"]["name"]
+            fixture_league_id = _safe_int((fixture.get("league") or {}).get("id"), selected_league_id)
+            if fixture_league_id not in standings_cache:
+                try:
+                    standings_cache[fixture_league_id] = ac.get_standings(fixture_league_id, SEASON)
+                except Exception as exc:
+                    standings_cache[fixture_league_id] = []
+                    app.logger.warning("Standings unavailable for league=%s: %s", fixture_league_id, exc)
 
             h2h_raw = []
             fixtures_home = []
@@ -660,19 +723,19 @@ def _load_upcoming_fixtures(next_n: int = 20):
             except Exception:
                 app.logger.debug("Upcoming fixture h2h missing for %s vs %s", home_name, away_name)
             try:
-                fixtures_home = ac.get_team_fixtures(home_id, LEAGUE, SEASON, last=10)
+                fixtures_home = ac.get_team_fixtures(home_id, fixture_league_id, SEASON, last=10)
             except Exception:
                 app.logger.debug("Upcoming fixture home team form missing for %s", home_name)
             try:
-                fixtures_away = ac.get_team_fixtures(away_id, LEAGUE, SEASON, last=10)
+                fixtures_away = ac.get_team_fixtures(away_id, fixture_league_id, SEASON, last=10)
             except Exception:
                 app.logger.debug("Upcoming fixture away team form missing for %s", away_name)
             try:
-                injuries_home = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, home_id))
+                injuries_home = _clean_injuries(ac.get_injuries(fixture_league_id, SEASON, home_id))
             except Exception:
                 app.logger.debug("Upcoming fixture home injuries missing for %s", home_name)
             try:
-                injuries_away = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, away_id))
+                injuries_away = _clean_injuries(ac.get_injuries(fixture_league_id, SEASON, away_id))
             except Exception:
                 app.logger.debug("Upcoming fixture away injuries missing for %s", away_name)
 
@@ -696,7 +759,7 @@ def _load_upcoming_fixtures(next_n: int = 20):
                 team_a_name=home_name,
                 team_b_name=away_name,
                 sport="soccer",
-                opp_strengths=_build_opp_strengths(standings_list),
+                opp_strengths=_build_opp_strengths(standings_cache.get(fixture_league_id, [])),
             )
         except Exception as exc:
             app.logger.warning(
@@ -732,7 +795,14 @@ def _require_teams():
     )
 
 
-def _store_selected_teams(team_a: dict, team_b: dict, fixture_context: dict | None = None) -> None:
+def _store_selected_teams(
+    team_a: dict,
+    team_b: dict,
+    fixture_context: dict | None = None,
+    league_id: int | None = None,
+) -> None:
+    selected_league_id = _coerce_league_id(league_id if league_id is not None else _active_league_id())
+    session[LEAGUE_SESSION_KEY] = selected_league_id
     session["team_a_id"] = int(team_a["id"])
     session["team_a_name"] = team_a.get("name", "")
     session["team_a_logo"] = team_a.get("logo", "")
@@ -741,6 +811,9 @@ def _store_selected_teams(team_a: dict, team_b: dict, fixture_context: dict | No
     session["team_b_logo"] = team_b.get("logo", "")
 
     if fixture_context:
+        fixture_context["league_id"] = fixture_context.get("league_id") or selected_league_id
+        if not fixture_context.get("league_name"):
+            fixture_context["league_name"] = (LEAGUE_BY_ID.get(selected_league_id) or {}).get("name", "")
         fixture_context["home_name"] = fixture_context["home_name"] or team_a.get("name", "")
         fixture_context["home_logo"] = fixture_context["home_logo"] or team_a.get("logo", "")
         fixture_context["away_name"] = fixture_context["away_name"] or team_b.get("name", "")
@@ -750,8 +823,9 @@ def _store_selected_teams(team_a: dict, team_b: dict, fixture_context: dict | No
         session.pop("selected_fixture", None)
 
 
-def _team_form_payload(team_id: int) -> dict:
-    fixtures = ac.get_team_fixtures(team_id, LEAGUE, SEASON, last=20)
+def _team_form_payload(team_id: int, league_id: int | None = None) -> dict:
+    selected_league_id = _coerce_league_id(league_id if league_id is not None else _active_league_id())
+    fixtures = ac.get_team_fixtures(team_id, selected_league_id, SEASON, last=20)
     fixtures = pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON)
     form = pred.extract_form(fixtures, team_id)[:5]
     return {"form_string": "".join(item.get("result", "") for item in form), "rows": form}
@@ -828,6 +902,7 @@ def index():
 @app.route("/soccer", methods=["GET"])
 def soccer():
     _set_data_refresh()
+    league_id = _set_active_league(_active_league_id())
     load_error = None
     teams = []
     upcoming_fixtures = []
@@ -835,13 +910,13 @@ def soccer():
     fixtures_source = _football_data_source()
 
     try:
-        teams = ac.get_teams(LEAGUE, SEASON)
+        teams = ac.get_teams(league_id, SEASON)
     except Exception as exc:
         load_error = str(exc)
         app.logger.error("Failed to fetch teams: %s", exc)
 
     try:
-        upcoming_fixtures, fixtures_error, fixtures_source, _ = _load_upcoming_fixtures(next_n=8)
+        upcoming_fixtures, fixtures_error, fixtures_source, _ = _load_upcoming_fixtures(next_n=8, league_id=league_id)
     except Exception as exc:
         fixtures_error = str(exc)
         app.logger.error("Failed to fetch upcoming fixtures: %s", exc)
@@ -856,6 +931,7 @@ def soccer():
             fixtures_error=fixtures_error,
             fixtures_source=fixtures_source,
             selected_fixture=_selected_fixture(),
+            **_league_context(league_id),
         ),
     )
 
@@ -865,20 +941,19 @@ def fixtures():
     """Legacy fixtures page route (kept for backwards compatibility)."""
     _set_data_refresh()
     selected_slug = (request.args.get("espn_slug") or "").strip()
+    league_id = _active_league_id()
+    if selected_slug and not request.args.get("league"):
+        for candidate_id, slug in getattr(ac, "ESPN_SLUG_BY_LEAGUE", {}).items():
+            if str(slug).lower() == selected_slug.lower():
+                league_id = _coerce_league_id(candidate_id, league_id)
+                break
+    league_id = _set_active_league(league_id)
+    selected_slug = getattr(ac, "ESPN_SLUG_BY_LEAGUE", {}).get(league_id, selected_slug)
     fixtures_data: list[dict] = []
     load_error = None
     data_source = _football_data_source()
 
-    if selected_slug:
-        try:
-            fixtures_data = ac.get_espn_fixtures(selected_slug, next_n=20)
-            data_source = "espn"
-        except Exception as exc:
-            load_error = str(exc)
-            app.logger.error("Failed to fetch ESPN fixtures (%s): %s", selected_slug, exc)
-            fixtures_data = []
-    else:
-        fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20)
+    fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20, league_id=league_id)
 
     return render_template(
         "fixtures.html",
@@ -887,6 +962,7 @@ def fixtures():
             load_error=load_error,
             data_source=data_source,
             espn_slug=selected_slug,
+            **_league_context(league_id),
         ),
     )
 
@@ -896,16 +972,19 @@ def fixtures():
 @app.route("/matchup", methods=["POST"])
 def select_game():
     _set_data_refresh()
+    league_id = _set_active_league(
+        _coerce_league_id(request.form.get("league_id") or request.args.get("league") or _active_league_id())
+    )
     a_id_raw = (request.form.get("team_a") or request.args.get("team_a") or "").strip()
     b_id_raw = (request.form.get("team_b") or request.args.get("team_b") or "").strip()
     fixture_context = _fixture_context_from_form()
     source = (fixture_context or {}).get("data_source", "configured")
 
     if not a_id_raw or not b_id_raw or a_id_raw == b_id_raw:
-        return redirect(url_for("index"))
+        return redirect(url_for("soccer", league=league_id))
 
     try:
-        teams = ac.get_teams(LEAGUE, SEASON)
+        teams = ac.get_teams(league_id, SEASON)
     except Exception as exc:
         app.logger.error("Failed to fetch provider teams during selection: %s", exc)
         teams = []
@@ -932,19 +1011,20 @@ def select_game():
                 "This fixture could not be matched to the configured football data "
                 "provider, so the full analysis could not be loaded."
             ),
-            **_page_context(),
+            **_page_context(**_league_context(league_id)),
         )
 
-    _store_selected_teams(team_a, team_b, fixture_context)
+    _store_selected_teams(team_a, team_b, fixture_context, league_id=league_id)
     return redirect(url_for("matchup"))
 
 
 @app.route("/matchup", methods=["GET"])
 def matchup():
     _set_data_refresh()
+    league_id = _set_active_league(_active_league_id())
     team_a, team_b = _require_teams()
     if not team_a:
-        return redirect(url_for("index"))
+        return redirect(url_for("soccer", league=league_id))
 
     id_a, id_b = team_a["id"], team_b["id"]
     selected_fixture = _selected_fixture()
@@ -961,12 +1041,12 @@ def matchup():
         app.logger.error("H2H fetch error: %s", exc)
 
     try:
-        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20)
+        fixtures_a = ac.get_team_fixtures(id_a, league_id, SEASON, last=20)
     except Exception as exc:
         app.logger.error("Team A fixtures fetch error: %s", exc)
 
     try:
-        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20)
+        fixtures_b = ac.get_team_fixtures(id_b, league_id, SEASON, last=20)
     except Exception as exc:
         app.logger.error("Team B fixtures fetch error: %s", exc)
 
@@ -975,12 +1055,12 @@ def matchup():
     fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
 
     try:
-        injuries_a_raw = ac.get_injuries(LEAGUE, SEASON, id_a)
+        injuries_a_raw = ac.get_injuries(league_id, SEASON, id_a)
     except Exception as exc:
         app.logger.error("Team A injuries fetch error: %s", exc)
 
     try:
-        injuries_b_raw = ac.get_injuries(LEAGUE, SEASON, id_b)
+        injuries_b_raw = ac.get_injuries(league_id, SEASON, id_b)
     except Exception as exc:
         app.logger.error("Team B injuries fetch error: %s", exc)
 
@@ -1013,7 +1093,7 @@ def matchup():
 
     standings = []
     try:
-        standings = ac.get_standings(LEAGUE, SEASON)
+        standings = ac.get_standings(league_id, SEASON)
     except Exception:
         standings = []
 
@@ -1050,6 +1130,7 @@ def matchup():
             stats_compare=stats_compare,
             prediction=prediction,
             scorpred=prediction,
+            **_league_context(league_id),
         ),
     )
 
@@ -1057,15 +1138,16 @@ def matchup():
 @app.route("/prediction", methods=["GET"])
 def prediction():
     _set_data_refresh()
+    league_id = _set_active_league(_active_league_id())
     team_a, team_b = _require_teams()
     if not team_a:
-        return redirect(url_for("index"))
+        return redirect(url_for("soccer", league=league_id))
 
     id_a, id_b = team_a["id"], team_b["id"]
 
     try:
         fixtures_a = pred.filter_recent_completed_fixtures(
-            ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20),
+            ac.get_team_fixtures(id_a, league_id, SEASON, last=20),
             current_season=SEASON,
         )
     except Exception:
@@ -1073,7 +1155,7 @@ def prediction():
 
     try:
         fixtures_b = pred.filter_recent_completed_fixtures(
-            ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20),
+            ac.get_team_fixtures(id_b, league_id, SEASON, last=20),
             current_season=SEASON,
         )
     except Exception:
@@ -1089,17 +1171,17 @@ def prediction():
         h2h_raw = []
 
     try:
-        injuries_a = _display_injuries(ac.get_injuries(LEAGUE, SEASON, id_a))
+        injuries_a = _display_injuries(ac.get_injuries(league_id, SEASON, id_a))
     except Exception:
         injuries_a = []
 
     try:
-        injuries_b = _display_injuries(ac.get_injuries(LEAGUE, SEASON, id_b))
+        injuries_b = _display_injuries(ac.get_injuries(league_id, SEASON, id_b))
     except Exception:
         injuries_b = []
 
     try:
-        standings = ac.get_standings(LEAGUE, SEASON)
+        standings = ac.get_standings(league_id, SEASON)
     except Exception:
         standings = []
 
@@ -1125,6 +1207,7 @@ def prediction():
             prediction=result,
             scorpred=result,
             selected_fixture=_selected_fixture(),
+            **_league_context(league_id),
         ),
     )
 
@@ -1132,20 +1215,21 @@ def prediction():
 @app.route("/players", methods=["GET"])
 def players():
     _set_data_refresh()
+    league_id = _set_active_league(_active_league_id())
     team_a, team_b = _require_teams()
     if not team_a:
-        return redirect(url_for("index"))
+        return redirect(url_for("soccer", league=league_id))
 
     squad_a_raw = []
     squad_b_raw = []
 
     try:
-        squad_a_raw = _fetch_team_squad(team_a["id"], SEASON)
+        squad_a_raw = _fetch_team_squad(team_a["id"], SEASON, league_id)
     except Exception as exc:
         app.logger.warning("Players fetch failed for %s: %s", team_a["name"], exc)
 
     try:
-        squad_b_raw = _fetch_team_squad(team_b["id"], SEASON)
+        squad_b_raw = _fetch_team_squad(team_b["id"], SEASON, league_id)
     except Exception as exc:
         app.logger.warning("Players fetch failed for %s: %s", team_b["name"], exc)
 
@@ -1160,6 +1244,7 @@ def players():
             squad_a=squad_a,
             squad_b=squad_b,
             selected_fixture=_selected_fixture(),
+            **_league_context(league_id),
         ),
     )
 
@@ -1167,21 +1252,22 @@ def players():
 @app.route("/props", methods=["GET"])
 def props():
     _set_data_refresh()
+    league_id = _set_active_league(_active_league_id())
     team_a, team_b = _require_teams()
     if not team_a:
-        return redirect(url_for("index"))
+        return redirect(url_for("soccer", league=league_id))
 
     squad_a = []
     squad_b = []
     players = []
 
     try:
-        squad_a = _fetch_team_squad(team_a["id"], SEASON)
+        squad_a = _fetch_team_squad(team_a["id"], SEASON, league_id)
     except Exception as exc:
         app.logger.warning("Props squad fetch failed for %s: %s", team_a["name"], exc)
 
     try:
-        squad_b = _fetch_team_squad(team_b["id"], SEASON)
+        squad_b = _fetch_team_squad(team_b["id"], SEASON, league_id)
     except Exception as exc:
         app.logger.warning("Props squad fetch failed for %s: %s", team_b["name"], exc)
 
@@ -1238,9 +1324,8 @@ def props():
             players=players,
             markets=markets,
             selected_fixture=_selected_fixture(),
-            supported_leagues=_football_supported_leagues(),
             current_season=SEASON,
-            current_league=LEAGUE,
+            **_league_context(league_id),
         ),
     )
 
@@ -1251,6 +1336,7 @@ def props():
 def props_generate():
     _set_data_refresh()
     payload = request.get_json(silent=True) or request.values
+    active_league_id = _set_active_league(_active_league_id())
 
     player_id = _safe_int(payload.get("player_id", 0), 0)
     player_name = payload.get("player_name", "Unknown Player")
@@ -1260,7 +1346,7 @@ def props_generate():
     is_home_str = str(payload.get("is_home", "true")).lower()
     markets_str = str(payload.get("markets", "goals,assists,shots_on_target,key_passes"))
     season = _safe_int(payload.get("season", SEASON), SEASON)
-    league = _safe_int(payload.get("league", LEAGUE), LEAGUE)
+    league = _coerce_league_id(payload.get("league", active_league_id), active_league_id)
     player_position = payload.get("player_position", "")
     include_all_comps = str(payload.get("include_all_comps", "false")).lower() in ("true", "1", "yes", "on")
     league_ids_raw = str(payload.get("league_ids", ""))
@@ -1329,12 +1415,19 @@ def chat_clear():
 
 @app.route("/api/football/leagues", methods=["GET"])
 def api_football_leagues():
-    return jsonify({"leagues": _football_supported_leagues(), "season": SEASON})
+    current_league_id = _set_active_league(_active_league_id())
+    return jsonify(
+        {
+            "leagues": _football_supported_leagues(),
+            "season": SEASON,
+            "current_league_id": current_league_id,
+        }
+    )
 
 
 @app.route("/api/football/teams", methods=["GET"])
 def api_football_teams():
-    league_id = _safe_int(request.args.get("league", LEAGUE), LEAGUE)
+    league_id = _set_active_league(_coerce_league_id(request.args.get("league", _active_league_id())))
     try:
         teams = ac.get_teams(league_id, SEASON)
     except Exception as exc:
@@ -1346,29 +1439,31 @@ def api_football_teams():
 @app.route("/api/football/squad", methods=["GET"])
 def api_football_squad():
     team_id = _safe_int(request.args.get("team_id", 0), 0)
+    league_id = _coerce_league_id(request.args.get("league", _active_league_id()))
     if not team_id:
         return jsonify({"error": "team_id is required"}), 400
     try:
-        squad = ac.get_squad(team_id)
+        squad = ac.get_squad(team_id, SEASON, league_id)
     except Exception as exc:
         app.logger.error("api_football_squad failed for team_id=%s: %s", team_id, exc)
         return jsonify({"error": "Unable to load squad", "team_id": team_id}), 503
-    return jsonify({"team_id": team_id, "squad": squad or []})
+    return jsonify({"team_id": team_id, "league": league_id, "squad": squad or []})
 
 
 @app.route("/api/football/team-form", methods=["GET"])
 def api_football_team_form():
     team_id = _safe_int(request.args.get("team_id", 0), 0)
+    league_id = _coerce_league_id(request.args.get("league", _active_league_id()))
     if not team_id:
         return jsonify({"error": "team_id is required"}), 400
 
     try:
-        payload = _team_form_payload(team_id)
+        payload = _team_form_payload(team_id, league_id=league_id)
     except Exception as exc:
         app.logger.error("api_football_team_form failed for team_id=%s: %s", team_id, exc)
         return jsonify({"error": "Unable to load team form", "team_id": team_id}), 503
 
-    return jsonify(payload)
+    return jsonify({**payload, "league": league_id})
 
 
 @app.route("/api/player-stats", methods=["GET"])
@@ -1377,9 +1472,9 @@ def api_player_stats():
     if not player_id:
         return jsonify({"error": "player_id is required"}), 400
     season = _safe_int(request.args.get("season", SEASON), SEASON)
-    league = _safe_int(request.args.get("league", LEAGUE), LEAGUE)
+    league = _coerce_league_id(request.args.get("league", _active_league_id()))
     try:
-        stats = ac.get_player_stats(player_id, season=season, league=league)
+        stats = ac.get_player_stats(player_id, season=season, league_id=league)
     except Exception as exc:
         app.logger.error(
             "api_player_stats failed for player_id=%s season=%s league=%s: %s",
@@ -1396,9 +1491,10 @@ def api_player_stats():
 def today_soccer_predictions():
     """Show soccer predictions for today's fixtures or next available fixtures."""
     _set_data_refresh()
+    league_id = _set_active_league(_active_league_id())
     load_error = None
     data_source = _football_data_source()
-    fixtures_with_pred, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20)
+    fixtures_with_pred, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20, league_id=league_id)
 
     # Sort by confidence
     def _confidence_rank(item):
@@ -1451,6 +1547,7 @@ def today_soccer_predictions():
             total_predictions=len(predictions),
             load_error=load_error,
             data_source=data_source,
+            **_league_context(league_id),
         ),
     )
 
@@ -1459,9 +1556,10 @@ def today_soccer_predictions():
 def top_picks_today():
     """Show high-confidence picks from today's soccer and NBA predictions."""
     _set_data_refresh()
+    league_id = _set_active_league(_active_league_id())
     
     # Load soccer fixtures
-    soccer_predictions, _, _, _ = _load_upcoming_fixtures(next_n=20)
+    soccer_predictions, _, _, _ = _load_upcoming_fixtures(next_n=20, league_id=league_id)
     soccer_picks = []
     for fixture in soccer_predictions:
         try:
@@ -1487,6 +1585,7 @@ def top_picks_today():
                     "fixture": fixture,
                     "home_team": home_team,
                     "away_team": away_team,
+                    "league_id": _safe_int((fixture.get("league") or {}).get("id"), league_id),
                     "predicted_winner": predicted_winner,
                     "confidence": "High",
                     "prob_home": probs.get("a", 50),
@@ -1551,6 +1650,7 @@ def top_picks_today():
             nba_winners=nba_picks[:10],
             soccer_picks=soccer_picks[:10],
             nba_picks=nba_picks[:10],
+            **_league_context(league_id),
         ),
     )
 

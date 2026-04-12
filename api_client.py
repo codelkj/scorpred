@@ -719,15 +719,19 @@ def get_fixture_player_stats(
     return _player_stats_entry(resp, player_id)
 
 
-def get_squad(team_id: int, season: int = CURRENT_SEASON) -> list:
+def get_squad(
+    team_id: int,
+    season: int = CURRENT_SEASON,
+    league_id: int = DEFAULT_LEAGUE_ID,
+) -> list:
     try:
         data = api_get("players/squads", {"team": team_id}, cache_hours=6).get("response", [])
         if data:
             return data[0].get("players", [])
     except Exception:
         pass
-    league_id = DEFAULT_LEAGUE_ID
-    for possible_league in [DEFAULT_LEAGUE_ID, *SUPPORTED_LEAGUE_IDS]:
+    leagues_to_try = [league_id, *[lid for lid in SUPPORTED_LEAGUE_IDS if lid != league_id]]
+    for possible_league in leagues_to_try:
         try:
             roster = [_normalize_espn_squad_player(player) for player in _espn_roster(team_id, possible_league)]
             if roster:

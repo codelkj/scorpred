@@ -17,7 +17,7 @@
   <div class="alert alert-warning" role="alert">
     <h5>Data Load Issue</h5>
     <p>{{ load_error }}</p>
-    <p>Some picks may not be available. <a href="{{ url_for('top_picks_today') }}?refresh=1">Refresh</a></p>
+    <p>Some picks may not be available. <a href="{{ url_for('top_picks_today', league=current_league_id, refresh=1) }}">Refresh</a></p>
   </div>
   {% endif %}
 
@@ -32,7 +32,7 @@
   <div class="row mb-4">
     {% for pick in soccer_totals %}
     <div class="col-lg-6 col-xl-4 mb-3">
-      <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
+      <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id, league=pick.league_id or current_league_id) }}" class="pick-card-link">
         <div class="card h-100 fpred-card border-primary">
 
           <div class="card-body text-center">
@@ -174,8 +174,8 @@
   <!-- Navigation -->
   <div class="row mt-4 mb-4">
     <div class="col-md-12">
-      <a href="{{ url_for('index') }}" class="btn btn-secondary">Home</a>
-      <a href="{{ url_for('today_soccer_predictions') }}" class="btn btn-outline-primary">Today Soccer</a>
+      <a href="{{ url_for('soccer', league=current_league_id) }}" class="btn btn-secondary">Soccer Home</a>
+      <a href="{{ url_for('today_soccer_predictions', league=current_league_id) }}" class="btn btn-outline-primary">Today Soccer</a>
       <a href="{{ url_for('nba.today_predictions') }}" class="btn btn-outline-primary">Today NBA</a>
       <a href="{{ url_for('model_performance') }}" class="btn btn-outline-secondary">Model Performance</a>
     </div>

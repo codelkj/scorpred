@@ -132,7 +132,14 @@ class TestSelectRoute:
         with patch("api_client.get_teams", return_value=_mock_teams()):
             rv = client.post("/select", data={"team_a": "33", "team_b": "33"})
         assert rv.status_code in (302, 303)
-        assert rv.headers.get("Location", "").endswith("/")
+        assert "/soccer?league=" in rv.headers.get("Location", "")
+
+    def test_select_stores_league_context(self, client):
+        with patch("api_client.get_teams", return_value=_mock_teams()):
+            rv = client.post("/select", data={"team_a": "33", "team_b": "40", "league_id": "140"})
+        assert rv.status_code in (302, 303)
+        with client.session_transaction() as sess:
+            assert sess.get("football_league_id") == 140
 
     def test_select_missing_team_redirects_home(self, client):
         with patch("api_client.get_teams", return_value=_mock_teams()):
@@ -388,10 +395,36 @@ class TestAPIRoutes:
 
     def test_football_team_form_api(self, client):
         with patch("app._team_form_payload", return_value={"form_string": "WWDLW", "rows": []}):
-            rv = client.get("/api/football/team-form?team_id=33")
+            rv = client.get("/api/football/team-form?team_id=33&league=140")
         assert rv.status_code == 200
         data = json.loads(rv.data)
         assert data["form_string"] == "WWDLW"
+        assert data["league"] == 140
+
+
+class TestLeagueSelectionFlow:
+    def test_soccer_respects_league_query_for_team_loading(self, client):
+        with patch("api_client.get_teams", return_value=_mock_teams()) as get_teams_mock, \
+             patch("app._load_upcoming_fixtures", return_value=([], None, "configured", "")):
+            rv = client.get("/soccer?league=140")
+        assert rv.status_code == 200
+        get_teams_mock.assert_called_once_with(140, flask_app_module.SEASON)
+
+    def test_league_change_clears_existing_selected_matchup(self, client):
+        with client.session_transaction() as sess:
+            sess["football_league_id"] = 39
+            sess["team_a_id"] = 33
+            sess["team_b_id"] = 40
+
+        with patch("api_client.get_teams", return_value=_mock_teams()), \
+             patch("app._load_upcoming_fixtures", return_value=([], None, "configured", "")):
+            rv = client.get("/soccer?league=140")
+
+        assert rv.status_code == 200
+        with client.session_transaction() as sess:
+            assert sess.get("football_league_id") == 140
+            assert "team_a_id" not in sess
+            assert "team_b_id" not in sess
 
 
 # ── Error pages ───────────────────────────────────────────────────────────────
@@ -556,7 +589,7 @@ class TestNbaFailureHandling:
                 "home": {"id": "1", "name": "Boston Celtics", "nickname": "Celtics", "logo": ""},
                 "visitors": {"id": "2", "name": "Orlando Magic", "nickname": "Magic", "logo": ""},
             },
-            "scores": {"home": {"points": None}, "visitors": {"points": None}},
+            "scores": {"home": {"points": 0}, "visitors": {"points": 0}},
         }
 
         with patch("nba_routes.nc.get_teams", return_value=teams), \
@@ -574,6 +607,7 @@ class TestNbaFailureHandling:
 
         assert rv.status_code == 200
         assert b"Predicted winner: Celtics" in rv.data
+        assert b"Game tied" not in rv.data
 
     def test_worldcup_same_team_shows_error(self, client):
         with patch("app.ac.get_espn_fixtures", return_value=[], create=True):

@@ -532,7 +532,7 @@
 {% block scripts %}
 <script>
 const SPORT = "{{ sport }}";
-const LEAGUE = 39; // PL default (soccer)
+const LEAGUE = {{ current_league_id }};
 const SLIP_KEY = "scorpred_mixed_slip_v1";
 
 function setProgress(percent, text) {

@@ -351,6 +351,7 @@ def _build_player_analysis(player_id: str, player_name: str = "") -> dict:
 
 # -- Routes ------------------------------------------------------------------
 
+@nba_bp.route("", methods=["GET"])
 @nba_bp.route("/", methods=["GET"])
 def index():
     _apply_refresh()
