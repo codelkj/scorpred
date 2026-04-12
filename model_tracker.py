@@ -56,6 +56,23 @@ def _migrate_predictions() -> None:
                 pred["prediction_market"] = "winner"
                 migrated = True
 
+            if "totals_pick" not in pred:
+                legacy_pick, legacy_line, legacy_market = _legacy_totals_defaults(pred)
+                pred["totals_pick"] = legacy_pick
+                pred["totals_line"] = legacy_line
+                pred["totals_market"] = legacy_market
+                if legacy_pick is not None:
+                    pred["totals_pick_source"] = "legacy_implicit_over"
+                migrated = True
+
+            if pred.get("totals_pick") and "totals_line" not in pred:
+                pred["totals_line"] = _default_totals_line(pred.get("sport", ""))
+                migrated = True
+
+            if pred.get("totals_pick") and "totals_market" not in pred:
+                pred["totals_market"] = _default_totals_market(pred.get("sport", ""))
+                migrated = True
+
             if "fixture_id" not in pred:
                 pred["fixture_id"] = None
                 migrated = True
@@ -91,8 +108,8 @@ def _migrate_predictions() -> None:
 
             if pred.get("status") == "completed" or pred.get("actual_result"):
                 outcome = _compute_prediction_outcome(pred)
-                if pred.get("is_correct") != outcome["winner_hit"]:
-                    pred["is_correct"] = outcome["winner_hit"]
+                if pred.get("is_correct") != outcome["game_win"]:
+                    pred["is_correct"] = outcome["game_win"]
                     migrated = True
                 if pred.get("actual_winner") != outcome["actual_winner"]:
                     pred["actual_winner"] = outcome["actual_winner"]
@@ -168,6 +185,50 @@ def _normalized_text(value: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower()).strip()
 
 
+def _default_totals_line(sport: str) -> float:
+    return 2.5 if str(sport or "").lower() == "soccer" else 220.5
+
+
+def _default_totals_market(sport: str) -> str:
+    return "goals_over_under" if str(sport or "").lower() == "soccer" else "points_over_under"
+
+
+def _format_totals_line(line: float | int | None) -> str:
+    if line is None:
+        return ""
+    try:
+        value = float(line)
+    except (TypeError, ValueError):
+        return str(line)
+    if value.is_integer():
+        return str(int(value))
+    return str(round(value, 1))
+
+
+def _normalize_totals_pick(value: str | None) -> str | None:
+    text = _normalized_text(value)
+    if not text:
+        return None
+    if "over" in text:
+        return "Over"
+    if "under" in text:
+        return "Under"
+    return None
+
+
+def _totals_pick_display(pick: str | None, line: float | int | None) -> str | None:
+    if not pick or line is None:
+        return None
+    return f"{pick} {_format_totals_line(line)}"
+
+
+def _legacy_totals_defaults(prediction: dict) -> tuple[str | None, float | None, str | None]:
+    sport = str(prediction.get("sport") or "").lower()
+    if sport == "soccer":
+        return "Over", 2.5, "goals_over_under"
+    return None, None, None
+
+
 def _winner_choice_code(value: str | None, team_a: str = "", team_b: str = "") -> str:
     """Normalize raw winner labels into canonical tracking codes A/B/draw."""
     text = _normalized_text(value)
@@ -209,8 +270,8 @@ def _prediction_label_from_value(value: str | None, team_a: str = "", team_b: st
 def _compute_prediction_outcome(prediction: dict) -> dict:
     """Compute winner/totals display values for a completed prediction.
 
-    ScorPred currently stores winner picks only (A/B/draw). Totals are informative
-    and should not change whether the prediction is graded correct.
+    Winner and totals legs are evaluated separately, and the tracked result is a
+    parlay-style win only when every tracked leg hits.
     """
     sport = (prediction.get("sport") or "").lower()
     final_score = prediction.get("final_score") or {}
@@ -234,19 +295,34 @@ def _compute_prediction_outcome(prediction: dict) -> dict:
     elif actual_result == "draw":
         actual_winner = "Draw"
 
-    total_line = 2.5 if sport == "soccer" else 220.5
-    totals_hit = True
+    totals_pick = _normalize_totals_pick(prediction.get("totals_pick"))
+    total_line = prediction.get("totals_line")
+    if total_line is None and totals_pick:
+        total_line = _default_totals_line(sport)
+    elif total_line is not None:
+        try:
+            total_line = float(total_line)
+        except (TypeError, ValueError):
+            total_line = _default_totals_line(sport) if totals_pick else None
+
+    totals_hit = None
     totals_result = None
     ou_display = None
     total_scored = None
+    actual_total_side = None
+    totals_pick_display = _totals_pick_display(totals_pick, total_line)
+    totals_required = bool(totals_pick_display)
 
     if isinstance(final_score, dict) and "a" in final_score and "b" in final_score:
         total_scored = final_score.get("a", 0) + final_score.get("b", 0)
-        totals_hit = total_scored > total_line
-        totals_result = "Over" if totals_hit else "Under"
-        ou_display = f"U/O {total_line}: {'Hit' if totals_hit else 'Miss'}"
+        if total_line is not None:
+            actual_total_side = "Over" if total_scored > total_line else "Under"
+            totals_result = actual_total_side
+            if totals_required:
+                totals_hit = actual_total_side == totals_pick
+                ou_display = f"Totals Leg: {totals_pick_display} — {'Hit' if totals_hit else 'Miss'}"
 
-    game_win = winner_hit
+    game_win = winner_hit and (totals_hit is True if totals_required else True)
     overall_result = "Win" if game_win else "Loss"
     winner_result = "Hit" if winner_hit else "Miss"
 
@@ -256,6 +332,11 @@ def _compute_prediction_outcome(prediction: dict) -> dict:
         "winner_result": winner_result,
         "totals_result": totals_result,
         "totals_hit": totals_hit,
+        "totals_pick": totals_pick,
+        "totals_pick_display": totals_pick_display,
+        "totals_line": total_line,
+        "totals_required": totals_required,
+        "actual_total_side": actual_total_side,
         "ou_display": ou_display,
         "game_win": game_win,
         "overall_result": overall_result,
@@ -304,6 +385,11 @@ def _enhance_prediction_record(prediction: dict) -> dict:
     pred["winner_display"] = f"Winner Pick: {'Hit' if outcome['winner_hit'] else 'Miss'}"
     pred["ou_result"] = outcome["totals_result"]
     pred["ou_hit"] = outcome["totals_hit"]
+    pred["totals_pick"] = outcome["totals_pick"]
+    pred["totals_pick_display"] = outcome["totals_pick_display"]
+    pred["totals_line"] = outcome["totals_line"]
+    pred["totals_required"] = outcome["totals_required"]
+    pred["actual_total_side"] = outcome["actual_total_side"]
     pred["ou_display"] = outcome["ou_display"]
     pred["game_win"] = outcome["game_win"]
     pred["overall_game_result"] = outcome["overall_result"]
@@ -325,6 +411,9 @@ def save_prediction(
     model_factors: dict[str, Any] | None = None,
     fixture_id: str | int | None = None,
     prediction_market: str = "winner",
+    totals_pick: str | None = None,
+    totals_line: float | int | None = None,
+    totals_market: str | None = None,
 ) -> str:
     """
     Save or update a prediction in the tracking file.
@@ -337,6 +426,16 @@ def save_prediction(
     predicted_pick_label = _prediction_label_from_value(predicted_winner, team_a, team_b)
     normalized_market = str(prediction_market or "winner").strip().lower() or "winner"
     fixture_id_value = str(fixture_id).strip() if fixture_id is not None and str(fixture_id).strip() else None
+    normalized_totals_pick = _normalize_totals_pick(totals_pick)
+    totals_line_value = None
+    if totals_line is not None:
+        try:
+            totals_line_value = float(totals_line)
+        except (TypeError, ValueError):
+            totals_line_value = None
+    if normalized_totals_pick and totals_line_value is None:
+        totals_line_value = _default_totals_line(sport)
+    totals_market_value = str(totals_market or _default_totals_market(sport)).strip().lower() if normalized_totals_pick else None
     
     game_date_normalized = _normalize_date(game_date)
     game_key = _get_game_key(sport, game_date_normalized, team_a, team_b, league_id)
@@ -359,6 +458,9 @@ def save_prediction(
                 existing["prob_draw"] = round(win_probs.get("draw", 0), 1)
                 existing["confidence"] = confidence
                 existing["prediction_market"] = normalized_market
+                existing["totals_pick"] = normalized_totals_pick
+                existing["totals_line"] = totals_line_value
+                existing["totals_market"] = totals_market_value
                 existing["status"] = "pending"
                 existing["actual_result"] = None
                 existing["is_correct"] = None
@@ -393,6 +495,9 @@ def save_prediction(
         "prob_draw": round(win_probs.get("draw", 0), 1),
         "confidence": confidence,
         "prediction_market": normalized_market,
+        "totals_pick": normalized_totals_pick,
+        "totals_line": totals_line_value,
+        "totals_market": totals_market_value,
         "league_id": league_id,
         "league_name": league_name,
         "fixture_id": fixture_id_value,
@@ -480,7 +585,7 @@ def update_prediction_result(
             if fixture_id is not None and str(fixture_id).strip():
                 pred["fixture_id"] = str(fixture_id).strip()
             outcome = _compute_prediction_outcome(pred)
-            pred["is_correct"] = outcome["winner_hit"]
+            pred["is_correct"] = outcome["game_win"]
             pred["actual_winner"] = outcome["actual_winner"]
             pred["winner_result"] = outcome["winner_result"]
             pred["totals_result"] = outcome["totals_result"]
@@ -496,7 +601,7 @@ def get_summary_metrics() -> dict[str, Any]:
     """
     Compute summary metrics across all predictions.
 
-    Accuracy is based on winner-pick correctness for completed games.
+    Accuracy is based on the tracked overall result for completed games.
     
     Returns:
         {
@@ -551,10 +656,10 @@ def get_summary_metrics() -> dict[str, Any]:
             "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
         }
     
-    # Calculate game-level wins/losses from winner correctness.
+    # Calculate game-level wins/losses from the tracked overall result.
     def is_game_win(pred):
         outcome = _compute_prediction_outcome(pred)
-        return outcome["winner_hit"]
+        return outcome["game_win"]
     
     wins = sum(1 for p in finalized if is_game_win(p))
     losses = len(finalized) - wins

@@ -570,6 +570,12 @@ class TestPredictionResultDetailRoute:
             "final_score_display": "1-2",
             "total_scored": 3,
             "total_label": "Total Goals: 3",
+            "totals_pick_display": "Over 2.5",
+            "totals_required": True,
+            "ou_hit": True,
+            "actual_total_side": "Over",
+            "winner_display": "Winner Pick: Miss",
+            "ou_display": "Totals Leg: Over 2.5 — Hit",
             "prediction_notes": "Arsenal projected edge on recent form.",
             "model_factors": {"team_a": {"form": 7.2}, "team_b": {"form": 6.9}},
         }
@@ -601,6 +607,9 @@ class TestPredictionResultDetailRoute:
         assert b"Prediction Result Detail" in rv.data
         assert b"Bournemouth were more clinical" in rv.data
         assert b"Solanke" in rv.data
+        assert b"Winner Pick" in rv.data
+        assert b"Totals Pick" in rv.data
+        assert b"Overall Result" in rv.data
 
     def test_prediction_result_detail_shows_hit_for_correct_winner_pick_even_if_totals_context_differs(self, client):
         record = {
@@ -623,12 +632,17 @@ class TestPredictionResultDetailRoute:
             "actual_result": "A",
             "actual_winner": "Sunderland",
             "winner_hit": True,
-            "game_win": True,
-            "overall_game_result": "Win",
+            "game_win": False,
+            "overall_game_result": "Loss",
             "final_score_display": "1-0",
             "total_scored": 1,
             "total_label": "Total Goals: 1",
-            "ou_display": "U/O 2.5: Miss",
+            "totals_pick_display": "Over 2.5",
+            "totals_required": True,
+            "ou_hit": False,
+            "actual_total_side": "Under",
+            "winner_display": "Winner Pick: Hit",
+            "ou_display": "Totals Leg: Over 2.5 — Miss",
             "model_factors": {},
         }
         evidence = {
@@ -654,9 +668,11 @@ class TestPredictionResultDetailRoute:
 
         assert rv.status_code == 200
         assert b"Sunderland to win" in rv.data
-        assert b"Sunderland won 1-0" in rv.data
+        assert b"Sunderland, 1-0, 1 goal" in rv.data
         assert b">Hit<" in rv.data
-        assert b"Totals Context (secondary)" in rv.data
+        assert b">Miss<" in rv.data
+        assert b"Overall Result" in rv.data
+        assert b"Loss" in rv.data
 
     def test_prediction_result_detail_invalid_id_returns_404(self, client):
         with patch("model_tracker.get_prediction_by_id", return_value=None):
@@ -686,6 +702,7 @@ class TestPredictionResultDetailRoute:
             "overall_game_result": "Win",
             "final_score_display": "112-108",
             "total_scored": 220,
+            "winner_display": "Winner Pick: Hit",
             "model_factors": {},
         }
         evidence = {
@@ -711,6 +728,7 @@ class TestPredictionResultDetailRoute:
 
         assert rv.status_code == 200
         assert b"Detailed fixture evidence is limited" in rv.data
+        assert b"Goal Scorers" not in rv.data
 
     def test_prediction_result_detail_handles_scoreless_draw_cleanly(self, client):
         record = {
@@ -738,6 +756,7 @@ class TestPredictionResultDetailRoute:
             "final_score_display": "0-0",
             "total_scored": 0,
             "total_label": "Total Goals: 0",
+            "winner_display": "Winner Pick: Hit",
             "model_factors": {},
         }
         evidence = {
@@ -745,7 +764,7 @@ class TestPredictionResultDetailRoute:
             "metrics": [],
             "key_events": [],
             "goal_scorers": {
-                "available": True,
+                "available": False,
                 "home_team": "Burnley",
                 "away_team": "Everton",
                 "home_goals": [],
@@ -762,8 +781,65 @@ class TestPredictionResultDetailRoute:
             rv = client.get("/prediction-result/pred-0-0")
 
         assert rv.status_code == 200
-        assert b"Match drawn 0-0" in rv.data
-        assert b"No goals scored." in rv.data
+        assert b"Draw, 0-0, 0 goals" in rv.data
+        assert b"Goal Scorers" not in rv.data
+
+    def test_prediction_result_detail_hides_goal_scorers_when_event_data_unavailable(self, client):
+        record = {
+            "id": "pred-no-events",
+            "sport": "soccer",
+            "league_name": "Premier League",
+            "date": "2026-04-12",
+            "created_at": "2026-04-12T10:30:00Z",
+            "updated_at": "2026-04-12T18:00:00Z",
+            "team_a": "Arsenal",
+            "team_b": "Chelsea",
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "predicted_winner_display": "Arsenal",
+            "prob_a": 57.0,
+            "prob_b": 21.0,
+            "prob_draw": 22.0,
+            "confidence": "High",
+            "status": "completed",
+            "actual_result": "A",
+            "actual_winner": "Arsenal",
+            "winner_hit": True,
+            "game_win": True,
+            "overall_game_result": "Win",
+            "final_score_display": "2-1",
+            "total_scored": 3,
+            "totals_pick_display": "Over 2.5",
+            "totals_required": True,
+            "ou_hit": True,
+            "actual_total_side": "Over",
+            "winner_display": "Winner Pick: Hit",
+            "ou_display": "Totals Leg: Over 2.5 — Hit",
+            "model_factors": {},
+        }
+        evidence = {
+            "available": True,
+            "metrics": [{"label": "Shots", "team_a": "15", "team_b": "8", "leader": "Arsenal"}],
+            "key_events": [],
+            "goal_scorers": {
+                "available": False,
+                "home_team": "Arsenal",
+                "away_team": "Chelsea",
+                "home_goals": [],
+                "away_goals": [],
+            },
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "Arsenal controlled the shot volume and the match played above the baseline total.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_soccer_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/pred-no-events")
+
+        assert rv.status_code == 200
+        assert b"Goal Scorers" not in rv.data
 
     def test_model_performance_completed_cards_link_to_detail_route(self, client):
         completed = [

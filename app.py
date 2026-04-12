@@ -311,6 +311,23 @@ def _predicted_outcome_probability(record: dict) -> float | None:
     return _safe_float(raw) if raw is not None else None
 
 
+def _extract_totals_leg(prediction: dict) -> dict | None:
+    for pick in prediction.get("optional_picks") or []:
+        market = str(pick.get("market") or "")
+        lean = str(pick.get("lean") or "")
+        if "over" not in market.lower() and "under" not in market.lower() and "o/u" not in market.lower():
+            continue
+        line_match = re.search(r"(\d+(?:\.\d+)?)", market)
+        if not line_match:
+            continue
+        return {
+            "pick": lean,
+            "line": float(line_match.group(1)),
+            "market": market,
+        }
+    return None
+
+
 def _prediction_sentence(record: dict) -> str:
     predicted = _prediction_pick_display(record)
     return "Draw" if predicted == "Draw" else f"{predicted} to win"
@@ -362,13 +379,11 @@ def _actual_outcome_probability(record: dict) -> float | None:
 def _build_prediction_vs_reality(record: dict, evidence_summary: str | None = None) -> dict:
     confidence = record.get("confidence") or "Unknown"
     winner_hit = bool(record.get("winner_hit")) if record.get("status") == "completed" else None
-
-    if winner_hit is True:
-        verdict = "Hit"
-    elif winner_hit is False:
-        verdict = "Miss"
-    else:
-        verdict = "Pending"
+    winner_leg = "Hit" if winner_hit is True else "Miss" if winner_hit is False else "Pending"
+    totals_required = bool(record.get("totals_required"))
+    totals_hit = record.get("ou_hit")
+    totals_leg = "Hit" if totals_hit is True else "Miss" if totals_hit is False else ("Not tracked" if not totals_required else "Pending")
+    total_unit = "goals" if str(record.get("sport") or "").lower() == "soccer" else "points"
 
     upset_label = None
     actual_prob = _actual_outcome_probability(record)
@@ -381,11 +396,21 @@ def _build_prediction_vs_reality(record: dict, evidence_summary: str | None = No
             upset_label = "Expected range"
 
     predicted_prob = _predicted_outcome_probability(record)
+    actual_total = record.get("total_scored")
+    if actual_total is not None:
+        total_label = total_unit[:-1] if actual_total == 1 and total_unit.endswith("s") else total_unit
+        reality_text = f"{record.get('actual_winner') or 'Unknown'}, {record.get('final_score_display') or 'Unknown'}, {actual_total} {total_label}"
+    else:
+        reality_text = _reality_sentence(record)
+
     return {
-        "prediction_text": _prediction_sentence(record),
-        "reality_text": _reality_sentence(record),
+        "winner_pick": _prediction_sentence(record),
+        "totals_pick": record.get("totals_pick_display"),
+        "reality_text": reality_text,
+        "winner_leg": winner_leg,
+        "totals_leg": totals_leg,
+        "overall_result": record.get("overall_game_result") or ("Win" if record.get("game_win") else "Loss"),
         "confidence": confidence,
-        "verdict": verdict,
         "upset_label": upset_label,
         "predicted_outcome_probability": predicted_prob,
         "actual_outcome_probability": actual_prob,
@@ -517,7 +542,9 @@ def _build_soccer_evidence(record: dict) -> dict:
             raw_events = []
         try:
             goal_scorers = ac.get_match_events(fixture_id)
-            goal_scorers["available"] = True
+            expected_goals = _safe_int(record.get("total_scored"))
+            actual_goal_rows = len(goal_scorers.get("home_goals") or []) + len(goal_scorers.get("away_goals") or [])
+            goal_scorers["available"] = bool(expected_goals > 0 and actual_goal_rows == expected_goals)
             if not goal_scorers.get("home_team"):
                 goal_scorers["home_team"] = team_a_name
             if not goal_scorers.get("away_team"):
@@ -687,9 +714,24 @@ def _build_soccer_evidence(record: dict) -> dict:
         summary += "."
 
     if record.get("winner_hit") is True:
-        summary += f" That aligned with the model's winner call on {_prediction_pick_display(record)}."
+        summary += f" The winner leg landed on {_prediction_pick_display(record)}."
     elif record.get("winner_hit") is False:
-        summary += f" That contradicted the model's winner call on {_prediction_pick_display(record)}."
+        summary += f" The winner leg missed because the model backed {_prediction_pick_display(record)}."
+
+    totals_pick_display = record.get("totals_pick_display")
+    total_scored = record.get("total_scored")
+    actual_total_side = record.get("actual_total_side")
+    if totals_pick_display and total_scored is not None:
+        if record.get("ou_hit") is True:
+            summary += f" The totals leg also landed: {totals_pick_display} matched the {total_scored}-goal game, which finished {actual_total_side}."
+        elif record.get("ou_hit") is False:
+            summary += f" The totals leg missed: the pick was {totals_pick_display}, but the game finished {actual_total_side} with {total_scored} total goals."
+
+    if totals_pick_display and winner_support:
+        if actual_total_side == "Over":
+            summary += " The shot volume and chance creation support a game that played above the baseline total."
+        elif actual_total_side == "Under":
+            summary += " The lower shot volume and finishing profile support a match that stayed below the baseline total."
 
     if not metrics and not events and not evidence["goal_scorers"].get("available"):
         summary = "Detailed fixture stats were unavailable from provider feeds for this completed match."
@@ -1120,6 +1162,9 @@ def _bootstrap_model_tracking() -> dict[str, int]:
                     "team_b": prediction.get("components_b") if isinstance(prediction.get("components_b"), dict) else {},
                 },
                 fixture_id=(fixture.get("fixture") or {}).get("id"),
+                totals_pick=((_extract_totals_leg(prediction) or {}).get("pick")),
+                totals_line=((_extract_totals_leg(prediction) or {}).get("line")),
+                totals_market=((_extract_totals_leg(prediction) or {}).get("market")),
             )
             predictions_generated += 1
             if existing:
@@ -1258,6 +1303,9 @@ def _bootstrap_model_tracking() -> dict[str, int]:
                         "team_b": prediction.get("components_b") if isinstance(prediction.get("components_b"), dict) else {},
                     },
                     fixture_id=game.get("id"),
+                    totals_pick=((_extract_totals_leg(prediction) or {}).get("pick")),
+                    totals_line=((_extract_totals_leg(prediction) or {}).get("line")),
+                    totals_market=((_extract_totals_leg(prediction) or {}).get("market")),
                 )
                 predictions_generated += 1
                 if existing:

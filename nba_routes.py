@@ -13,6 +13,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+import re
 import traceback
 
 import requests
@@ -59,6 +60,23 @@ def _require_nba_teams():
 
 def _selected_nba_game():
     return session.get("nba_selected_game")
+
+
+def _extract_totals_leg(prediction: dict) -> dict | None:
+    for pick in prediction.get("optional_picks") or []:
+        market = str(pick.get("market") or "")
+        lean = str(pick.get("lean") or "")
+        if "over" not in market.lower() and "under" not in market.lower() and "o/u" not in market.lower():
+            continue
+        line_match = re.search(r"(\d+(?:\.\d+)?)", market)
+        if not line_match:
+            continue
+        return {
+            "pick": lean,
+            "line": float(line_match.group(1)),
+            "market": market,
+        }
+    return None
 
 
 def _store_nba_teams(team_a: dict, team_b: dict) -> None:
@@ -946,6 +964,7 @@ def prediction():
             pred_winner = best_pick.get("prediction", "")
             probs = scorpred.get("win_probabilities", {})
             conf = best_pick.get("confidence", "Medium")
+            totals_leg = _extract_totals_leg(scorpred) or {}
             
             mt.save_prediction(
                 sport="nba",
@@ -960,6 +979,9 @@ def prediction():
                     "team_b": scorpred.get("components_b") if isinstance(scorpred.get("components_b"), dict) else {},
                 },
                 fixture_id=(selected_game or game_snapshot or {}).get("id"),
+                totals_pick=totals_leg.get("pick"),
+                totals_line=totals_leg.get("line"),
+                totals_market=totals_leg.get("market"),
             )
     except Exception:
         pass  # Silent fail if tracking fails

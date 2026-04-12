@@ -12,24 +12,17 @@
 
 <div class="card glow-card comparison-banner" style="padding:1.1rem 1.2rem; margin-bottom:1.25rem;">
   <div class="section-title-sm" style="margin-bottom:.65rem;">Prediction vs Reality</div>
-  <div class="detail-grid">
-    <div>
-      <div style="font-size:.76rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px;">Prediction</div>
-      <div style="font-size:1.02rem; font-weight:600; color:#e6edf3;">{{ comparison.prediction_text }}</div>
-    </div>
-    <div>
-      <div style="font-size:.76rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px;">Reality</div>
-      <div style="font-size:1.02rem; font-weight:600; color:#e6edf3;">{{ comparison.reality_text }}</div>
-    </div>
-    <div>
-      <div style="font-size:.76rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px;">Confidence</div>
-      <div style="font-size:1.02rem; font-weight:600; color:#e6edf3;">{{ comparison.confidence }}</div>
-    </div>
-    <div>
-      <div style="font-size:.76rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px;">Verdict</div>
-      <div style="font-size:1.02rem; font-weight:700; color:{% if comparison.verdict == 'Hit' %}#00ff87{% elif comparison.verdict == 'Miss' %}#ef4444{% else %}#f59e0b{% endif %};">{{ comparison.verdict }}</div>
-    </div>
-  </div>
+  <div class="kv-row"><span style="color:#8b949e;">Winner Pick</span><span>{{ comparison.winner_pick }}</span></div>
+  {% if comparison.totals_pick %}
+  <div class="kv-row"><span style="color:#8b949e;">Totals Pick</span><span>{{ comparison.totals_pick }}</span></div>
+  {% endif %}
+  <div class="kv-row"><span style="color:#8b949e;">Reality</span><span>{{ comparison.reality_text }}</span></div>
+  <div class="kv-row"><span style="color:#8b949e;">Winner Leg</span><span style="color:{% if comparison.winner_leg == 'Hit' %}#00ff87{% elif comparison.winner_leg == 'Miss' %}#ef4444{% else %}#f59e0b{% endif %}; font-weight:600;">{{ comparison.winner_leg }}</span></div>
+  {% if comparison.totals_pick %}
+  <div class="kv-row"><span style="color:#8b949e;">Totals Leg</span><span style="color:{% if comparison.totals_leg == 'Hit' %}#00ff87{% elif comparison.totals_leg == 'Miss' %}#ef4444{% else %}#f59e0b{% endif %}; font-weight:600;">{{ comparison.totals_leg }}</span></div>
+  {% endif %}
+  <div class="kv-row"><span style="color:#8b949e;">Overall Result</span><span style="color:{% if comparison.overall_result == 'Win' %}#00ff87{% else %}#ef4444{% endif %}; font-weight:700;">{{ comparison.overall_result }}</span></div>
+  <div class="kv-row"><span style="color:#8b949e;">Confidence</span><span>{{ comparison.confidence }}</span></div>
   {% if comparison.upset_label %}
   <div style="margin-top:.7rem;">
     <span class="detail-pill">{{ comparison.upset_label }}{% if comparison.actual_outcome_probability is not none %} · Actual outcome probability was {{ comparison.actual_outcome_probability }}%{% endif %}</span>
@@ -52,6 +45,9 @@
     {% endif %}
     <div class="kv-row"><span style="color:#8b949e;">Prediction Date</span><span>{{ prediction_date_display }}</span></div>
     <div class="kv-row"><span style="color:#8b949e;">Predicted Winner</span><span>{{ predicted_pick_display }}</span></div>
+    {% if record.totals_pick_display %}
+    <div class="kv-row"><span style="color:#8b949e;">Totals Leg</span><span>{{ record.totals_pick_display }}</span></div>
+    {% endif %}
     <div class="kv-row"><span style="color:#8b949e;">Confidence</span><span>{{ record.confidence or 'Unknown' }}</span></div>
     {% if record.prediction_notes %}
     <div style="margin-top:.65rem; font-size:.84rem; color:#c9d1d9;">{{ record.prediction_notes }}</div>
@@ -62,10 +58,14 @@
     <div class="section-title-sm" style="margin-bottom:.55rem;">Actual Match Outcome</div>
     <div class="kv-row"><span style="color:#8b949e;">Final Score</span><span>{{ record.final_score_display }}</span></div>
     <div class="kv-row"><span style="color:#8b949e;">Actual Winner</span><span>{{ record.actual_winner or 'Unknown' }}</span></div>
-    <div class="kv-row"><span style="color:#8b949e;">Winner Pick</span><span style="color:{% if record.winner_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ 'Hit' if record.winner_hit else 'Miss' }}</span></div>
+    <div class="kv-row"><span style="color:#8b949e;">Winner Leg</span><span style="color:{% if record.winner_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ 'Hit' if record.winner_hit else 'Miss' }}</span></div>
+    {% if record.totals_pick_display %}
+    <div class="kv-row"><span style="color:#8b949e;">Totals Leg</span><span style="color:{% if record.ou_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ 'Hit' if record.ou_hit else 'Miss' }}</span></div>
+    <div class="kv-row"><span style="color:#8b949e;">Actual Total</span><span>{{ record.total_scored }} · {{ record.actual_total_side }}</span></div>
+    {% endif %}
     <div class="kv-row"><span style="color:#8b949e;">Overall Tracked Result</span><span style="color:{% if record.game_win %}#00ff87{% else %}#ef4444{% endif %};">{{ record.overall_game_result }}</span></div>
-    {% if record.total_label or record.ou_display %}
-    <div class="kv-row"><span style="color:#8b949e;">Totals Context (secondary)</span><span>{% if record.total_label %}{{ record.total_label }}{% endif %}{% if record.ou_display %} · {{ record.ou_display }}{% endif %}</span></div>
+    {% if record.ou_display %}
+    <div class="kv-row"><span style="color:#8b949e;">Tracked Legs</span><span>{{ record.winner_display }} · {{ record.ou_display }}</span></div>
     {% endif %}
     <div class="kv-row"><span style="color:#8b949e;">Status</span><span>{{ record.status|title }}</span></div>
     <div class="kv-row"><span style="color:#8b949e;">Updated</span><span>{{ updated_at_display }}</span></div>
@@ -93,42 +93,29 @@
 </div>
 {% endif %}
 
+{% if evidence.goal_scorers.available %}
 <div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
   <div class="section-title-sm" style="margin-bottom:.6rem;">Goal Scorers</div>
-  {% if evidence.goal_scorers.available %}
   <div class="detail-grid">
     <div>
       <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">{{ evidence.goal_scorers.home_team }}</div>
-      {% if evidence.goal_scorers.home_goals %}
-        {% for goal in evidence.goal_scorers.home_goals %}
-        <div class="kv-row"><span style="color:#8b949e;">{{ goal.player }}</span><span>{{ goal.minute }}{% if goal.type and goal.type != 'Goal' %} · {{ goal.type }}{% endif %}</span></div>
-        {% endfor %}
-      {% else %}
-      <div style="color:#8b949e; font-size:.84rem;">No goals scored.</div>
-      {% endif %}
+      {% for goal in evidence.goal_scorers.home_goals %}
+      <div class="kv-row"><span style="color:#8b949e;">{{ goal.player }}</span><span>{{ goal.minute }}{% if goal.type and goal.type != 'Goal' %} · {{ goal.type }}{% endif %}</span></div>
+      {% endfor %}
     </div>
     <div>
       <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">{{ evidence.goal_scorers.away_team }}</div>
-      {% if evidence.goal_scorers.away_goals %}
-        {% for goal in evidence.goal_scorers.away_goals %}
-        <div class="kv-row"><span style="color:#8b949e;">{{ goal.player }}</span><span>{{ goal.minute }}{% if goal.type and goal.type != 'Goal' %} · {{ goal.type }}{% endif %}</span></div>
-        {% endfor %}
-      {% else %}
-      <div style="color:#8b949e; font-size:.84rem;">No goals scored.</div>
-      {% endif %}
+      {% for goal in evidence.goal_scorers.away_goals %}
+      <div class="kv-row"><span style="color:#8b949e;">{{ goal.player }}</span><span>{{ goal.minute }}{% if goal.type and goal.type != 'Goal' %} · {{ goal.type }}{% endif %}</span></div>
+      {% endfor %}
     </div>
   </div>
-  {% elif record.total_scored == 0 %}
-  <div style="color:#8b949e; font-size:.84rem;">No goals were scored in this match.</div>
-  {% else %}
-  <div style="padding:.7rem .8rem; border:1px solid rgba(245,158,11,.35); background:rgba(245,158,11,.12); color:#f59e0b; border-radius:8px; font-size:.84rem;">
-    Goal scorer data unavailable.
-  </div>
-  {% endif %}
 </div>
+{% endif %}
 
 <div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
   <div class="section-title-sm" style="margin-bottom:.6rem;">Statistical Evidence: Why The Match Ended This Way</div>
+  <p style="color:#c9d1d9; font-size:.92rem; margin-bottom:.85rem;">{{ comparison.evidence_summary }}</p>
   {% if evidence.metrics %}
   <div style="overflow-x:auto; margin-bottom:.8rem;">
     <table style="width:100%; border-collapse:collapse; font-size:.84rem;">
@@ -201,10 +188,5 @@
     Detailed fixture evidence is limited for this result in the currently available provider payloads.
   </div>
   {% endif %}
-</div>
-
-<div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
-  <div class="section-title-sm" style="margin-bottom:.6rem;">How The Match Ended</div>
-  <p style="color:#c9d1d9; font-size:.92rem;">{{ comparison.evidence_summary }}</p>
 </div>
 {% endblock %}

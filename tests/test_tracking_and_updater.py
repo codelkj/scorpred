@@ -23,7 +23,7 @@ def _mock_nba_game() -> dict:
 
 
 class TestTrackingMetrics:
-    def test_summary_accuracy_uses_winner_pick_not_totals(self, tmp_path):
+    def test_summary_accuracy_uses_tracked_parlay_result(self, tmp_path):
         tracking_file = tmp_path / "prediction_tracking.json"
         with patch.object(mt, "_TRACKING_FILE", str(tracking_file)):
             pred_id = mt.save_prediction(
@@ -34,8 +34,9 @@ class TestTrackingMetrics:
                 win_probs={"a": 52.0, "b": 28.0, "draw": 20.0},
                 confidence="High",
                 game_date="2026-04-01",
+                totals_pick="Under",
+                totals_line=2.5,
             )
-            # Winner is correct, but total goals = 2 (under 2.5)
             mt.update_prediction_result(pred_id, "A", {"a": 1, "b": 1})
 
             metrics = mt.get_summary_metrics()
@@ -57,6 +58,8 @@ class TestTrackingMetrics:
                 confidence="High",
                 game_date="2026-04-12",
                 fixture_id=321,
+                totals_pick="Over",
+                totals_line=2.5,
             )
             mt.update_prediction_result(pred_id, "A", {"a": 1, "b": 0}, fixture_id=321)
 
@@ -66,10 +69,73 @@ class TestTrackingMetrics:
         assert record["predicted_winner"] == "A"
         assert record["predicted_winner_display"] == "Sunderland"
         assert record["winner_hit"] is True
-        assert record["game_win"] is True
+        assert record["game_win"] is False
         assert record["ou_hit"] is False
-        assert record["overall_game_result"] == "Win"
+        assert record["overall_game_result"] == "Loss"
         assert record["fixture_id"] == "321"
+
+    def test_parlay_outcome_covers_all_leg_combinations(self, tmp_path):
+        tracking_file = tmp_path / "prediction_tracking.json"
+        with patch.object(mt, "_TRACKING_FILE", str(tracking_file)):
+            both_hit = mt.save_prediction(
+                sport="soccer",
+                team_a="Alpha",
+                team_b="Beta",
+                predicted_winner="A",
+                win_probs={"a": 58, "b": 24, "draw": 18},
+                confidence="High",
+                game_date="2026-04-01",
+                totals_pick="Over",
+                totals_line=2.5,
+            )
+            winner_only = mt.save_prediction(
+                sport="soccer",
+                team_a="Gamma",
+                team_b="Delta",
+                predicted_winner="A",
+                win_probs={"a": 57, "b": 23, "draw": 20},
+                confidence="Medium",
+                game_date="2026-04-01",
+                totals_pick="Over",
+                totals_line=2.5,
+            )
+            totals_only = mt.save_prediction(
+                sport="soccer",
+                team_a="Epsilon",
+                team_b="Zeta",
+                predicted_winner="A",
+                win_probs={"a": 52, "b": 26, "draw": 22},
+                confidence="Low",
+                game_date="2026-04-01",
+                totals_pick="Under",
+                totals_line=2.5,
+            )
+            both_miss = mt.save_prediction(
+                sport="soccer",
+                team_a="Eta",
+                team_b="Theta",
+                predicted_winner="A",
+                win_probs={"a": 55, "b": 20, "draw": 25},
+                confidence="Low",
+                game_date="2026-04-01",
+                totals_pick="Over",
+                totals_line=2.5,
+            )
+
+            mt.update_prediction_result(both_hit, "A", {"a": 2, "b": 1})
+            mt.update_prediction_result(winner_only, "A", {"a": 1, "b": 0})
+            mt.update_prediction_result(totals_only, "B", {"a": 0, "b": 1})
+            mt.update_prediction_result(both_miss, "B", {"a": 0, "b": 1})
+
+            hit_record = mt.get_prediction_by_id(both_hit)
+            winner_only_record = mt.get_prediction_by_id(winner_only)
+            totals_only_record = mt.get_prediction_by_id(totals_only)
+            miss_record = mt.get_prediction_by_id(both_miss)
+
+        assert hit_record["winner_hit"] is True and hit_record["ou_hit"] is True and hit_record["game_win"] is True
+        assert winner_only_record["winner_hit"] is True and winner_only_record["ou_hit"] is False and winner_only_record["game_win"] is False
+        assert totals_only_record["winner_hit"] is False and totals_only_record["ou_hit"] is True and totals_only_record["game_win"] is False
+        assert miss_record["winner_hit"] is False and miss_record["ou_hit"] is False and miss_record["game_win"] is False
 
     def test_summary_metrics_zero_completed(self, tmp_path):
         tracking_file = tmp_path / "prediction_tracking.json"
@@ -91,12 +157,12 @@ class TestTrackingMetrics:
     def test_summary_metrics_mixed_outcomes_confidence_and_sport(self, tmp_path):
         tracking_file = tmp_path / "prediction_tracking.json"
         with patch.object(mt, "_TRACKING_FILE", str(tracking_file)):
-            p1 = mt.save_prediction("soccer", "A", "B", "A", {"a": 55, "b": 25, "draw": 20}, "High", "2026-04-01")
-            p2 = mt.save_prediction("soccer", "C", "D", "B", {"a": 30, "b": 50, "draw": 20}, "Low", "2026-04-01")
+            p1 = mt.save_prediction("soccer", "A", "B", "A", {"a": 55, "b": 25, "draw": 20}, "High", "2026-04-01", totals_pick="Over", totals_line=2.5)
+            p2 = mt.save_prediction("soccer", "C", "D", "B", {"a": 30, "b": 50, "draw": 20}, "Low", "2026-04-01", totals_pick="Under", totals_line=2.5)
             p3 = mt.save_prediction("nba", "E", "F", "A", {"a": 52, "b": 48, "draw": 0}, "High", "2026-04-01")
 
-            mt.update_prediction_result(p1, "A", {"a": 2, "b": 1})  # win
-            mt.update_prediction_result(p2, "A", {"a": 1, "b": 0})  # loss
+            mt.update_prediction_result(p1, "A", {"a": 2, "b": 1})  # parlay win
+            mt.update_prediction_result(p2, "A", {"a": 1, "b": 0})  # winner miss, totals hit => overall loss
             mt.update_prediction_result(p3, "A", {"a": 110, "b": 99})  # win
 
             metrics = mt.get_summary_metrics()
@@ -116,11 +182,11 @@ class TestTrackingMetrics:
         with patch.object(mt, "_TRACKING_FILE", str(tracking_file)):
             p1 = mt.save_prediction(
                 "soccer", "Arsenal", "Chelsea", "A", {"a": 60, "b": 20, "draw": 20}, "High", "2026-04-01",
-                league_id=39, league_name="Premier League"
+                league_id=39, league_name="Premier League", totals_pick="Over", totals_line=2.5
             )
             p2 = mt.save_prediction(
                 "soccer", "Madrid", "Sevilla", "A", {"a": 58, "b": 22, "draw": 20}, "Medium", "2026-04-01",
-                league_id=140, league_name="La Liga"
+                league_id=140, league_name="La Liga", totals_pick="Over", totals_line=2.5
             )
 
             mt.update_prediction_result(p1, "A", {"a": 2, "b": 1})
