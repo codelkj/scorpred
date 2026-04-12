@@ -382,7 +382,7 @@ def index():
     for game in upcoming_games or []:
         try:
             home_id = str(game.get("teams", {}).get("home", {}).get("id") or "")
-            away_id = str(game.get("teams", {}).get("away", {}).get("id") or "")
+            away_id = str(game.get("teams", {}).get("visitors", {}).get("id") or "")
             home_team = team_map.get(home_id)
             away_team = team_map.get(away_id)
             

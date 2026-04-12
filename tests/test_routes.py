@@ -542,6 +542,39 @@ class TestNbaFailureHandling:
             rv = client.get("/nba/")
         assert rv.status_code == 200
 
+    def test_nba_index_shows_predicted_winner_for_upcoming_game(self, client):
+        teams = [
+            {"id": "1", "name": "Boston Celtics", "nickname": "Celtics", "city": "Boston", "logo": ""},
+            {"id": "2", "name": "Orlando Magic", "nickname": "Magic", "city": "Orlando", "logo": ""},
+        ]
+        game = {
+            "id": "evt-1",
+            "date": {"start": "2026-04-12T22:00:00Z"},
+            "status": {"long": "Scheduled", "short": "Scheduled", "state": "pre"},
+            "venue": {"name": "TD Garden"},
+            "teams": {
+                "home": {"id": "1", "name": "Boston Celtics", "nickname": "Celtics", "logo": ""},
+                "visitors": {"id": "2", "name": "Orlando Magic", "nickname": "Magic", "logo": ""},
+            },
+            "scores": {"home": {"points": None}, "visitors": {"points": None}},
+        }
+
+        with patch("nba_routes.nc.get_teams", return_value=teams), \
+             patch("nba_routes.nc.get_today_games", return_value=[]), \
+             patch("nba_routes.nc.get_upcoming_games", return_value=[game]), \
+             patch("nba_routes.nc.get_h2h", return_value=[]), \
+             patch("nba_routes.nc.get_team_recent_form", return_value=[]), \
+             patch("nba_routes.nc.get_team_injuries", return_value=[]), \
+             patch("nba_routes.nc.get_standings", return_value={"east": [], "west": []}), \
+             patch("nba_routes.se.scorpred_predict", return_value={
+                 "best_pick": {"prediction": "Celtics", "confidence": "High"},
+                 "win_probabilities": {"a": 62.3, "b": 37.7},
+             }):
+            rv = client.get("/nba/")
+
+        assert rv.status_code == 200
+        assert b"Predicted winner: Celtics" in rv.data
+
     def test_worldcup_same_team_shows_error(self, client):
         with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
             rv = client.post("/worldcup", data={"team_a": "Brazil", "team_b": "Brazil"})
