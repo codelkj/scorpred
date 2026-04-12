@@ -10,6 +10,7 @@ Session keys use the nba_ prefix to avoid collisions with the football section.
 """
 
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 import traceback
@@ -135,6 +136,31 @@ def _clear_nba_cache() -> None:
 def _apply_refresh() -> None:
     if _refresh_requested():
         _clear_nba_cache()
+
+
+def _fetch_parallel(tasks: dict[str, tuple[str, callable]]) -> dict:
+    """Run independent data fetches concurrently and return results by key.
+
+    tasks format: {result_key: (error_label, zero-arg callable)}
+    """
+    if not tasks:
+        return {}
+
+    results = {}
+    max_workers = min(8, len(tasks))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_task = {
+            executor.submit(func): (key, label)
+            for key, (label, func) in tasks.items()
+        }
+        for future in as_completed(future_to_task):
+            key, label = future_to_task[future]
+            try:
+                results[key] = future.result()
+            except Exception as e:
+                _log_err(label, e)
+                results[key] = None
+    return results
 
 
 def _espn_player_overview(player_id: str) -> dict:
@@ -576,64 +602,40 @@ def matchup():
         except Exception as e:
             _log_err("Selected game snapshot", e)
 
-    try:
-        raw_h2h  = nc.get_h2h(id_a, id_b)
-        h2h_rows = np_nba.h2h_display(raw_h2h, id_a, id_b)
-        h2h_summary = np_nba.build_h2h_summary(raw_h2h, id_a, id_b, n=5)
-    except Exception as e:
-        _log_err("H2H fetch", e)
+    fetched = _fetch_parallel(
+        {
+            "raw_h2h": ("H2H fetch", lambda: nc.get_h2h(id_a, id_b)),
+            "recent_a": ("Form A fetch", lambda: nc.get_team_recent_form(id_a)),
+            "recent_b": ("Form B fetch", lambda: nc.get_team_recent_form(id_b)),
+            "stats_a": ("Stats A", lambda: nc.get_team_season_stats(id_a)),
+            "stats_b": ("Stats B", lambda: nc.get_team_season_stats(id_b)),
+            "injuries_a": ("Injuries A", lambda: nc.get_team_injuries(id_a)),
+            "injuries_b": ("Injuries B", lambda: nc.get_team_injuries(id_b)),
+            "roster_a": ("Roster A", lambda: nc.get_team_roster(id_a)),
+            "roster_b": ("Roster B", lambda: nc.get_team_roster(id_b)),
+        }
+    )
 
-    try:
-        recent_a = nc.get_team_recent_form(id_a)
-        form_a   = np_nba.extract_form_for_display(recent_a, id_a)
-        recent_form_a = np_nba.extract_recent_form(recent_a, id_a, n=5)
-    except Exception as e:
-        _log_err("Form A fetch", e)
+    raw_h2h = fetched.get("raw_h2h") or []
+    recent_a = fetched.get("recent_a") or []
+    recent_b = fetched.get("recent_b") or []
+    stats_a = fetched.get("stats_a")
+    stats_b = fetched.get("stats_b")
+    injuries_a = fetched.get("injuries_a") or []
+    injuries_b = fetched.get("injuries_b") or []
+    roster_a = fetched.get("roster_a") or []
+    roster_b = fetched.get("roster_b") or []
 
-    try:
-        recent_b = nc.get_team_recent_form(id_b)
-        form_b   = np_nba.extract_form_for_display(recent_b, id_b)
-        recent_form_b = np_nba.extract_recent_form(recent_b, id_b, n=5)
-    except Exception as e:
-        _log_err("Form B fetch", e)
-
-    try:
-        stats_a = nc.get_team_season_stats(id_a)
-    except Exception as e:
-        _log_err("Stats A", e)
-
-    try:
-        stats_b = nc.get_team_season_stats(id_b)
-    except Exception as e:
-        _log_err("Stats B", e)
-
-    try:
-        injuries_a = nc.get_team_injuries(id_a)
-        injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
-    except Exception as e:
-        _log_err("Injuries A", e)
-
-    try:
-        injuries_b = nc.get_team_injuries(id_b)
-        injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
-    except Exception as e:
-        _log_err("Injuries B", e)
-
-    try:
-        roster_a = nc.get_team_roster(id_a)
-        key_players_a = np_nba.build_key_player_stats_summary(roster_a, limit=5)
-        if injuries_a:
-            injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
-    except Exception as e:
-        _log_err("Roster A", e)
-
-    try:
-        roster_b = nc.get_team_roster(id_b)
-        key_players_b = np_nba.build_key_player_stats_summary(roster_b, limit=5)
-        if injuries_b:
-            injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
-    except Exception as e:
-        _log_err("Roster B", e)
+    h2h_rows = np_nba.h2h_display(raw_h2h, id_a, id_b)
+    h2h_summary = np_nba.build_h2h_summary(raw_h2h, id_a, id_b, n=5)
+    form_a = np_nba.extract_form_for_display(recent_a, id_a)
+    form_b = np_nba.extract_form_for_display(recent_b, id_b)
+    recent_form_a = np_nba.extract_recent_form(recent_a, id_a, n=5)
+    recent_form_b = np_nba.extract_recent_form(recent_b, id_b, n=5)
+    key_players_a = np_nba.build_key_player_stats_summary(roster_a, limit=5)
+    key_players_b = np_nba.build_key_player_stats_summary(roster_b, limit=5)
+    injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
+    injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
 
     def _splits(form_list):
         home = [g for g in form_list if g["is_home"]]
@@ -854,43 +856,29 @@ def prediction():
         except Exception as e:
             _log_err("Selected game snapshot for prediction", e)
 
-    try:
-        h2h_games = nc.get_h2h(id_a, id_b)
-        h2h_games_filtered = np_nba.filter_completed_nba_games(h2h_games)
-    except Exception as e:
-        _log_err("H2H for prediction", e)
+    fetched = _fetch_parallel(
+        {
+            "h2h_games": ("H2H for prediction", lambda: nc.get_h2h(id_a, id_b)),
+            "form_a_raw": ("Form A for prediction", lambda: nc.get_team_recent_form(id_a)),
+            "form_b_raw": ("Form B for prediction", lambda: nc.get_team_recent_form(id_b)),
+            "injuries_a": ("Injuries A for prediction", lambda: nc.get_team_injuries(id_a)),
+            "injuries_b": ("Injuries B for prediction", lambda: nc.get_team_injuries(id_b)),
+            "stats_a": ("Stats A for prediction", lambda: nc.get_team_season_stats(id_a)),
+            "stats_b": ("Stats B for prediction", lambda: nc.get_team_season_stats(id_b)),
+        }
+    )
 
-    try:
-        form_a_raw = nc.get_team_recent_form(id_a)
-        form_a_filtered = np_nba.filter_completed_nba_games(form_a_raw)
-    except Exception as e:
-        _log_err("Form A for prediction", e)
+    h2h_games = fetched.get("h2h_games") or []
+    form_a_raw = fetched.get("form_a_raw") or []
+    form_b_raw = fetched.get("form_b_raw") or []
+    injuries_a = fetched.get("injuries_a") or []
+    injuries_b = fetched.get("injuries_b") or []
+    stats_a = fetched.get("stats_a")
+    stats_b = fetched.get("stats_b")
 
-    try:
-        form_b_raw = nc.get_team_recent_form(id_b)
-        form_b_filtered = np_nba.filter_completed_nba_games(form_b_raw)
-    except Exception as e:
-        _log_err("Form B for prediction", e)
-
-    try:
-        injuries_a = nc.get_team_injuries(id_a)
-    except Exception as e:
-        _log_err("Injuries A for prediction", e)
-
-    try:
-        injuries_b = nc.get_team_injuries(id_b)
-    except Exception as e:
-        _log_err("Injuries B for prediction", e)
-
-    try:
-        stats_a = nc.get_team_season_stats(id_a)
-    except Exception as e:
-        _log_err("Stats A for prediction", e)
-
-    try:
-        stats_b = nc.get_team_season_stats(id_b)
-    except Exception as e:
-        _log_err("Stats B for prediction", e)
+    h2h_games_filtered = np_nba.filter_completed_nba_games(h2h_games)
+    form_a_filtered = np_nba.filter_completed_nba_games(form_a_raw)
+    form_b_filtered = np_nba.filter_completed_nba_games(form_b_raw)
 
     form_a_display = np_nba.extract_form_for_display(form_a_filtered, id_a)
     form_b_display = np_nba.extract_form_for_display(form_b_filtered, id_b)

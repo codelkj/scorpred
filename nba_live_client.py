@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,11 @@ NBA_ESPN_BASE_URL = os.getenv(
 NBA_CACHE_DIR = Path("cache/nba_public")
 NBA_LIVE_TTL_SECONDS = 60
 NBA_SCHEDULE_TTL_SECONDS = 60 * 60
+
+# Process-level caches reduce disk I/O and repeated schedule normalization work
+# when users navigate between NBA pages in the same running app instance.
+_MEM_CACHE: dict[str, tuple[float, Any]] = {}
+_SCHEDULE_MEM: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
 ROUTE_FEATURES: dict[str, list[str]] = {
     "index": ["teams", "scoreboard"],
@@ -69,10 +75,18 @@ def _espn_get(
     ttl_seconds: int = NBA_SCHEDULE_TTL_SECONDS,
 ) -> Any:
     params = params or {}
+    now_ts = time.time()
+    mem_key = f"espn:{endpoint}:{tuple(sorted(params.items()))}"
+    cached = _MEM_CACHE.get(mem_key)
+    if cached and cached[0] > now_ts:
+        return cached[1]
+
     path = _cache_path(f"espn:{endpoint}", params)
 
     if _cache_valid(path, ttl_seconds):
-        return _load_cache(path)
+        payload = _load_cache(path)
+        _MEM_CACHE[mem_key] = (now_ts + ttl_seconds, payload)
+        return payload
 
     url = f"{NBA_ESPN_BASE_URL}/{endpoint.lstrip('/')}"
     with requests.Session() as session:
@@ -86,6 +100,7 @@ def _espn_get(
     response.raise_for_status()
     payload = response.json()
     _save_cache(path, payload)
+    _MEM_CACHE[mem_key] = (now_ts + ttl_seconds, payload)
     return payload
 
 
@@ -348,6 +363,13 @@ def get_game_summary(event_id: str) -> dict:
 
 
 def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
+    season_key = "none" if season is None else str(season)
+    mem_key = f"team_schedule:{team_id}:{season_key}"
+    now_ts = time.time()
+    mem_cached = _SCHEDULE_MEM.get(mem_key)
+    if mem_cached and mem_cached[0] > now_ts:
+        return mem_cached[1]
+
     params: dict = {}
     if season is not None:
         params["season"] = season
@@ -360,12 +382,17 @@ def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
     for event in payload.get("events") or []:
         if normalized := _normalize_event(event):
             events.append(normalized)
+    _SCHEDULE_MEM[mem_key] = (now_ts + NBA_SCHEDULE_TTL_SECONDS, events)
     return events
 
 
 def get_team_recent_form(team_id, season: int = NBA_SEASON, n: int = 10) -> list[dict]:
     team_id = str(team_id)
-    finished = [game for game in _team_schedule(team_id) if game["status"]["state"] == "post"]
+    finished = [
+        game
+        for game in _team_schedule(team_id, season=season)
+        if game["status"]["state"] == "post"
+    ]
     finished.sort(key=lambda game: game["date"]["start"], reverse=True)
     return finished[:n]
 
