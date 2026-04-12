@@ -35,14 +35,18 @@
     <span class="detail-pill">{{ comparison.upset_label }}{% if comparison.actual_outcome_probability is not none %} · Actual outcome probability was {{ comparison.actual_outcome_probability }}%{% endif %}</span>
   </div>
   {% endif %}
-  <p style="margin-top:.75rem; color:#c9d1d9; font-size:.9rem;">{{ comparison.evidence_summary }}</p>
+  {% if comparison.predicted_outcome_probability is not none %}
+  <div style="margin-top:.65rem;">
+    <span class="detail-pill">Model probability for this pick: {{ comparison.predicted_outcome_probability }}%</span>
+  </div>
+  {% endif %}
 </div>
 
 <div class="detail-grid" style="margin-bottom:1.25rem;">
   <div class="card glow-card" style="padding:1.1rem; margin-bottom:0;">
     <div class="section-title-sm" style="margin-bottom:.55rem;">Original Prediction</div>
     <div class="kv-row"><span style="color:#8b949e;">Teams</span><span>{{ record.team_a }} vs {{ record.team_b }}</span></div>
-    <div class="kv-row"><span style="color:#8b949e;">Sport</span><span>{{ record.sport|upper }}</span></div>
+    <div class="kv-row"><span style="color:#8b949e;">Sport</span><span>{{ 'Soccer' if record.sport == 'soccer' else 'NBA' }}</span></div>
     {% if record.sport == 'soccer' and record.league_name %}
     <div class="kv-row"><span style="color:#8b949e;">League</span><span>{{ record.league_name }}</span></div>
     {% endif %}
@@ -60,8 +64,8 @@
     <div class="kv-row"><span style="color:#8b949e;">Actual Winner</span><span>{{ record.actual_winner or 'Unknown' }}</span></div>
     <div class="kv-row"><span style="color:#8b949e;">Winner Pick</span><span style="color:{% if record.winner_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ 'Hit' if record.winner_hit else 'Miss' }}</span></div>
     <div class="kv-row"><span style="color:#8b949e;">Overall Tracked Result</span><span style="color:{% if record.game_win %}#00ff87{% else %}#ef4444{% endif %};">{{ record.overall_game_result }}</span></div>
-    {% if record.total_label %}
-    <div class="kv-row"><span style="color:#8b949e;">Totals</span><span>{{ record.total_label }}</span></div>
+    {% if record.total_label or record.ou_display %}
+    <div class="kv-row"><span style="color:#8b949e;">Totals Context (secondary)</span><span>{% if record.total_label %}{{ record.total_label }}{% endif %}{% if record.ou_display %} · {{ record.ou_display }}{% endif %}</span></div>
     {% endif %}
     <div class="kv-row"><span style="color:#8b949e;">Status</span><span>{{ record.status|title }}</span></div>
     <div class="kv-row"><span style="color:#8b949e;">Updated</span><span>{{ updated_at_display }}</span></div>
@@ -75,14 +79,53 @@
   {% endfor %}
 </div>
 
-{% if model_components %}
+{% if model_component_sections %}
 <div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
   <div class="section-title-sm" style="margin-bottom:.6rem;">Model Components Captured</div>
-  {% for key, value in model_components.items() %}
-  <div class="kv-row"><span style="color:#8b949e;">{{ key.replace('_', ' ')|title }}</span><span>{{ value }}</span></div>
+  {% for section in model_component_sections %}
+  <div style="margin-bottom:1rem;">
+    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">{{ section.title }}</div>
+    {% for row in section.rows %}
+    <div class="kv-row"><span style="color:#8b949e;">{{ row.label }}</span><span>{{ row.value }}</span></div>
+    {% endfor %}
+  </div>
   {% endfor %}
 </div>
 {% endif %}
+
+<div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
+  <div class="section-title-sm" style="margin-bottom:.6rem;">Goal Scorers</div>
+  {% if evidence.goal_scorers.available %}
+  <div class="detail-grid">
+    <div>
+      <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">{{ evidence.goal_scorers.home_team }}</div>
+      {% if evidence.goal_scorers.home_goals %}
+        {% for goal in evidence.goal_scorers.home_goals %}
+        <div class="kv-row"><span style="color:#8b949e;">{{ goal.player }}</span><span>{{ goal.minute }}{% if goal.type and goal.type != 'Goal' %} · {{ goal.type }}{% endif %}</span></div>
+        {% endfor %}
+      {% else %}
+      <div style="color:#8b949e; font-size:.84rem;">No goals scored.</div>
+      {% endif %}
+    </div>
+    <div>
+      <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">{{ evidence.goal_scorers.away_team }}</div>
+      {% if evidence.goal_scorers.away_goals %}
+        {% for goal in evidence.goal_scorers.away_goals %}
+        <div class="kv-row"><span style="color:#8b949e;">{{ goal.player }}</span><span>{{ goal.minute }}{% if goal.type and goal.type != 'Goal' %} · {{ goal.type }}{% endif %}</span></div>
+        {% endfor %}
+      {% else %}
+      <div style="color:#8b949e; font-size:.84rem;">No goals scored.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% elif record.total_scored == 0 %}
+  <div style="color:#8b949e; font-size:.84rem;">No goals were scored in this match.</div>
+  {% else %}
+  <div style="padding:.7rem .8rem; border:1px solid rgba(245,158,11,.35); background:rgba(245,158,11,.12); color:#f59e0b; border-radius:8px; font-size:.84rem;">
+    Goal scorer data unavailable.
+  </div>
+  {% endif %}
+</div>
 
 <div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
   <div class="section-title-sm" style="margin-bottom:.6rem;">Statistical Evidence: Why The Match Ended This Way</div>
@@ -113,7 +156,7 @@
 
   {% if evidence.key_events %}
   <div style="margin-bottom:.85rem;">
-    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Key Match Events</div>
+    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Match Events</div>
     {% for event in evidence.key_events %}
     <div class="kv-row"><span style="color:#8b949e;">{{ event.minute }} {{ event.type }}</span><span>{{ event.team }}{% if event.player %} · {{ event.player }}{% endif %}{% if event.detail %} ({{ event.detail }}){% endif %}</span></div>
     {% endfor %}
@@ -158,5 +201,10 @@
     Detailed fixture evidence is limited for this result in the currently available provider payloads.
   </div>
   {% endif %}
+</div>
+
+<div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
+  <div class="section-title-sm" style="margin-bottom:.6rem;">How The Match Ended</div>
+  <p style="color:#c9d1d9; font-size:.92rem;">{{ comparison.evidence_summary }}</p>
 </div>
 {% endblock %}

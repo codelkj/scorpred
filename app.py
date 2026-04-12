@@ -234,9 +234,11 @@ def _format_prediction_date(value: str | None) -> str:
     raw = str(value or "").strip()
     if not raw:
         return "Unknown"
+    include_time = "T" in raw or (len(raw) > 10 and ":" in raw)
     for candidate in (raw, raw.replace("Z", "+00:00"), f"{raw[:10]}T00:00:00"):
         try:
-            return datetime.fromisoformat(candidate).strftime("%b %d, %Y")
+            fmt = "%b %d, %Y %H:%M UTC" if include_time else "%b %d, %Y"
+            return datetime.fromisoformat(candidate).strftime(fmt)
         except ValueError:
             continue
     return raw[:10]
@@ -282,6 +284,10 @@ def _format_stat_number(value: float | None, *, percent: bool = False) -> str:
 
 
 def _prediction_pick_display(record: dict) -> str:
+    if record.get("predicted_winner_display"):
+        return str(record.get("predicted_winner_display") or "Unknown")
+    if record.get("predicted_pick_label"):
+        return str(record.get("predicted_pick_label") or "Unknown")
     winner_code = str(record.get("predicted_winner", "")).strip().lower()
     if winner_code == "a":
         return record.get("team_a", "Team A")
@@ -289,7 +295,58 @@ def _prediction_pick_display(record: dict) -> str:
         return record.get("team_b", "Team B")
     if winner_code == "draw":
         return "Draw"
-    return str(record.get("predicted_winner") or "Unknown")
+    label = str(record.get("predicted_winner") or "Unknown").strip()
+    if label.lower().endswith(" win"):
+        label = label[:-4].strip()
+    return label or "Unknown"
+
+
+def _predicted_outcome_probability(record: dict) -> float | None:
+    predicted_code = str(record.get("predicted_winner_code") or record.get("predicted_winner") or "").lower()
+    mapping = {"a": "prob_a", "b": "prob_b", "draw": "prob_draw"}
+    key = mapping.get(predicted_code)
+    if not key:
+        return None
+    raw = record.get(key)
+    return _safe_float(raw) if raw is not None else None
+
+
+def _prediction_sentence(record: dict) -> str:
+    predicted = _prediction_pick_display(record)
+    return "Draw" if predicted == "Draw" else f"{predicted} to win"
+
+
+def _reality_sentence(record: dict) -> str:
+    actual_winner = record.get("actual_winner") or "Unknown"
+    final_score = record.get("final_score_display") or "Unknown"
+    if actual_winner == "Draw":
+        return f"Match drawn {final_score}" if final_score != "Unknown" else "Match drawn"
+    return f"{actual_winner} won {final_score}" if final_score != "Unknown" else actual_winner
+
+
+def _prepare_model_component_sections(record: dict) -> list[dict]:
+    factors = record.get("model_factors") if isinstance(record.get("model_factors"), dict) else {}
+    sections: list[dict] = []
+
+    for team_key, title in (("team_a", record.get("team_a") or "Team A"), ("team_b", record.get("team_b") or "Team B")):
+        team_factors = factors.get(team_key)
+        if not isinstance(team_factors, dict):
+            continue
+        rows = [
+            {"label": key.replace("_", " ").title(), "value": round(value, 2) if isinstance(value, float) else value}
+            for key, value in team_factors.items()
+        ]
+        if rows:
+            sections.append({"title": f"{title} model components", "rows": rows})
+
+    general_rows = [
+        {"label": key.replace("_", " ").title(), "value": round(value, 2) if isinstance(value, float) else value}
+        for key, value in factors.items()
+        if not isinstance(value, dict)
+    ]
+    if general_rows:
+        sections.insert(0, {"title": "Model factors", "rows": general_rows})
+    return sections
 
 
 def _actual_outcome_probability(record: dict) -> float | None:
@@ -303,9 +360,6 @@ def _actual_outcome_probability(record: dict) -> float | None:
 
 
 def _build_prediction_vs_reality(record: dict, evidence_summary: str | None = None) -> dict:
-    predicted = _prediction_pick_display(record)
-    actual_winner = record.get("actual_winner") or "Unknown"
-    final_score = record.get("final_score_display") or "Unknown"
     confidence = record.get("confidence") or "Unknown"
     winner_hit = bool(record.get("winner_hit")) if record.get("status") == "completed" else None
 
@@ -326,13 +380,14 @@ def _build_prediction_vs_reality(record: dict, evidence_summary: str | None = No
         else:
             upset_label = "Expected range"
 
-    reality_text = f"{actual_winner} ({final_score})" if final_score != "Unknown" else actual_winner
+    predicted_prob = _predicted_outcome_probability(record)
     return {
-        "prediction_text": f"{predicted} to win",
-        "reality_text": reality_text,
+        "prediction_text": _prediction_sentence(record),
+        "reality_text": _reality_sentence(record),
         "confidence": confidence,
         "verdict": verdict,
         "upset_label": upset_label,
+        "predicted_outcome_probability": predicted_prob,
         "actual_outcome_probability": actual_prob,
         "evidence_summary": evidence_summary or "Limited evidence available from the current data providers.",
     }
@@ -373,6 +428,13 @@ def _build_soccer_evidence(record: dict) -> dict:
         "available": False,
         "metrics": [],
         "key_events": [],
+        "goal_scorers": {
+            "available": False,
+            "home_team": record.get("team_a") or "Home",
+            "away_team": record.get("team_b") or "Away",
+            "home_goals": [],
+            "away_goals": [],
+        },
         "player_impacts": [],
         "injuries": {},
         "form_compare": {},
@@ -398,7 +460,11 @@ def _build_soccer_evidence(record: dict) -> dict:
     team_b_id = _safe_int((team_b or {}).get("id"))
 
     fixture = None
-    if team_a_id and team_b_id:
+    fixture_id = _safe_int(record.get("fixture_id"))
+    if fixture_id:
+        fixture = ac.get_fixture_by_id(fixture_id)
+
+    if team_a_id and team_b_id and not fixture:
         try:
             h2h_candidates = ac.get_h2h(team_a_id, team_b_id, last=20)
         except Exception:
@@ -435,14 +501,31 @@ def _build_soccer_evidence(record: dict) -> dict:
                     fixture = item
                     break
 
-    enriched = fixture or {}
-    if fixture:
-        try:
-            enriched = ac.enrich_fixture(fixture)
-        except Exception:
-            enriched = {**fixture, "stats": [], "events": []}
+    if not fixture_id and fixture:
+        fixture_id = _safe_int((fixture.get("fixture") or {}).get("id"))
 
-    stats_rows = enriched.get("stats") or []
+    stats_rows = []
+    raw_events = []
+    if fixture_id:
+        try:
+            stats_rows = ac.get_fixture_stats(fixture_id)
+        except Exception:
+            stats_rows = []
+        try:
+            raw_events = ac.get_fixture_events(fixture_id)
+        except Exception:
+            raw_events = []
+        try:
+            goal_scorers = ac.get_match_events(fixture_id)
+            goal_scorers["available"] = True
+            if not goal_scorers.get("home_team"):
+                goal_scorers["home_team"] = team_a_name
+            if not goal_scorers.get("away_team"):
+                goal_scorers["away_team"] = team_b_name
+            evidence["goal_scorers"] = goal_scorers
+        except Exception:
+            pass
+
     team_a_row = next(
         (row for row in stats_rows if _team_names_match((row.get("team") or {}).get("name", ""), team_a_name)),
         {},
@@ -495,12 +578,18 @@ def _build_soccer_evidence(record: dict) -> dict:
         )
 
     events = []
-    for event in (enriched.get("events") or [])[:40]:
+    for event in raw_events[:40]:
         event_type = str(event.get("type") or "")
-        if event_type not in {"Goal", "Card", "subst", "Var"}:
+        if event_type not in {"Card", "subst", "Var"}:
             continue
         elapsed = ((event.get("time") or {}).get("elapsed"))
-        elapsed_display = f"{elapsed}'" if elapsed is not None else ""
+        extra = ((event.get("time") or {}).get("extra"))
+        if elapsed is None:
+            elapsed_display = ""
+        elif extra not in (None, "", 0):
+            elapsed_display = f"{elapsed}+{extra}'"
+        else:
+            elapsed_display = f"{elapsed}'"
         player_name = ((event.get("player") or {}).get("name") or "")
         detail = str(event.get("detail") or event.get("comments") or "").strip()
         team_name = ((event.get("team") or {}).get("name") or "")
@@ -517,7 +606,6 @@ def _build_soccer_evidence(record: dict) -> dict:
             break
 
     player_impacts = []
-    fixture_id = _safe_int((fixture or {}).get("fixture", {}).get("id"))
     if fixture_id:
         try:
             player_rows = ac.get_fixture_players(fixture_id)
@@ -574,19 +662,41 @@ def _build_soccer_evidence(record: dict) -> dict:
             "notable": [row.get("name") for row in items[:4] if row.get("name")],
         }
 
-    if support_score >= 2:
-        summary = "Match stats strongly supported the actual winner through chance quality and control metrics."
-    elif support_score >= 0:
-        summary = "Stat profile was mixed, but the eventual winner still showed enough edge in key moments."
-    else:
-        summary = "Underlying stats conflicted with the final result, suggesting variance or decisive moments not captured by volume alone."
+    actual_winner = record.get("actual_winner") or "Unknown"
+    winner_support = [row["label"] for row in metrics if row.get("leader") == actual_winner][:3]
+    decisive_goal = None
+    if actual_winner == team_a_name:
+        decisive_goal = (evidence["goal_scorers"].get("home_goals") or [None])[0]
+    elif actual_winner == team_b_name:
+        decisive_goal = (evidence["goal_scorers"].get("away_goals") or [None])[0]
 
-    if not metrics and not events:
+    if actual_winner == "Draw":
+        summary = f"The match finished level at {record.get('final_score_display') or '0-0'}. The available evidence suggests neither side created a decisive enough edge to separate the game."
+    elif winner_support:
+        support_text = ", ".join(winner_support[:-1]) + (f" and {winner_support[-1]}" if len(winner_support) > 1 else winner_support[0])
+        summary = f"{actual_winner} won {record.get('final_score_display')}. They led the match in {support_text}."
+    elif support_score < 0:
+        summary = f"{actual_winner} won {record.get('final_score_display')}, but the available stats were mixed and did not fully point toward that winner."
+    else:
+        summary = f"{actual_winner} won {record.get('final_score_display')}, with the available evidence showing a narrow rather than overwhelming edge."
+
+    if decisive_goal and decisive_goal.get("player"):
+        summary += f" The decisive scoring moment came from {decisive_goal['player']} at {decisive_goal['minute']}"
+        if decisive_goal.get("type") not in {"Goal", ""}:
+            summary += f" ({decisive_goal['type'].lower()})"
+        summary += "."
+
+    if record.get("winner_hit") is True:
+        summary += f" That aligned with the model's winner call on {_prediction_pick_display(record)}."
+    elif record.get("winner_hit") is False:
+        summary += f" That contradicted the model's winner call on {_prediction_pick_display(record)}."
+
+    if not metrics and not events and not evidence["goal_scorers"].get("available"):
         summary = "Detailed fixture stats were unavailable from provider feeds for this completed match."
 
     evidence.update(
         {
-            "available": bool(metrics or events or player_impacts),
+            "available": bool(metrics or events or player_impacts or evidence["goal_scorers"].get("available")),
             "metrics": metrics,
             "key_events": events,
             "player_impacts": player_impacts,
@@ -608,6 +718,13 @@ def _build_nba_evidence(record: dict) -> dict:
         "available": False,
         "metrics": [],
         "key_events": [],
+        "goal_scorers": {
+            "available": False,
+            "home_team": record.get("team_a") or "Home",
+            "away_team": record.get("team_b") or "Away",
+            "home_goals": [],
+            "away_goals": [],
+        },
         "player_impacts": [],
         "injuries": {},
         "form_compare": {},
@@ -632,8 +749,17 @@ def _build_nba_evidence(record: dict) -> dict:
     candidate_days.extend([datetime.now() - timedelta(days=1), datetime.now(), datetime.now() + timedelta(days=1)])
 
     matched_game = None
+    fixture_id = str(record.get("fixture_id") or "").strip()
+    if fixture_id:
+        try:
+            matched_game = nc.get_event_snapshot(fixture_id, date_hint=target_date)
+        except Exception:
+            matched_game = None
+
     seen_ids = set()
     for day in candidate_days:
+        if matched_game:
+            break
         try:
             games = nc.get_scoreboard_games(day)
         except Exception:
@@ -989,7 +1115,11 @@ def _bootstrap_model_tracking() -> dict[str, int]:
                 league_id=league_id,
                 league_name=(LEAGUE_BY_ID.get(league_id) or {}).get("name"),
                 prediction_notes=best_pick.get("reasoning"),
-                model_factors=prediction.get("component_scores") if isinstance(prediction.get("component_scores"), dict) else {},
+                model_factors={
+                    "team_a": prediction.get("components_a") if isinstance(prediction.get("components_a"), dict) else {},
+                    "team_b": prediction.get("components_b") if isinstance(prediction.get("components_b"), dict) else {},
+                },
+                fixture_id=(fixture.get("fixture") or {}).get("id"),
             )
             predictions_generated += 1
             if existing:
@@ -1123,7 +1253,11 @@ def _bootstrap_model_tracking() -> dict[str, int]:
                     confidence=conf,
                     game_date=fixture_date,
                     prediction_notes=best_pick.get("reasoning"),
-                    model_factors=prediction.get("component_scores") if isinstance(prediction.get("component_scores"), dict) else {},
+                    model_factors={
+                        "team_a": prediction.get("components_a") if isinstance(prediction.get("components_a"), dict) else {},
+                        "team_b": prediction.get("components_b") if isinstance(prediction.get("components_b"), dict) else {},
+                    },
+                    fixture_id=game.get("id"),
                 )
                 predictions_generated += 1
                 if existing:
@@ -2340,7 +2474,7 @@ def prediction_result_detail(prediction_id: str):
     ]
     probability_rows = [row for row in probability_rows if row]
 
-    model_components = record.get("model_factors") if isinstance(record.get("model_factors"), dict) else {}
+    model_component_sections = _prepare_model_component_sections(record)
 
     return render_template(
         "prediction_result_detail.html",
@@ -2352,7 +2486,7 @@ def prediction_result_detail(prediction_id: str):
             probability_rows=probability_rows,
             evidence=evidence,
             comparison=comparison,
-            model_components=model_components,
+            model_component_sections=model_component_sections,
         ),
     )
 

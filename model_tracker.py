@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 import uuid
@@ -50,6 +51,61 @@ def _migrate_predictions() -> None:
                 else:
                     pred["status"] = "pending"
                 migrated = True
+
+            if "prediction_market" not in pred:
+                pred["prediction_market"] = "winner"
+                migrated = True
+
+            if "fixture_id" not in pred:
+                pred["fixture_id"] = None
+                migrated = True
+
+            original_pick = pred.get("predicted_winner")
+            normalized_pick = _winner_choice_code(
+                original_pick,
+                pred.get("team_a", ""),
+                pred.get("team_b", ""),
+            )
+            if normalized_pick and pred.get("predicted_winner") != normalized_pick:
+                pred["predicted_winner"] = normalized_pick
+                migrated = True
+
+            display_pick = _prediction_label_from_value(
+                pred.get("predicted_pick_label") or original_pick,
+                pred.get("team_a", ""),
+                pred.get("team_b", ""),
+            )
+            if pred.get("predicted_pick_label") != display_pick:
+                pred["predicted_pick_label"] = display_pick
+                migrated = True
+
+            actual_result = pred.get("actual_result")
+            normalized_actual = _winner_choice_code(
+                actual_result,
+                pred.get("team_a", ""),
+                pred.get("team_b", ""),
+            )
+            if actual_result and normalized_actual and actual_result != normalized_actual:
+                pred["actual_result"] = normalized_actual
+                migrated = True
+
+            if pred.get("status") == "completed" or pred.get("actual_result"):
+                outcome = _compute_prediction_outcome(pred)
+                if pred.get("is_correct") != outcome["winner_hit"]:
+                    pred["is_correct"] = outcome["winner_hit"]
+                    migrated = True
+                if pred.get("actual_winner") != outcome["actual_winner"]:
+                    pred["actual_winner"] = outcome["actual_winner"]
+                    migrated = True
+                if pred.get("winner_result") != outcome["winner_result"]:
+                    pred["winner_result"] = outcome["winner_result"]
+                    migrated = True
+                if pred.get("totals_result") != outcome["totals_result"]:
+                    pred["totals_result"] = outcome["totals_result"]
+                    migrated = True
+                if pred.get("overall_result") != outcome["overall_result"]:
+                    pred["overall_result"] = outcome["overall_result"]
+                    migrated = True
         
         if migrated:
             with open(_TRACKING_FILE, "w", encoding="utf-8") as f:
@@ -107,6 +163,49 @@ def _get_game_key(
     return "|".join(parts)
 
 
+def _normalized_text(value: str | None) -> str:
+    """Return a lowercase, alphanumeric-only token stream for fuzzy comparisons."""
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower()).strip()
+
+
+def _winner_choice_code(value: str | None, team_a: str = "", team_b: str = "") -> str:
+    """Normalize raw winner labels into canonical tracking codes A/B/draw."""
+    text = _normalized_text(value)
+    if not text:
+        return ""
+
+    if text in {"a", "team a", "home", "home win"}:
+        return "A"
+    if text in {"b", "team b", "away", "away win"}:
+        return "B"
+    if text in {"draw", "tie", "x"} or "draw" in text or "tie" in text:
+        return "draw"
+
+    team_a_norm = _normalized_text(team_a)
+    team_b_norm = _normalized_text(team_b)
+    if team_a_norm and (text == team_a_norm or text == f"{team_a_norm} win" or text.startswith(f"{team_a_norm} ")):
+        return "A"
+    if team_b_norm and (text == team_b_norm or text == f"{team_b_norm} win" or text.startswith(f"{team_b_norm} ")):
+        return "B"
+    return ""
+
+
+def _prediction_label_from_value(value: str | None, team_a: str = "", team_b: str = "") -> str:
+    """Convert a raw stored pick into a clean human-readable winner label."""
+    choice = _winner_choice_code(value, team_a, team_b)
+    if choice == "A":
+        return team_a or "Team A"
+    if choice == "B":
+        return team_b or "Team B"
+    if choice == "draw":
+        return "Draw"
+
+    text = str(value or "").strip()
+    if text.lower().endswith(" win"):
+        text = text[:-4].strip()
+    return text or "Unknown"
+
+
 def _compute_prediction_outcome(prediction: dict) -> dict:
     """Compute winner/totals display values for a completed prediction.
 
@@ -115,11 +214,19 @@ def _compute_prediction_outcome(prediction: dict) -> dict:
     """
     sport = (prediction.get("sport") or "").lower()
     final_score = prediction.get("final_score") or {}
-    actual_result = prediction.get("actual_result") or ""
-    predicted_winner = prediction.get("predicted_winner") or ""
+    actual_result = _winner_choice_code(
+        prediction.get("actual_result"),
+        prediction.get("team_a", ""),
+        prediction.get("team_b", ""),
+    )
+    predicted_winner = _winner_choice_code(
+        prediction.get("predicted_winner"),
+        prediction.get("team_a", ""),
+        prediction.get("team_b", ""),
+    )
 
-    winner_hit = actual_result == predicted_winner
-    actual_winner = "Unknown"
+    winner_hit = bool(actual_result and predicted_winner and actual_result == predicted_winner)
+    actual_winner = prediction.get("actual_winner") or "Unknown"
     if actual_result == "A":
         actual_winner = prediction.get("team_a", "Unknown")
     elif actual_result == "B":
@@ -158,14 +265,13 @@ def _compute_prediction_outcome(prediction: dict) -> dict:
 
 def _display_predicted_winner(prediction: dict) -> str:
     """Return a human-readable predicted winner label for a stored prediction."""
-    winner_code = str(prediction.get("predicted_winner", "")).strip().lower()
-    if winner_code == "a":
-        return prediction.get("team_a", "Team A")
-    if winner_code == "b":
-        return prediction.get("team_b", "Team B")
-    if winner_code == "draw":
-        return "Draw"
-    return str(prediction.get("predicted_winner") or "Unknown")
+    if prediction.get("predicted_pick_label"):
+        return str(prediction.get("predicted_pick_label") or "Unknown")
+    return _prediction_label_from_value(
+        prediction.get("predicted_winner"),
+        prediction.get("team_a", ""),
+        prediction.get("team_b", ""),
+    )
 
 
 def _enhance_prediction_record(prediction: dict) -> dict:
@@ -174,8 +280,13 @@ def _enhance_prediction_record(prediction: dict) -> dict:
     sport = str(pred.get("sport") or "").lower()
     final_score = pred.get("final_score", {})
 
+    pred["prediction_market"] = str(pred.get("prediction_market") or "winner").lower()
     pred["predicted_winner_display"] = _display_predicted_winner(pred)
-    pred["predicted_winner_code"] = str(pred.get("predicted_winner") or "").lower()
+    pred["predicted_winner_code"] = _winner_choice_code(
+        pred.get("predicted_winner"),
+        pred.get("team_a", ""),
+        pred.get("team_b", ""),
+    )
 
     if isinstance(final_score, dict) and "a" in final_score and "b" in final_score:
         total_value = final_score.get("a", 0) + final_score.get("b", 0)
@@ -212,6 +323,8 @@ def save_prediction(
     league_name: str | None = None,
     prediction_notes: str | None = None,
     model_factors: dict[str, Any] | None = None,
+    fixture_id: str | int | None = None,
+    prediction_market: str = "winner",
 ) -> str:
     """
     Save or update a prediction in the tracking file.
@@ -220,6 +333,10 @@ def save_prediction(
     If a matching game already exists, update the existing record instead of creating a duplicate.
     """
     predictions = _load_predictions()
+    normalized_pick = _winner_choice_code(predicted_winner, team_a, team_b) or str(predicted_winner or "").strip()
+    predicted_pick_label = _prediction_label_from_value(predicted_winner, team_a, team_b)
+    normalized_market = str(prediction_market or "winner").strip().lower() or "winner"
+    fixture_id_value = str(fixture_id).strip() if fixture_id is not None and str(fixture_id).strip() else None
     
     game_date_normalized = _normalize_date(game_date)
     game_key = _get_game_key(sport, game_date_normalized, team_a, team_b, league_id)
@@ -235,11 +352,13 @@ def save_prediction(
         )
         if existing_key == game_key:
             if existing.get("status") != "completed":
-                existing["predicted_winner"] = predicted_winner
+                existing["predicted_winner"] = normalized_pick
+                existing["predicted_pick_label"] = predicted_pick_label
                 existing["prob_a"] = round(win_probs.get("a", 0), 1)
                 existing["prob_b"] = round(win_probs.get("b", 0), 1)
                 existing["prob_draw"] = round(win_probs.get("draw", 0), 1)
                 existing["confidence"] = confidence
+                existing["prediction_market"] = normalized_market
                 existing["status"] = "pending"
                 existing["actual_result"] = None
                 existing["is_correct"] = None
@@ -250,6 +369,7 @@ def save_prediction(
                 existing["overall_result"] = None
                 existing["league_id"] = league_id
                 existing["league_name"] = league_name
+                existing["fixture_id"] = fixture_id_value
                 existing["prediction_notes"] = prediction_notes
                 existing["model_factors"] = model_factors if isinstance(model_factors, dict) else {}
                 existing["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
@@ -266,13 +386,16 @@ def save_prediction(
         "game_date": game_date_normalized,
         "team_a": team_a,
         "team_b": team_b,
-        "predicted_winner": predicted_winner,
+        "predicted_winner": normalized_pick,
+        "predicted_pick_label": predicted_pick_label,
         "prob_a": round(win_probs.get("a", 0), 1),
         "prob_b": round(win_probs.get("b", 0), 1),
         "prob_draw": round(win_probs.get("draw", 0), 1),
         "confidence": confidence,
+        "prediction_market": normalized_market,
         "league_id": league_id,
         "league_name": league_name,
+        "fixture_id": fixture_id_value,
         "prediction_notes": prediction_notes,
         "model_factors": model_factors if isinstance(model_factors, dict) else {},
         "status": "pending",
@@ -327,7 +450,12 @@ def clean_duplicate_predictions() -> int:
     return removed
 
 
-def update_prediction_result(pred_id: str, actual_result: str, final_score: dict | None = None) -> bool:
+def update_prediction_result(
+    pred_id: str,
+    actual_result: str,
+    final_score: dict | None = None,
+    fixture_id: str | int | None = None,
+) -> bool:
     """
     Update a prediction with the actual game result and final score.
     
@@ -342,11 +470,17 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
     
     for pred in predictions:
         if pred.get("id") == pred_id:
-            pred["actual_result"] = actual_result
-            pred["is_correct"] = (pred.get("predicted_winner") == actual_result)
+            pred["actual_result"] = _winner_choice_code(
+                actual_result,
+                pred.get("team_a", ""),
+                pred.get("team_b", ""),
+            ) or str(actual_result or "")
             pred["status"] = "completed"
             pred["final_score"] = final_score
+            if fixture_id is not None and str(fixture_id).strip():
+                pred["fixture_id"] = str(fixture_id).strip()
             outcome = _compute_prediction_outcome(pred)
+            pred["is_correct"] = outcome["winner_hit"]
             pred["actual_winner"] = outcome["actual_winner"]
             pred["winner_result"] = outcome["winner_result"]
             pred["totals_result"] = outcome["totals_result"]

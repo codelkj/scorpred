@@ -555,6 +555,7 @@ class TestPredictionResultDetailRoute:
             "team_a": "Arsenal",
             "team_b": "Bournemouth",
             "predicted_winner": "A",
+            "predicted_winner_code": "a",
             "predicted_winner_display": "Arsenal",
             "prob_a": 63.4,
             "prob_b": 21.2,
@@ -567,14 +568,25 @@ class TestPredictionResultDetailRoute:
             "game_win": False,
             "overall_game_result": "Loss",
             "final_score_display": "1-2",
+            "total_scored": 3,
             "total_label": "Total Goals: 3",
             "prediction_notes": "Arsenal projected edge on recent form.",
-            "model_factors": {"form": 7.2, "defense": 6.9},
+            "model_factors": {"team_a": {"form": 7.2}, "team_b": {"form": 6.9}},
         }
         evidence = {
             "available": True,
             "metrics": [{"label": "Shots on Target", "team_a": "4", "team_b": "6", "leader": "Bournemouth"}],
             "key_events": [],
+            "goal_scorers": {
+                "available": True,
+                "home_team": "Arsenal",
+                "away_team": "Bournemouth",
+                "home_goals": [{"player": "Saka", "minute": "14'", "type": "Goal", "team": "Arsenal"}],
+                "away_goals": [
+                    {"player": "Semenyo", "minute": "48'", "type": "Goal", "team": "Bournemouth"},
+                    {"player": "Solanke", "minute": "73'", "type": "Penalty", "team": "Bournemouth"},
+                ],
+            },
             "player_impacts": [],
             "injuries": {},
             "form_compare": {},
@@ -588,6 +600,63 @@ class TestPredictionResultDetailRoute:
         assert rv.status_code == 200
         assert b"Prediction Result Detail" in rv.data
         assert b"Bournemouth were more clinical" in rv.data
+        assert b"Solanke" in rv.data
+
+    def test_prediction_result_detail_shows_hit_for_correct_winner_pick_even_if_totals_context_differs(self, client):
+        record = {
+            "id": "pred-hit-1",
+            "sport": "soccer",
+            "league_name": "Premier League",
+            "date": "2026-04-12",
+            "created_at": "2026-04-12T10:30:00Z",
+            "updated_at": "2026-04-12T18:00:00Z",
+            "team_a": "Sunderland",
+            "team_b": "Tottenham Hotspur",
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "predicted_winner_display": "Sunderland",
+            "prob_a": 60.5,
+            "prob_b": 13.5,
+            "prob_draw": 26.0,
+            "confidence": "High",
+            "status": "completed",
+            "actual_result": "A",
+            "actual_winner": "Sunderland",
+            "winner_hit": True,
+            "game_win": True,
+            "overall_game_result": "Win",
+            "final_score_display": "1-0",
+            "total_scored": 1,
+            "total_label": "Total Goals: 1",
+            "ou_display": "U/O 2.5: Miss",
+            "model_factors": {},
+        }
+        evidence = {
+            "available": True,
+            "metrics": [],
+            "key_events": [],
+            "goal_scorers": {
+                "available": True,
+                "home_team": "Sunderland",
+                "away_team": "Tottenham Hotspur",
+                "home_goals": [{"player": "Player A", "minute": "23'", "type": "Goal", "team": "Sunderland"}],
+                "away_goals": [],
+            },
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "Sunderland converted the decisive chance and the winner call landed.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_soccer_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/pred-hit-1")
+
+        assert rv.status_code == 200
+        assert b"Sunderland to win" in rv.data
+        assert b"Sunderland won 1-0" in rv.data
+        assert b">Hit<" in rv.data
+        assert b"Totals Context (secondary)" in rv.data
 
     def test_prediction_result_detail_invalid_id_returns_404(self, client):
         with patch("model_tracker.get_prediction_by_id", return_value=None):
@@ -616,12 +685,20 @@ class TestPredictionResultDetailRoute:
             "game_win": True,
             "overall_game_result": "Win",
             "final_score_display": "112-108",
+            "total_scored": 220,
             "model_factors": {},
         }
         evidence = {
             "available": False,
             "metrics": [],
             "key_events": [],
+            "goal_scorers": {
+                "available": False,
+                "home_team": "Celtics",
+                "away_team": "Heat",
+                "home_goals": [],
+                "away_goals": [],
+            },
             "player_impacts": [],
             "injuries": {},
             "form_compare": {},
@@ -634,6 +711,59 @@ class TestPredictionResultDetailRoute:
 
         assert rv.status_code == 200
         assert b"Detailed fixture evidence is limited" in rv.data
+
+    def test_prediction_result_detail_handles_scoreless_draw_cleanly(self, client):
+        record = {
+            "id": "pred-0-0",
+            "sport": "soccer",
+            "league_name": "Premier League",
+            "date": "2026-04-12",
+            "created_at": "2026-04-12T10:30:00Z",
+            "updated_at": "2026-04-12T18:00:00Z",
+            "team_a": "Burnley",
+            "team_b": "Everton",
+            "predicted_winner": "draw",
+            "predicted_winner_code": "draw",
+            "predicted_winner_display": "Draw",
+            "prob_a": 28.0,
+            "prob_b": 30.0,
+            "prob_draw": 42.0,
+            "confidence": "Medium",
+            "status": "completed",
+            "actual_result": "draw",
+            "actual_winner": "Draw",
+            "winner_hit": True,
+            "game_win": True,
+            "overall_game_result": "Win",
+            "final_score_display": "0-0",
+            "total_scored": 0,
+            "total_label": "Total Goals: 0",
+            "model_factors": {},
+        }
+        evidence = {
+            "available": True,
+            "metrics": [],
+            "key_events": [],
+            "goal_scorers": {
+                "available": True,
+                "home_team": "Burnley",
+                "away_team": "Everton",
+                "home_goals": [],
+                "away_goals": [],
+            },
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "The match finished level with no goals and little separation in the available evidence.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_soccer_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/pred-0-0")
+
+        assert rv.status_code == 200
+        assert b"Match drawn 0-0" in rv.data
+        assert b"No goals scored." in rv.data
 
     def test_model_performance_completed_cards_link_to_detail_route(self, client):
         completed = [

@@ -77,6 +77,7 @@ def fetch_soccer_result(
     Returns:
         {
             "status": "FT|AET|PEN|...",
+            "fixture_id": int,
             "score": {"a": int, "b": int},
             "winner": "A|B|D",
             "teams": {"a": str, "b": str},
@@ -142,6 +143,7 @@ def fetch_soccer_result(
                 
                 return {
                     "status": status,
+                    "fixture_id": (fixture.get("fixture") or {}).get("id"),
                     "score": {"a": h_goals, "b": a_goals},
                     "winner": winner,
                     "teams": {"a": h_name, "b": a_name},
@@ -162,6 +164,7 @@ def fetch_soccer_result(
                 
                 return {
                     "status": status,
+                    "fixture_id": (fixture.get("fixture") or {}).get("id"),
                     "score": {"a": a_goals, "b": h_goals},
                     "winner": winner,
                     "teams": {"a": a_name, "b": h_name},
@@ -189,6 +192,7 @@ def fetch_nba_result(
     Returns:
         {
             "status": "Final",
+            "fixture_id": str,
             "score": {"a": int, "b": int},
             "winner": "A|B",
             "teams": {"a": str, "b": str},
@@ -255,6 +259,7 @@ def fetch_nba_result(
                 
                 return {
                     "status": status,
+                    "fixture_id": game.get("id"),
                     "score": {"a": home_score, "b": away_score},
                     "winner": winner,
                     "teams": {"a": home_name, "b": away_name},
@@ -270,6 +275,7 @@ def fetch_nba_result(
                 
                 return {
                     "status": status,
+                    "fixture_id": game.get("id"),
                     "score": {"a": away_score, "b": home_score},
                     "winner": winner,
                     "teams": {"a": away_name, "b": home_name},
@@ -347,9 +353,10 @@ def update_pending_predictions() -> dict[str, Any]:
             stats["found"] += 1
             actual_winner = result.get("winner", "")
             final_score = result.get("score", None)
+            fixture_id = result.get("fixture_id")
             
             # Update the prediction with result and final score
-            if mt.update_prediction_result(pred_id, actual_winner, final_score):
+            if mt.update_prediction_result(pred_id, actual_winner, final_score, fixture_id=fixture_id):
                 stats["updated"] += 1
         else:
             # Log why the result wasn't found

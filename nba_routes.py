@@ -955,7 +955,11 @@ def prediction():
                 win_probs=probs,
                 confidence=conf,
                 prediction_notes=best_pick.get("reasoning"),
-                model_factors=scorpred.get("component_scores") if isinstance(scorpred.get("component_scores"), dict) else {},
+                model_factors={
+                    "team_a": scorpred.get("components_a") if isinstance(scorpred.get("components_a"), dict) else {},
+                    "team_b": scorpred.get("components_b") if isinstance(scorpred.get("components_b"), dict) else {},
+                },
+                fixture_id=(selected_game or game_snapshot or {}).get("id"),
             )
     except Exception:
         pass  # Silent fail if tracking fails

@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import model_tracker as mt
 import result_updater as ru
+import api_client as ac
 
 
 def _mock_nba_game() -> dict:
@@ -43,6 +44,32 @@ class TestTrackingMetrics:
         assert metrics["wins"] == 1
         assert metrics["losses"] == 0
         assert metrics["overall_accuracy"] == 100.0
+
+    def test_team_name_prediction_label_grades_hit_and_keeps_totals_secondary(self, tmp_path):
+        tracking_file = tmp_path / "prediction_tracking.json"
+        with patch.object(mt, "_TRACKING_FILE", str(tracking_file)):
+            pred_id = mt.save_prediction(
+                sport="soccer",
+                team_a="Sunderland",
+                team_b="Tottenham Hotspur",
+                predicted_winner="Sunderland Win",
+                win_probs={"a": 60.5, "b": 13.5, "draw": 26.0},
+                confidence="High",
+                game_date="2026-04-12",
+                fixture_id=321,
+            )
+            mt.update_prediction_result(pred_id, "A", {"a": 1, "b": 0}, fixture_id=321)
+
+            record = mt.get_prediction_by_id(pred_id)
+
+        assert record is not None
+        assert record["predicted_winner"] == "A"
+        assert record["predicted_winner_display"] == "Sunderland"
+        assert record["winner_hit"] is True
+        assert record["game_win"] is True
+        assert record["ou_hit"] is False
+        assert record["overall_game_result"] == "Win"
+        assert record["fixture_id"] == "321"
 
     def test_summary_metrics_zero_completed(self, tmp_path):
         tracking_file = tmp_path / "prediction_tracking.json"
@@ -118,6 +145,7 @@ class TestResultUpdater:
         assert result["found"] is True
         assert result["winner"] == "A"
         assert result["score"] == {"a": 110, "b": 101}
+        assert result["fixture_id"] == "game-1"
 
     def test_fetch_nba_result_ignores_non_final_games(self):
         game = _mock_nba_game()
@@ -219,3 +247,66 @@ class TestResultUpdater:
                 ru.update_pending_predictions()
 
         assert fetch_mock.call_args.kwargs["league_id"] == 140
+
+
+class TestMatchEventsHelper:
+    def test_get_match_events_filters_goals_penalties_own_goals_and_dedupes(self):
+        fixture_payload = {
+            "response": [
+                {
+                    "teams": {
+                        "home": {"name": "Sunderland"},
+                        "away": {"name": "Tottenham Hotspur"},
+                    }
+                }
+            ]
+        }
+        events = [
+            {
+                "type": "Goal",
+                "detail": "Normal Goal",
+                "team": {"name": "Sunderland"},
+                "player": {"name": "Player A"},
+                "time": {"elapsed": 23},
+            },
+            {
+                "type": "Goal",
+                "detail": "Normal Goal",
+                "team": {"name": "Sunderland"},
+                "player": {"name": "Player A"},
+                "time": {"elapsed": 23},
+            },
+            {
+                "type": "Goal",
+                "detail": "Penalty",
+                "team": {"name": "Tottenham Hotspur"},
+                "player": {"name": "Player B"},
+                "time": {"elapsed": 55},
+            },
+            {
+                "type": "Goal",
+                "detail": "Own Goal",
+                "team": {"name": "Tottenham Hotspur"},
+                "player": {"name": "Player C"},
+                "time": {"elapsed": 67},
+            },
+            {
+                "type": "Card",
+                "detail": "Yellow Card",
+                "team": {"name": "Sunderland"},
+                "player": {"name": "Player D"},
+                "time": {"elapsed": 71},
+            },
+        ]
+
+        with patch("api_client.api_get", return_value=fixture_payload), \
+             patch("api_client.get_fixture_events", return_value=events):
+            result = ac.get_match_events(123)
+
+        assert result["home_team"] == "Sunderland"
+        assert result["away_team"] == "Tottenham Hotspur"
+        assert len(result["home_goals"]) == 2
+        assert result["home_goals"][0]["player"] == "Player A"
+        assert result["home_goals"][1]["type"] == "Own Goal"
+        assert len(result["away_goals"]) == 1
+        assert result["away_goals"][0]["type"] == "Penalty"
