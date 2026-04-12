@@ -376,6 +376,287 @@ def _actual_outcome_probability(record: dict) -> float | None:
     return _safe_float(raw) if raw is not None else None
 
 
+def _format_percent_value(value: float | None) -> str | None:
+    if value is None:
+        return None
+    rounded = round(value, 1)
+    return f"{int(rounded)}%" if float(rounded).is_integer() else f"{rounded}%"
+
+
+def _outcome_range_label(actual_prob: float | None) -> str | None:
+    if actual_prob is None:
+        return None
+    if actual_prob <= 25:
+        return "Major upset"
+    if actual_prob <= 40:
+        return "Notable upset"
+    return "Expected range"
+
+
+def _score_margin_from_display(final_score_display: str | None) -> int | None:
+    match = re.match(r"^\s*(\d+)\s*-\s*(\d+)\s*$", str(final_score_display or ""))
+    if not match:
+        return None
+    return abs(int(match.group(1)) - int(match.group(2)))
+
+
+def _natural_join(items: list[str]) -> str:
+    cleaned = [str(item).strip() for item in items if str(item).strip()]
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return cleaned[0]
+    if len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}"
+    return f"{', '.join(cleaned[:-1])}, and {cleaned[-1]}"
+
+
+def _filter_useful_injury_context(injuries: dict[str, dict]) -> dict[str, dict]:
+    useful = {}
+    for team_name, row in (injuries or {}).items():
+        count = _safe_int((row or {}).get("count"))
+        notable = [str(name).strip() for name in (row or {}).get("notable") or [] if str(name).strip()]
+        if count <= 0 and not notable:
+            continue
+        useful[team_name] = {
+            "count": count,
+            "notable": notable,
+        }
+    return useful
+
+
+def _summarize_form_compare(form_compare: dict[str, dict], actual_winner: str | None = None) -> str | None:
+    if not form_compare:
+        return None
+
+    segments = []
+    strength = {}
+    for team_name, row in form_compare.items():
+        wins = _safe_int(row.get("wins"))
+        losses = _safe_int(row.get("losses"))
+        if row.get("draws") is not None:
+            draws = _safe_int(row.get("draws"))
+            strength[team_name] = wins * 3 + draws
+            segments.append(f"{team_name} entered at {wins}W-{draws}D-{losses}L")
+        else:
+            strength[team_name] = wins
+            segments.append(f"{team_name} entered at {wins}W-{losses}L")
+
+    if len(strength) == 2 and actual_winner in strength:
+        other_team = next((name for name in strength if name != actual_winner), None)
+        if other_team:
+            if strength[actual_winner] > strength[other_team]:
+                prefix = "Recent form already leaned toward the eventual result"
+            elif strength[actual_winner] < strength[other_team]:
+                prefix = "Recent form did not clearly support the eventual winner"
+            else:
+                prefix = "Recent form was balanced before kickoff"
+            return f"{prefix}: {segments[0]}, while {segments[1]}."
+
+    return f"Recent form entering kickoff: {'; '.join(segments)}."
+
+
+def _summarize_injury_context(injuries: dict[str, dict]) -> str | None:
+    if not injuries:
+        return None
+
+    segments = []
+    for team_name, row in injuries.items():
+        count = _safe_int((row or {}).get("count"))
+        notable = [str(name).strip() for name in (row or {}).get("notable") or [] if str(name).strip()]
+        if count <= 0 and not notable:
+            continue
+        if notable:
+            notable_names = _natural_join(notable[:2])
+            if count > len(notable):
+                segments.append(f"{team_name} had {count} listed absences, including {notable_names}")
+            else:
+                segments.append(f"{team_name} were missing {notable_names}")
+        else:
+            segments.append(f"{team_name} had {count} listed absences")
+
+    if not segments:
+        return None
+    return f"Injury context: {'; '.join(segments)}."
+
+
+def _build_evidence_summary(
+    record: dict,
+    evidence_layer: str,
+    *,
+    form_compare: dict[str, dict] | None = None,
+    injuries: dict[str, dict] | None = None,
+    extra_points: list[str] | None = None,
+) -> tuple[list[dict], list[str], str]:
+    sport = str(record.get("sport") or "").lower()
+    predicted_pick = _prediction_pick_display(record)
+    predicted_prob = _predicted_outcome_probability(record)
+    actual_prob = _actual_outcome_probability(record)
+    upset_label = _outcome_range_label(actual_prob)
+    actual_winner = record.get("actual_winner") or "Unknown"
+    final_score = record.get("final_score_display") or "Unknown"
+    winner_hit = record.get("winner_hit")
+    winner_leg = "Hit" if winner_hit is True else "Miss" if winner_hit is False else "Pending"
+    totals_pick = record.get("totals_pick_display")
+    totals_hit = record.get("ou_hit")
+    totals_leg = "Hit" if totals_hit is True else "Miss" if totals_hit is False else "Pending"
+    total_scored = record.get("total_scored")
+    actual_total_side = record.get("actual_total_side")
+    confidence = record.get("confidence") or "Unknown"
+    score_margin = _score_margin_from_display(final_score)
+    is_soccer = sport == "soccer"
+    measure_label = "goal" if is_soccer else "point"
+    total_label = measure_label if total_scored == 1 else f"{measure_label}s"
+
+    layer_labels = {
+        "stats": "Full match stats",
+        "events": "Match events",
+        "summary": "Evidence summary",
+    }
+    summary_rows = [
+        {"label": "Evidence Layer", "value": layer_labels.get(evidence_layer, "Evidence summary")},
+        {"label": "Final Score", "value": final_score},
+        {"label": "Actual Winner", "value": actual_winner},
+    ]
+
+    winner_value = f"{winner_leg} · {predicted_pick}"
+    predicted_prob_text = _format_percent_value(predicted_prob)
+    if predicted_prob_text:
+        winner_value += f" · Model {predicted_prob_text}"
+    summary_rows.append({"label": "Winner Leg", "value": winner_value})
+
+    if totals_pick:
+        totals_value = f"{totals_leg} · {totals_pick}"
+        if total_scored is not None:
+            totals_value += f" · {total_scored} {total_label}"
+            if actual_total_side:
+                totals_value += f" · {actual_total_side}"
+        summary_rows.append({"label": "Totals Leg", "value": totals_value})
+
+    if upset_label:
+        outcome_value = upset_label
+        actual_prob_text = _format_percent_value(actual_prob)
+        if actual_prob_text:
+            outcome_value += f" · {actual_winner} closed at {actual_prob_text}"
+        summary_rows.append({"label": "Outcome Context", "value": outcome_value})
+
+    summary_rows.append({"label": "Confidence", "value": confidence})
+
+    summary_points = [point for point in (extra_points or []) if point]
+
+    if winner_hit is True:
+        if predicted_prob_text:
+            summary_points.append(
+                f"The winner leg aligned with the pre-match expectation: {predicted_pick} carried {predicted_prob_text} and got the result."
+            )
+        else:
+            summary_points.append(f"The winner leg aligned with the pre-match expectation: {predicted_pick} got the result.")
+    elif winner_hit is False:
+        narrow_margin = (is_soccer and score_margin is not None and score_margin <= 1) or (
+            not is_soccer and score_margin is not None and score_margin <= 6
+        )
+        if actual_prob is not None and actual_prob <= 25:
+            summary_points.append(
+                f"The winner leg missed on a genuine upset: {actual_winner} was only {_format_percent_value(actual_prob)} in the pre-match model."
+            )
+        elif narrow_margin and score_margin is not None:
+            summary_points.append(
+                f"The winner leg was a narrow miss: the model backed {predicted_pick}, but the game turned on a {score_margin}-{measure_label} margin."
+            )
+        else:
+            summary_points.append(
+                f"The winner leg missed: the model backed {predicted_pick}, but {actual_winner} ended up taking the result."
+            )
+
+    if totals_pick and total_scored is not None:
+        totals_line = record.get("totals_line")
+        try:
+            totals_line = float(totals_line) if totals_line is not None else None
+        except (TypeError, ValueError):
+            totals_line = None
+
+        if totals_hit is True:
+            summary_points.append(
+                f"The totals leg aligned with expectation: {totals_pick} matched a {total_scored}-{measure_label} game."
+            )
+        elif totals_hit is False:
+            if totals_line is not None and abs(float(total_scored) - totals_line) <= 0.5:
+                summary_points.append(
+                    f"The totals leg was a narrow miss: {totals_pick} was one score away from landing."
+                )
+            else:
+                summary_points.append(
+                    f"The totals leg missed decisively: {totals_pick} did not match the {actual_total_side or 'final'} finish."
+                )
+
+    form_sentence = _summarize_form_compare(form_compare or {}, actual_winner=actual_winner)
+    if form_sentence:
+        summary_points.append(form_sentence)
+
+    injury_sentence = _summarize_injury_context(injuries or {})
+    if injury_sentence:
+        summary_points.append(injury_sentence)
+
+    if not summary_points:
+        summary_points.append(f"Final result recorded at {final_score} with {confidence} model confidence.")
+
+    summary_points = summary_points[:4]
+    return summary_rows, summary_points, " ".join(summary_points)
+
+
+def _build_soccer_key_events(raw_events: list[dict]) -> list[dict]:
+    events = []
+    seen = set()
+    for event in raw_events[:60]:
+        event_type = str(event.get("type") or "").strip()
+        detail = str(event.get("detail") or event.get("comments") or "").strip()
+        detail_lower = detail.lower()
+
+        if event_type == "Goal":
+            if "own goal" in detail_lower:
+                display_type = "Own Goal"
+            elif "penalty" in detail_lower:
+                display_type = "Penalty Goal"
+            else:
+                display_type = "Goal"
+        elif event_type == "Card":
+            if "red" not in detail_lower:
+                continue
+            display_type = "Red Card"
+        elif event_type == "Var":
+            display_type = "VAR"
+        else:
+            continue
+
+        elapsed = ((event.get("time") or {}).get("elapsed"))
+        extra = ((event.get("time") or {}).get("extra"))
+        if elapsed is None:
+            elapsed_display = ""
+        elif extra not in (None, "", 0):
+            elapsed_display = f"{elapsed}+{extra}'"
+        else:
+            elapsed_display = f"{elapsed}'"
+
+        player_name = ((event.get("player") or {}).get("name") or "")
+        team_name = ((event.get("team") or {}).get("name") or "")
+        dedupe_key = (elapsed_display, display_type, team_name, player_name, detail)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        events.append(
+            {
+                "minute": elapsed_display,
+                "type": display_type,
+                "team": team_name,
+                "player": player_name,
+                "detail": detail,
+            }
+        )
+        if len(events) >= 8:
+            break
+    return events
+
+
 def _build_prediction_vs_reality(record: dict, evidence_summary: str | None = None) -> dict:
     confidence = record.get("confidence") or "Unknown"
     winner_hit = bool(record.get("winner_hit")) if record.get("status") == "completed" else None
@@ -388,12 +669,7 @@ def _build_prediction_vs_reality(record: dict, evidence_summary: str | None = No
     upset_label = None
     actual_prob = _actual_outcome_probability(record)
     if actual_prob is not None:
-        if actual_prob <= 25:
-            upset_label = "Major upset"
-        elif actual_prob <= 40:
-            upset_label = "Notable upset"
-        else:
-            upset_label = "Expected range"
+        upset_label = _outcome_range_label(actual_prob)
 
     predicted_prob = _predicted_outcome_probability(record)
     actual_total = record.get("total_scored")
@@ -451,8 +727,12 @@ def _build_soccer_evidence(record: dict) -> dict:
     evidence = {
         "sport": "soccer",
         "available": False,
+        "evidence_layer": "summary",
+        "evidence_layer_label": "Evidence summary",
         "metrics": [],
         "key_events": [],
+        "summary_rows": [],
+        "summary_points": [],
         "goal_scorers": {
             "available": False,
             "home_team": record.get("team_a") or "Home",
@@ -604,33 +884,7 @@ def _build_soccer_evidence(record: dict) -> dict:
             }
         )
 
-    events = []
-    for event in raw_events[:40]:
-        event_type = str(event.get("type") or "")
-        if event_type not in {"Card", "subst", "Var"}:
-            continue
-        elapsed = ((event.get("time") or {}).get("elapsed"))
-        extra = ((event.get("time") or {}).get("extra"))
-        if elapsed is None:
-            elapsed_display = ""
-        elif extra not in (None, "", 0):
-            elapsed_display = f"{elapsed}+{extra}'"
-        else:
-            elapsed_display = f"{elapsed}'"
-        player_name = ((event.get("player") or {}).get("name") or "")
-        detail = str(event.get("detail") or event.get("comments") or "").strip()
-        team_name = ((event.get("team") or {}).get("name") or "")
-        events.append(
-            {
-                "minute": elapsed_display,
-                "type": event_type,
-                "team": team_name,
-                "player": player_name,
-                "detail": detail,
-            }
-        )
-        if len(events) >= 8:
-            break
+    events = _build_soccer_key_events(raw_events)
 
     player_impacts = []
     if fixture_id:
@@ -689,6 +943,8 @@ def _build_soccer_evidence(record: dict) -> dict:
             "notable": [row.get("name") for row in items[:4] if row.get("name")],
         }
 
+    injuries = _filter_useful_injury_context(injuries)
+
     actual_winner = record.get("actual_winner") or "Unknown"
     winner_support = [row["label"] for row in metrics if row.get("leader") == actual_winner][:3]
     decisive_goal = None
@@ -697,53 +953,68 @@ def _build_soccer_evidence(record: dict) -> dict:
     elif actual_winner == team_b_name:
         decisive_goal = (evidence["goal_scorers"].get("away_goals") or [None])[0]
 
+    stats_available = bool(metrics)
+    events_available = bool(events or evidence["goal_scorers"].get("available"))
+    evidence_layer = "stats" if stats_available else "events" if events_available else "summary"
+
+    extra_points = []
     if actual_winner == "Draw":
-        summary = f"The match finished level at {record.get('final_score_display') or '0-0'}. The available evidence suggests neither side created a decisive enough edge to separate the game."
+        if stats_available:
+            extra_points.append(
+                f"The match finished level at {record.get('final_score_display') or '0-0'}, and the available match stats did not show a decisive edge for either side."
+            )
+        elif events_available:
+            extra_points.append(
+                f"The result settled at {record.get('final_score_display') or '0-0'}, with the event feed showing the main swing moments rather than a full stat profile."
+            )
     elif winner_support:
-        support_text = ", ".join(winner_support[:-1]) + (f" and {winner_support[-1]}" if len(winner_support) > 1 else winner_support[0])
-        summary = f"{actual_winner} won {record.get('final_score_display')}. They led the match in {support_text}."
-    elif support_score < 0:
-        summary = f"{actual_winner} won {record.get('final_score_display')}, but the available stats were mixed and did not fully point toward that winner."
-    else:
-        summary = f"{actual_winner} won {record.get('final_score_display')}, with the available evidence showing a narrow rather than overwhelming edge."
+        extra_points.append(f"Match stats backed {actual_winner} through {_natural_join(winner_support)}.")
+    elif stats_available and support_score < 0:
+        extra_points.append(
+            f"The match stats were mixed and did not cleanly support {actual_winner}, which points to a clinical or swing-moment result rather than full control."
+        )
+    elif stats_available:
+        extra_points.append(
+            f"The available match stats showed a narrow edge for {actual_winner} rather than one-way control."
+        )
 
     if decisive_goal and decisive_goal.get("player"):
-        summary += f" The decisive scoring moment came from {decisive_goal['player']} at {decisive_goal['minute']}"
+        goal_text = f"The decisive scoring moment came from {decisive_goal['player']} at {decisive_goal['minute']}"
         if decisive_goal.get("type") not in {"Goal", ""}:
-            summary += f" ({decisive_goal['type'].lower()})"
-        summary += "."
+            goal_text += f" ({str(decisive_goal['type']).lower()})"
+        extra_points.append(goal_text + ".")
 
-    if record.get("winner_hit") is True:
-        summary += f" The winner leg landed on {_prediction_pick_display(record)}."
-    elif record.get("winner_hit") is False:
-        summary += f" The winner leg missed because the model backed {_prediction_pick_display(record)}."
+    if not stats_available and events:
+        event_labels = [row.get("type") for row in events[:3] if row.get("type")]
+        if event_labels:
+            extra_points.append(
+                f"When full match stats were unavailable, the event feed still captured the key turns through {_natural_join(event_labels)}."
+            )
 
-    totals_pick_display = record.get("totals_pick_display")
-    total_scored = record.get("total_scored")
-    actual_total_side = record.get("actual_total_side")
-    if totals_pick_display and total_scored is not None:
-        if record.get("ou_hit") is True:
-            summary += f" The totals leg also landed: {totals_pick_display} matched the {total_scored}-goal game, which finished {actual_total_side}."
-        elif record.get("ou_hit") is False:
-            summary += f" The totals leg missed: the pick was {totals_pick_display}, but the game finished {actual_total_side} with {total_scored} total goals."
-
-    if totals_pick_display and winner_support:
-        if actual_total_side == "Over":
-            summary += " The shot volume and chance creation support a game that played above the baseline total."
-        elif actual_total_side == "Under":
-            summary += " The lower shot volume and finishing profile support a match that stayed below the baseline total."
-
-    if not metrics and not events and not evidence["goal_scorers"].get("available"):
-        summary = "Detailed fixture stats were unavailable from provider feeds for this completed match."
+    summary_rows, summary_points, summary = _build_evidence_summary(
+        record,
+        evidence_layer,
+        form_compare=form_compare,
+        injuries=injuries,
+        extra_points=extra_points,
+    )
 
     evidence.update(
         {
-            "available": bool(metrics or events or player_impacts or evidence["goal_scorers"].get("available")),
+            "available": bool(summary_rows or metrics or events or player_impacts or evidence["goal_scorers"].get("available")),
+            "evidence_layer": evidence_layer,
+            "evidence_layer_label": {
+                "stats": "Full match stats",
+                "events": "Match events",
+                "summary": "Evidence summary",
+            }.get(evidence_layer, "Evidence summary"),
             "metrics": metrics,
             "key_events": events,
             "player_impacts": player_impacts,
             "injuries": injuries,
             "form_compare": form_compare,
+            "summary_rows": summary_rows,
+            "summary_points": summary_points,
             "summary": summary,
             "fixture_context": {
                 "fixture_id": fixture_id if fixture_id else None,
@@ -758,8 +1029,12 @@ def _build_nba_evidence(record: dict) -> dict:
     evidence = {
         "sport": "nba",
         "available": False,
+        "evidence_layer": "summary",
+        "evidence_layer_label": "Evidence summary",
         "metrics": [],
         "key_events": [],
+        "summary_rows": [],
+        "summary_points": [],
         "goal_scorers": {
             "available": False,
             "home_team": record.get("team_a") or "Home",
@@ -775,7 +1050,19 @@ def _build_nba_evidence(record: dict) -> dict:
     }
 
     if nc is None or np_nba is None:
-        evidence["summary"] = "NBA detail evidence is unavailable because live NBA providers are not configured."
+        summary_rows, summary_points, summary = _build_evidence_summary(
+            record,
+            "summary",
+            extra_points=["Live NBA providers were not configured, so this page falls back to tracked result data only."],
+        )
+        evidence.update(
+            {
+                "available": True,
+                "summary_rows": summary_rows,
+                "summary_points": summary_points,
+                "summary": summary,
+            }
+        )
         return evidence
 
     team_a_name = str(record.get("team_a") or "")
@@ -828,7 +1115,19 @@ def _build_nba_evidence(record: dict) -> dict:
             break
 
     if not matched_game:
-        evidence["summary"] = "NBA result is tracked, but detailed scoreboard evidence for that game was not available in current feeds."
+        summary_rows, summary_points, summary = _build_evidence_summary(
+            record,
+            "summary",
+            extra_points=["Detailed scoreboard evidence for this game was unavailable in the current NBA feeds."],
+        )
+        evidence.update(
+            {
+                "available": True,
+                "summary_rows": summary_rows,
+                "summary_points": summary_points,
+                "summary": summary,
+            }
+        )
         return evidence
 
     teams = matched_game.get("teams") or {}
@@ -924,11 +1223,34 @@ def _build_nba_evidence(record: dict) -> dict:
                 "avg_points_against": round(sum(_safe_float(row.get("their_pts")) for row in extracted) / len(extracted), 2),
             }
 
-    evidence["available"] = bool(evidence["metrics"] or evidence["player_impacts"])
-    evidence["summary"] = (
-        "NBA evidence combines final score context with live leaders and season profile metrics from available feeds."
-        if evidence["available"]
-        else "Detailed NBA evidence is limited for this game in current provider responses."
+    evidence["injuries"] = _filter_useful_injury_context(evidence["injuries"])
+    evidence_layer = "stats" if evidence["metrics"] else "summary"
+    extra_points = []
+    if evidence["metrics"]:
+        extra_points.append("Available scoreboard data and season-profile metrics explain how the final result landed.")
+    if evidence["player_impacts"]:
+        extra_points.append("Top individual leaders from the live feed are included below to show where the production came from.")
+
+    summary_rows, summary_points, summary = _build_evidence_summary(
+        record,
+        evidence_layer,
+        form_compare=evidence["form_compare"],
+        injuries=evidence["injuries"],
+        extra_points=extra_points,
+    )
+
+    evidence.update(
+        {
+            "available": bool(summary_rows or evidence["metrics"] or evidence["player_impacts"]),
+            "evidence_layer": evidence_layer,
+            "evidence_layer_label": {
+                "stats": "Full match stats",
+                "summary": "Evidence summary",
+            }.get(evidence_layer, "Evidence summary"),
+            "summary_rows": summary_rows,
+            "summary_points": summary_points,
+            "summary": summary,
+        }
     )
     return evidence
 

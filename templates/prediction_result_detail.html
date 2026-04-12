@@ -114,9 +114,36 @@
 {% endif %}
 
 <div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
-  <div class="section-title-sm" style="margin-bottom:.6rem;">Statistical Evidence: Why The Match Ended This Way</div>
+  <div class="section-title-sm" style="margin-bottom:.6rem;">Match Evidence Breakdown</div>
+  {% if evidence.evidence_layer_label %}
+  <div style="margin-bottom:.75rem;">
+    <span class="detail-pill">{{ evidence.evidence_layer_label }}</span>
+  </div>
+  {% endif %}
+
+  {% if evidence.summary_rows %}
+  <div class="detail-grid" style="margin-bottom:.85rem;">
+    {% for row in evidence.summary_rows %}
+    <div style="padding:.8rem .9rem; border:1px solid rgba(255,255,255,.08); border-radius:10px; background:rgba(255,255,255,.03);">
+      <div style="font-size:.74rem; color:#8b949e; text-transform:uppercase; letter-spacing:.45px; margin-bottom:.28rem;">{{ row.label }}</div>
+      <div style="font-size:.92rem; color:#f5f5f5; line-height:1.45;">{{ row.value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if evidence.summary_points %}
+  <div style="margin-bottom:.9rem; display:grid; gap:.45rem;">
+    {% for point in evidence.summary_points %}
+    <div style="padding:.62rem .78rem; border-left:2px solid rgba(0,255,135,.35); background:rgba(255,255,255,.02); color:#c9d1d9; font-size:.88rem; line-height:1.5;">{{ point }}</div>
+    {% endfor %}
+  </div>
+  {% elif comparison.evidence_summary %}
   <p style="color:#c9d1d9; font-size:.92rem; margin-bottom:.85rem;">{{ comparison.evidence_summary }}</p>
+  {% endif %}
+
   {% if evidence.metrics %}
+  <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Full Match Stats</div>
   <div style="overflow-x:auto; margin-bottom:.8rem;">
     <table style="width:100%; border-collapse:collapse; font-size:.84rem;">
       <thead>
@@ -143,7 +170,7 @@
 
   {% if evidence.key_events %}
   <div style="margin-bottom:.85rem;">
-    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Match Events</div>
+    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Major Match Events</div>
     {% for event in evidence.key_events %}
     <div class="kv-row"><span style="color:#8b949e;">{{ event.minute }} {{ event.type }}</span><span>{{ event.team }}{% if event.player %} · {{ event.player }}{% endif %}{% if event.detail %} ({{ event.detail }}){% endif %}</span></div>
     {% endfor %}
@@ -178,14 +205,8 @@
   <div style="margin-bottom:.2rem;">
     <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Injury Context</div>
     {% for team_name, row in evidence.injuries.items() %}
-    <div class="kv-row"><span style="color:#8b949e;">{{ team_name }}</span><span>{{ row.count }} listed{% if row.notable %} · {{ row.notable | join(', ') }}{% endif %}</span></div>
+    <div class="kv-row"><span style="color:#8b949e;">{{ team_name }}</span><span>{{ row.count }} listed absence{% if row.count != 1 %}s{% endif %}{% if row.notable %} · {{ row.notable | join(', ') }}{% endif %}</span></div>
     {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if not evidence.available %}
-  <div style="padding:.7rem .8rem; border:1px solid rgba(245,158,11,.35); background:rgba(245,158,11,.12); color:#f59e0b; border-radius:8px; font-size:.84rem;">
-    Detailed fixture evidence is limited for this result in the currently available provider payloads.
   </div>
   {% endif %}
 </div>

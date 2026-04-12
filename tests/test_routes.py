@@ -706,9 +706,18 @@ class TestPredictionResultDetailRoute:
             "model_factors": {},
         }
         evidence = {
-            "available": False,
+            "available": True,
+            "evidence_layer_label": "Evidence summary",
             "metrics": [],
             "key_events": [],
+            "summary_rows": [
+                {"label": "Evidence Layer", "value": "Evidence summary"},
+                {"label": "Final Score", "value": "112-108"},
+                {"label": "Winner Leg", "value": "Hit · Celtics · Model 56%"},
+            ],
+            "summary_points": [
+                "Tracked result data still shows why the call landed, even without full provider box score detail.",
+            ],
             "goal_scorers": {
                 "available": False,
                 "home_team": "Celtics",
@@ -727,7 +736,9 @@ class TestPredictionResultDetailRoute:
             rv = client.get("/prediction-result/pred-nba-1")
 
         assert rv.status_code == 200
-        assert b"Detailed fixture evidence is limited" in rv.data
+        assert b"Evidence summary" in rv.data
+        assert b"Tracked result data still shows why the call landed" in rv.data
+        assert b"Detailed fixture evidence is limited" not in rv.data
         assert b"Goal Scorers" not in rv.data
 
     def test_prediction_result_detail_handles_scoreless_draw_cleanly(self, client):
@@ -840,6 +851,136 @@ class TestPredictionResultDetailRoute:
 
         assert rv.status_code == 200
         assert b"Goal Scorers" not in rv.data
+
+
+class TestSoccerEvidenceFallbacks:
+    def test_build_soccer_evidence_uses_events_layer_when_stats_missing(self):
+        record = {
+            "id": "pred-events-layer",
+            "sport": "soccer",
+            "league_id": 39,
+            "date": "2026-04-12",
+            "team_a": "Arsenal",
+            "team_b": "Chelsea",
+            "fixture_id": 123,
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "actual_result": "B",
+            "actual_winner": "Chelsea",
+            "prob_a": 61.0,
+            "prob_b": 19.0,
+            "prob_draw": 20.0,
+            "confidence": "High",
+            "status": "completed",
+            "winner_hit": False,
+            "game_win": False,
+            "overall_game_result": "Loss",
+            "final_score_display": "1-2",
+            "total_scored": 3,
+            "totals_pick_display": "Over 2.5",
+            "totals_line": 2.5,
+            "ou_hit": True,
+            "actual_total_side": "Over",
+        }
+        raw_events = [
+            {
+                "type": "Goal",
+                "detail": "Normal Goal",
+                "time": {"elapsed": 17},
+                "team": {"name": "Arsenal"},
+                "player": {"name": "Saka"},
+            },
+            {
+                "type": "Goal",
+                "detail": "Penalty",
+                "time": {"elapsed": 63},
+                "team": {"name": "Chelsea"},
+                "player": {"name": "Palmer"},
+            },
+            {
+                "type": "Card",
+                "detail": "Red Card",
+                "time": {"elapsed": 79},
+                "team": {"name": "Arsenal"},
+                "player": {"name": "Rice"},
+            },
+        ]
+
+        with patch("app.ac.get_teams", return_value=[
+            {"team": {"id": 1, "name": "Arsenal"}},
+            {"team": {"id": 2, "name": "Chelsea"}},
+        ]), \
+             patch("app.ac.get_fixture_by_id", return_value=None), \
+             patch("app.ac.get_fixture_stats", return_value=[]), \
+             patch("app.ac.get_fixture_events", return_value=raw_events), \
+             patch("app.ac.get_match_events", return_value={
+                 "home_goals": [{"player": "Saka", "minute": "17'", "type": "Goal"}],
+                 "away_goals": [
+                     {"player": "Palmer", "minute": "63'", "type": "Penalty"},
+                     {"player": "Jackson", "minute": "88'", "type": "Goal"},
+                 ],
+             }), \
+             patch("app.ac.get_fixture_players", return_value=[]), \
+             patch("app._soccer_form_snapshot", return_value=None), \
+             patch("app.ac.get_injuries", return_value=[]):
+            evidence = flask_app_module._build_soccer_evidence(record)
+
+        assert evidence["evidence_layer"] == "events"
+        assert evidence["evidence_layer_label"] == "Match events"
+        assert [row["type"] for row in evidence["key_events"][:3]] == ["Goal", "Penalty Goal", "Red Card"]
+        assert any(row["label"] == "Evidence Layer" and row["value"] == "Match events" for row in evidence["summary_rows"])
+        assert "event feed" in evidence["summary"]
+
+    def test_build_soccer_evidence_uses_narrative_summary_when_stats_and_events_missing(self):
+        record = {
+            "id": "pred-summary-layer",
+            "sport": "soccer",
+            "league_id": 39,
+            "date": "2026-04-12",
+            "team_a": "Arsenal",
+            "team_b": "Chelsea",
+            "fixture_id": 456,
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "actual_result": "B",
+            "actual_winner": "Chelsea",
+            "prob_a": 64.0,
+            "prob_b": 18.0,
+            "prob_draw": 18.0,
+            "confidence": "High",
+            "status": "completed",
+            "winner_hit": False,
+            "game_win": False,
+            "overall_game_result": "Loss",
+            "final_score_display": "1-2",
+            "total_scored": 3,
+            "totals_pick_display": "Under 2.5",
+            "totals_line": 2.5,
+            "ou_hit": False,
+            "actual_total_side": "Over",
+        }
+
+        with patch("app.ac.get_teams", return_value=[
+            {"team": {"id": 1, "name": "Arsenal"}},
+            {"team": {"id": 2, "name": "Chelsea"}},
+        ]), \
+             patch("app.ac.get_fixture_by_id", return_value=None), \
+             patch("app.ac.get_fixture_stats", return_value=[]), \
+             patch("app.ac.get_fixture_events", return_value=[]), \
+             patch("app.ac.get_match_events", return_value={"home_goals": [], "away_goals": []}), \
+             patch("app.ac.get_fixture_players", return_value=[]), \
+             patch("app._soccer_form_snapshot", side_effect=[
+                 {"matches": 5, "wins": 4, "draws": 1, "losses": 0, "avg_goals_for": 2.0, "avg_goals_against": 0.6},
+                 {"matches": 5, "wins": 1, "draws": 1, "losses": 3, "avg_goals_for": 0.8, "avg_goals_against": 1.8},
+             ]), \
+             patch("app.ac.get_injuries", side_effect=[[], [{"name": "Reece James"}] ]):
+            evidence = flask_app_module._build_soccer_evidence(record)
+
+        assert evidence["evidence_layer"] == "summary"
+        assert evidence["key_events"] == []
+        assert evidence["injuries"] == {"Chelsea": {"count": 1, "notable": ["Reece James"]}}
+        assert any(row["label"] == "Outcome Context" and "Major upset" in row["value"] for row in evidence["summary_rows"])
+        assert any("genuine upset" in point for point in evidence["summary_points"])
 
     def test_model_performance_completed_cards_link_to_detail_route(self, client):
         completed = [
