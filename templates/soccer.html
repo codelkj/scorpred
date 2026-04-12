@@ -47,7 +47,8 @@
         </div>
         <div class="fpred-centre">
           <span class="fpred-vs">vs</span>
-          <span class="confidence-badge conf-{{ p.confidence | lower }}">{{ p.confidence }}</span>
+          {% set conf = (p.best_pick.confidence if p and p.best_pick and p.best_pick.confidence else 'Low') %}
+          <span class="confidence-badge conf-{{ conf | lower }}">{{ conf }}</span>
         </div>
         <div class="fpred-team right">
           <span class="fpred-team-name">{{ f.teams.away.name }}</span>

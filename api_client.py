@@ -939,7 +939,7 @@ def get_upcoming_fixtures(
     # ESPN's soccer scoreboard only returns events for the requested date, so a
     # single-day query silently returns empty on rest days.
     slug = _espn_slug(league_id)
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now()
     all_fixtures: list = []
     seen_ids: set[str] = set()
 

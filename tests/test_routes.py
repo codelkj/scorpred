@@ -8,6 +8,7 @@ Run with:
 import json
 import pytest
 from unittest.mock import patch, MagicMock
+from datetime import date
 
 import sys
 import os
@@ -385,6 +386,13 @@ class TestAPIRoutes:
         )
         assert rv.status_code == 400
 
+    def test_football_team_form_api(self, client):
+        with patch("app._team_form_payload", return_value={"form_string": "WWDLW", "rows": []}):
+            rv = client.get("/api/football/team-form?team_id=33")
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["form_string"] == "WWDLW"
+
 
 # ── Error pages ───────────────────────────────────────────────────────────────
 
@@ -459,6 +467,70 @@ class TestConnectedFlows:
              patch("model_tracker.get_summary_metrics", return_value={"total_predictions": 1, "finalized_predictions": 0, "wins": 0, "losses": 0, "overall_accuracy": None, "by_confidence": {}, "by_sport": {}, "recent_predictions": []}):
             assert client.get("/model-performance").status_code == 200
             assert client.get("/update-prediction-results").status_code == 200
+
+    def test_props_page_renders_soccer_mode_with_team_context(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        squad = [
+            {
+                "player": {"id": 1, "name": "Player One", "pos": "FW"},
+                "leagues": {"standard": {"pos": "FW"}},
+            }
+        ]
+        with patch("app.ac.get_squad", return_value=squad):
+            rv = client.get("/props")
+        assert rv.status_code == 200
+        assert b"Football" in rv.data
+        assert b"Player One" in rv.data
+
+
+class TestTopPicksRoute:
+    def test_top_picks_uses_soccer_and_nba_payload_shapes(self, client):
+        today_str = date.today().strftime("%Y-%m-%d")
+        soccer_fixtures = [
+            {
+                "teams": {
+                    "home": {"id": 1, "name": "Alpha"},
+                    "away": {"id": 2, "name": "Beta"},
+                },
+                "prediction": {
+                    "best_pick": {
+                        "prediction": "Alpha",
+                        "confidence": "High",
+                        "reasoning": "Strong form edge",
+                    },
+                    "win_probabilities": {"a": 64.0, "b": 21.0, "draw": 15.0},
+                },
+            }
+        ]
+        nba_recent = [
+            {
+                "sport": "nba",
+                "date": today_str,
+                "is_correct": None,
+                "team_a": "Celtics",
+                "team_b": "Heat",
+                "predicted_winner": "A",
+                "confidence": "High",
+                "prob_a": 61.0,
+                "prob_b": 39.0,
+                "prob_draw": 0.0,
+            }
+        ]
+
+        with patch("app._load_upcoming_fixtures", return_value=(soccer_fixtures, None, "configured", "")), \
+             patch("app.mt.get_recent_predictions", return_value=nba_recent):
+            rv = client.get("/top-picks-today")
+
+        assert rv.status_code == 200
+        assert b"Alpha" in rv.data
+        assert b"Celtics" in rv.data
 
 
 class TestNbaFailureHandling:

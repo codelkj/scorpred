@@ -142,6 +142,7 @@ ScorPred/
 | `/api/football/leagues` | List supported leagues |
 | `/api/football/teams` | Teams for a league |
 | `/api/football/squad` | Squad list with positions |
+| `/api/football/team-form` | Last-5 form string and rows for a team |
 | `/api/player-stats` | Player season stats |
 | `/chat` | POST — AI chatbot message |
 | `/chat/clear` | POST — Clear chat history |

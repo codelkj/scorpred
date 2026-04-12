@@ -1230,8 +1230,11 @@ def props():
     return render_template(
         "props.html",
         **_page_context(
+            sport="soccer",
             team_a=team_a,
             team_b=team_b,
+            squad_a=squad_a,
+            squad_b=squad_b,
             players=players,
             markets=markets,
             selected_fixture=_selected_fixture(),
@@ -1353,6 +1356,21 @@ def api_football_squad():
     return jsonify({"team_id": team_id, "squad": squad or []})
 
 
+@app.route("/api/football/team-form", methods=["GET"])
+def api_football_team_form():
+    team_id = _safe_int(request.args.get("team_id", 0), 0)
+    if not team_id:
+        return jsonify({"error": "team_id is required"}), 400
+
+    try:
+        payload = _team_form_payload(team_id)
+    except Exception as exc:
+        app.logger.error("api_football_team_form failed for team_id=%s: %s", team_id, exc)
+        return jsonify({"error": "Unable to load team form", "team_id": team_id}), 503
+
+    return jsonify(payload)
+
+
 @app.route("/api/player-stats", methods=["GET"])
 def api_player_stats():
     player_id = _safe_int(request.args.get("player_id", 0), 0)
@@ -1455,15 +1473,28 @@ def top_picks_today():
             probs = prediction.get("win_probabilities", {})
             
             if best_pick.get("confidence") == "High":
+                predicted_winner = best_pick.get("prediction", "—")
+                if predicted_winner == home_team.get("name"):
+                    probability = probs.get("a", 50)
+                elif predicted_winner == away_team.get("name"):
+                    probability = probs.get("b", 50)
+                elif str(predicted_winner).lower() == "draw":
+                    probability = probs.get("draw", 0)
+                else:
+                    probability = max(probs.get("a", 0), probs.get("b", 0), probs.get("draw", 0))
+
                 soccer_picks.append({
                     "fixture": fixture,
                     "home_team": home_team,
                     "away_team": away_team,
-                    "predicted_winner": best_pick.get("prediction", "—"),
+                    "predicted_winner": predicted_winner,
                     "confidence": "High",
                     "prob_home": probs.get("a", 50),
                     "prob_draw": probs.get("draw", 0),
                     "prob_away": probs.get("b", 50),
+                    "pick": f"{predicted_winner} to Win" if str(predicted_winner).lower() != "draw" else "Draw",
+                    "probability": round(float(probability), 1),
+                    "note": best_pick.get("reasoning", "Model confidence edge"),
                     "pick_type": "match_winner" if best_pick.get("prediction") != "Draw" else "draw",
                     "reasoning": best_pick.get("reasoning", ""),
                 })
@@ -1484,14 +1515,40 @@ def top_picks_today():
             and p.get("is_correct") is None
         ]
         for record in nba_records[:10]:
-            if record.get("best_pick", {}).get("confidence") == "High":
-                nba_picks.append(record)
+            if record.get("confidence") != "High":
+                continue
+
+            winner_code = str(record.get("predicted_winner", "")).strip().lower()
+            if winner_code == "a":
+                predicted_winner = record.get("team_a", "Team A")
+                win_probability = record.get("prob_a", 50)
+            elif winner_code == "b":
+                predicted_winner = record.get("team_b", "Team B")
+                win_probability = record.get("prob_b", 50)
+            elif winner_code == "draw":
+                predicted_winner = "Draw"
+                win_probability = record.get("prob_draw", 0)
+            else:
+                predicted_winner = record.get("predicted_winner", "Unknown")
+                win_probability = max(record.get("prob_a", 0), record.get("prob_b", 0), record.get("prob_draw", 0))
+
+            nba_picks.append(
+                {
+                    "home_team": {"id": "", "name": record.get("team_a", "Team A")},
+                    "away_team": {"id": "", "name": record.get("team_b", "Team B")},
+                    "predicted_winner": predicted_winner,
+                    "confidence": record.get("confidence", "Low"),
+                    "win_probability": round(float(win_probability), 1),
+                }
+            )
     except Exception as e:
         app.logger.debug("Error loading NBA picks: %s", e)
     
     return render_template(
         "top_picks_today.html",
         **_page_context(
+            soccer_totals=soccer_picks[:10],
+            nba_winners=nba_picks[:10],
             soccer_picks=soccer_picks[:10],
             nba_picks=nba_picks[:10],
         ),

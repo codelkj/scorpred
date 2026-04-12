@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 import uuid
 
 _TRACKING_FILE = os.path.join(os.path.dirname(__file__), "cache", "prediction_tracking.json")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _ensure_tracking_file() -> None:
@@ -57,11 +61,11 @@ def _migrate_predictions() -> None:
 def _normalize_date(date_str: str | None) -> str:
     """Return YYYY-MM-DD for any date-like string, or today if missing."""
     if not date_str:
-        return datetime.utcnow().strftime("%Y-%m-%d")
+        return _utc_now().strftime("%Y-%m-%d")
     try:
         return str(date_str)[:10]
     except Exception:
-        return datetime.utcnow().strftime("%Y-%m-%d")
+        return _utc_now().strftime("%Y-%m-%d")
 
 
 def _load_predictions() -> list[dict]:
@@ -185,12 +189,12 @@ def save_prediction(
                 existing["winner_result"] = None
                 existing["totals_result"] = None
                 existing["overall_result"] = None
-                existing["updated_at"] = datetime.utcnow().isoformat() + "Z"
+                existing["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
                 _save_predictions(predictions)
             return existing.get("id", "")
     
     pred_id = str(uuid.uuid4())[:8]
-    now = datetime.utcnow().isoformat() + "Z"
+    now = _utc_now().isoformat().replace("+00:00", "Z")
     
     prediction = {
         "id": pred_id,
@@ -279,7 +283,7 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
             pred["winner_result"] = outcome["winner_result"]
             pred["totals_result"] = outcome["totals_result"]
             pred["overall_result"] = outcome["overall_result"]
-            pred["updated_at"] = datetime.utcnow().isoformat() + "Z"
+            pred["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
             _save_predictions(predictions)
             return True
     

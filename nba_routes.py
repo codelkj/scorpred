@@ -1011,7 +1011,7 @@ def today_predictions():
         _log_err("Teams fetch for today predictions", e)
 
     # Fetch today's NBA scoreboard
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now()
     current_app.logger.info(
         "today_predictions: UTC=%s — fetching today's scoreboard",
         now_utc.strftime("%Y-%m-%d %H:%M"),

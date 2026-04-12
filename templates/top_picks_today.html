@@ -97,7 +97,11 @@
   <div class="row mb-4">
     {% for pick in nba_winners %}
     <div class="col-lg-6 col-xl-4 mb-3">
+      {% if pick.home_team.id and pick.away_team.id %}
       <a href="{{ url_for('nba.select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
+      {% else %}
+      <div class="pick-card-link" style="cursor:default;">
+      {% endif %}
         <div class="card h-100 fpred-card
             {% if pick.confidence == 'High' %}border-success{% elif pick.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
 
@@ -126,7 +130,11 @@
             </div>
           </div>
         </div>
+      {% if pick.home_team.id and pick.away_team.id %}
       </a>
+      {% else %}
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
