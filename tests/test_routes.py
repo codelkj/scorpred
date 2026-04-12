@@ -88,6 +88,36 @@ class TestFixturesRoute:
         assert rv.status_code == 200
 
 
+class TestTodayPredictionsRoute:
+    def test_today_predictions_handles_missing_score_gap(self, client):
+        payload = [
+            {
+                "fixture": {
+                    "date": "2026-04-12T15:00:00+00:00",
+                },
+                "teams": {
+                    "home": {"name": "Alpha", "logo": ""},
+                    "away": {"name": "Beta", "logo": ""},
+                },
+                "league": {"name": "Premier League"},
+                "prediction": {
+                    "best_pick": {
+                        "prediction": "Alpha",
+                        "confidence": "High",
+                        "reasoning": "Recent form edge",
+                    },
+                    "win_probabilities": {"a": 61.0, "draw": 22.0, "b": 17.0},
+                },
+            }
+        ]
+
+        with patch("app._load_upcoming_fixtures", return_value=(payload, None, "configured", "")):
+            rv = client.get("/today-soccer-predictions")
+
+        assert rv.status_code == 200
+        assert b"Upcoming Soccer Predictions" in rv.data
+
+
 # ── Select / team selection ───────────────────────────────────────────────────
 
 class TestSelectRoute:
@@ -377,6 +407,30 @@ class TestWorldCupRoute:
         with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
             rv = client.post("/worldcup", data={"team_a": "Brazil", "team_b": "Argentina"})
         assert rv.status_code == 200
+
+
+class TestUpdateResultsRoute:
+    def test_update_results_post_with_null_accuracy_renders(self, client):
+        summary = {"pending": 1, "completed": 0, "total": 1, "completion_rate": 0.0}
+        update_stats = {"checked": 1, "found": 0, "updated": 0, "failed": 0, "errors": []}
+        metrics = {
+            "total_predictions": 1,
+            "finalized_predictions": 0,
+            "wins": 0,
+            "losses": 0,
+            "overall_accuracy": None,
+            "by_confidence": {},
+            "by_sport": {},
+            "recent_predictions": [],
+        }
+
+        with patch("result_updater.get_update_summary", return_value=summary), \
+             patch("result_updater.update_pending_predictions", return_value=update_stats), \
+             patch("model_tracker.get_summary_metrics", return_value=metrics):
+            rv = client.post("/update-prediction-results")
+
+        assert rv.status_code == 200
+        assert b"Overall Accuracy" in rv.data
 
 
 class TestConnectedFlows:

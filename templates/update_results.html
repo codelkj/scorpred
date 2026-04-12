@@ -152,7 +152,7 @@
         </div>
         <div class="col-md-6">
             <div class="card text-center 
-                {% if metrics.overall_accuracy >= 55 %}bg-success text-white{% elif metrics.overall_accuracy >= 45 %}bg-warning text-white{% else %}bg-danger text-white{% endif %}">
+                {% if metrics.overall_accuracy is not none and metrics.overall_accuracy >= 55 %}bg-success text-white{% elif metrics.overall_accuracy is not none and metrics.overall_accuracy >= 45 %}bg-warning text-white{% elif metrics.overall_accuracy is not none %}bg-danger text-white{% endif %}">
                 <div class="card-body">
                     <h5 class="card-title">Overall Accuracy</h5>
                     {% if metrics.overall_accuracy is not none %}
