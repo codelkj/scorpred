@@ -99,7 +99,7 @@
         </div>
 
         <div class="card-footer bg-light text-center">
-          <small>Scorpred Engine · Gap: {{ "%.1f"|format(item.score_gap) }}/10</small>
+          <small>Scorpred Engine · Gap: {{ "%.1f"|format(item.score_gap if item.score_gap is defined else ((item.prob_home - item.prob_away)|abs)) }}/10</small>
         </div>
       </div>
     </div>
