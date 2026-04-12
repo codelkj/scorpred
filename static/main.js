@@ -188,6 +188,12 @@ const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
 const chatMessages = document.getElementById('chat-messages');
 const chatClear = document.getElementById('chat-clear');
+const chatSuggestions = document.getElementById('chat-suggestions');
+const defaultChatSuggestions = [
+  'Why was this team favored?',
+  'Why did this parlay lose?',
+  'What does this confidence mean?'
+];
 
 function appendChatMessage(role, text) {
   if (!chatMessages || !text) return;
@@ -197,6 +203,22 @@ function appendChatMessage(role, text) {
   chatMessages.appendChild(row);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
+
+function renderChatSuggestions(suggestions) {
+  if (!chatSuggestions) return;
+  const items = Array.isArray(suggestions) && suggestions.length ? suggestions : defaultChatSuggestions;
+  chatSuggestions.innerHTML = '';
+  items.slice(0, 3).forEach((text) => {
+    if (!text) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'chat-suggestion';
+    button.textContent = text;
+    chatSuggestions.appendChild(button);
+  });
+}
+
+renderChatSuggestions(defaultChatSuggestions);
 
 if (chatToggle && chatWindow) {
   chatToggle.addEventListener('click', () => {
@@ -218,13 +240,28 @@ if (chatForm && chatInput) {
       const response = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ message }).toString()
+        body: new URLSearchParams({
+          message,
+          page_path: window.location.pathname,
+          page_title: document.title
+        }).toString()
       });
       const data = await response.json();
       appendChatMessage('assistant', data.reply || data.error || 'No reply available.');
+      renderChatSuggestions(data.suggestions);
     } catch (error) {
       appendChatMessage('assistant', 'Chat is temporarily unavailable.');
+      renderChatSuggestions(defaultChatSuggestions);
     }
+  });
+}
+
+if (chatSuggestions && chatInput) {
+  chatSuggestions.addEventListener('click', (event) => {
+    const button = event.target.closest('.chat-suggestion');
+    if (!button) return;
+    chatInput.value = button.textContent || '';
+    chatInput.focus();
   });
 }
 
@@ -236,7 +273,8 @@ if (chatClear) {
       console.error(error);
     }
     if (chatMessages) {
-      chatMessages.innerHTML = '<div class="chat-message assistant">Ask about predictions, props, injuries, or where to find a page.</div>';
+      chatMessages.innerHTML = '<div class="chat-message assistant">Ask about predictions, confidence, result detail grading, parlays, or what to check next in ScorPred.</div>';
     }
+    renderChatSuggestions(defaultChatSuggestions);
   });
 }

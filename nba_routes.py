@@ -112,6 +112,72 @@ def _store_selected_game_from_form() -> None:
     }
 
 
+def _store_assistant_page_context(page_kind: str, payload: dict | None = None) -> None:
+    compact = {"page_kind": page_kind, "captured_at": _now_stamp()}
+    if payload:
+        compact.update(payload)
+    session["assistant_page_context"] = compact
+
+
+def _assistant_pick_probability(prediction: dict, team_a_name: str, team_b_name: str) -> float | None:
+    win_probs = prediction.get("win_probabilities") if isinstance(prediction.get("win_probabilities"), dict) else {}
+    pick = str(((prediction.get("best_pick") or {}).get("prediction") or "")).strip().lower()
+    if pick == str(team_a_name or "").strip().lower():
+        value = win_probs.get("a")
+    elif pick == str(team_b_name or "").strip().lower():
+        value = win_probs.get("b")
+    else:
+        value = None
+    try:
+        return round(float(value), 1) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _assistant_extract_top_factors(prediction: dict) -> list[str]:
+    components_a = prediction.get("components_a") if isinstance(prediction.get("components_a"), dict) else {}
+    components_b = prediction.get("components_b") if isinstance(prediction.get("components_b"), dict) else {}
+    differences = []
+    for key in set(components_a) | set(components_b):
+        try:
+            a_val = float(components_a.get(key, 0) or 0)
+            b_val = float(components_b.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        diff = abs(a_val - b_val)
+        if diff <= 0:
+            continue
+        differences.append((diff, key.replace("_", " ").title()))
+    differences.sort(reverse=True)
+    return [label for _, label in differences[:3]]
+
+
+def _assistant_totals_pick_display(prediction: dict) -> str | None:
+    totals_leg = _extract_totals_leg(prediction)
+    if not totals_leg:
+        return None
+    pick = str(totals_leg.get("pick") or "").strip()
+    line = totals_leg.get("line")
+    if pick and line is not None:
+        return f"{pick} {line}"
+    return str(totals_leg.get("market") or pick or "").strip() or None
+
+
+def _assistant_prediction_context(prediction: dict, team_a_name: str, team_b_name: str) -> dict:
+    best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
+    return {
+        "sport": "nba",
+        "team_a": team_a_name,
+        "team_b": team_b_name,
+        "winner_pick": best_pick.get("prediction") or "",
+        "winner_probability": _assistant_pick_probability(prediction, team_a_name, team_b_name),
+        "confidence": best_pick.get("confidence") or prediction.get("confidence") or "",
+        "reasoning": str(best_pick.get("reasoning") or "").strip(),
+        "totals_pick": _assistant_totals_pick_display(prediction),
+        "top_factors": _assistant_extract_top_factors(prediction),
+    }
+
+
 def _log_err(msg: str, exc: Exception = None) -> None:
     current_app.logger.error("%s%s", msg, f": {exc}" if exc else "")
     if exc:
@@ -720,6 +786,15 @@ def matchup():
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
 
+    _store_assistant_page_context(
+        "nba_matchup",
+        _assistant_prediction_context(
+            scorpred or {},
+            team_a.get("nickname") or team_a["name"],
+            team_b.get("nickname") or team_b["name"],
+        ),
+    )
+
     return render_template(
         "nba/matchup.html",
         **_page_context(
@@ -985,6 +1060,15 @@ def prediction():
             )
     except Exception:
         pass  # Silent fail if tracking fails
+
+    _store_assistant_page_context(
+        "nba_prediction",
+        _assistant_prediction_context(
+            scorpred or {},
+            team_a.get("nickname") or team_a["name"],
+            team_b.get("nickname") or team_b["name"],
+        ),
+    )
 
     return render_template(
         "nba/prediction.html",

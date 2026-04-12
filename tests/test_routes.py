@@ -362,6 +362,7 @@ class TestChatRoute:
         assert rv.status_code == 200
         data = json.loads(rv.data)
         assert "reply" in data
+        assert "suggestions" in data
         assert len(data["reply"]) > 0
 
     def test_chat_empty_message_returns_400(self, client):
@@ -395,6 +396,128 @@ class TestChatRoute:
         assert rv.status_code == 200
         data = json.loads(rv.data)
         assert "reply" in data
+
+    def test_chat_fallback_uses_soccer_prediction_context(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 42
+            sess["team_a_name"] = "Arsenal"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 49
+            sess["team_b_name"] = "Chelsea"
+            sess["team_b_logo"] = ""
+            sess["football_league_id"] = 39
+            sess["assistant_page_context"] = {
+                "page_kind": "soccer_prediction",
+                "sport": "soccer",
+                "team_a": "Arsenal",
+                "team_b": "Chelsea",
+                "winner_pick": "Arsenal",
+                "winner_probability": 63.4,
+                "confidence": "High",
+                "reasoning": "Form edge and defensive profile favor Arsenal.",
+                "totals_pick": "Over 2.5",
+                "top_factors": ["Form", "Defense", "Opponent Strength"],
+            }
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            rv = client.post(
+                "/chat",
+                data={"message": "Why was this team favored?", "page_path": "/prediction", "page_title": "Prediction"},
+            )
+
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["mode"] == "fallback"
+        assert "Arsenal" in data["reply"]
+        assert "Chelsea" in data["reply"]
+        assert "63.4%" in data["reply"]
+        assert any("confidence" in suggestion.lower() for suggestion in data["suggestions"])
+
+    def test_chat_fallback_explains_result_detail_parlay_context(self, client):
+        with client.session_transaction() as sess:
+            sess["assistant_page_context"] = {
+                "page_kind": "result_detail",
+                "sport": "soccer",
+                "team_a": "Arsenal",
+                "team_b": "Chelsea",
+                "winner_pick": "Arsenal to win",
+                "totals_pick": "Over 2.5",
+                "winner_leg": "Miss",
+                "totals_leg": "Hit",
+                "overall_result": "Loss",
+                "final_score": "1-2",
+                "actual_winner": "Chelsea",
+                "evidence_summary": "Chelsea were more clinical in the key moments.",
+            }
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            rv = client.post(
+                "/chat",
+                data={"message": "Why did this parlay lose?", "page_path": "/prediction-result/pred-1", "page_title": "Prediction Result Detail"},
+            )
+
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["mode"] == "fallback"
+        assert "graded miss" in data["reply"]
+        assert "graded hit" in data["reply"]
+        assert "Loss" in data["reply"]
+
+    def test_chat_fallback_uses_nba_context_for_market_comparison(self, client):
+        with client.session_transaction() as sess:
+            sess["nba_team_a_id"] = "1"
+            sess["nba_team_a_name"] = "Celtics"
+            sess["nba_team_a_logo"] = ""
+            sess["nba_team_b_id"] = "2"
+            sess["nba_team_b_name"] = "Heat"
+            sess["nba_team_b_logo"] = ""
+            sess["assistant_page_context"] = {
+                "page_kind": "nba_prediction",
+                "sport": "nba",
+                "team_a": "Celtics",
+                "team_b": "Heat",
+                "winner_pick": "Celtics",
+                "winner_probability": 58.0,
+                "confidence": "Medium",
+                "totals_pick": "Over 221.5",
+            }
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            rv = client.post(
+                "/chat",
+                data={"message": "Explain winner vs spread vs totals", "page_path": "/nba/prediction", "page_title": "NBA Prediction"},
+            )
+
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["mode"] == "fallback"
+        assert "Celtics vs Heat" in data["reply"]
+        assert "spread is margin-based" in data["reply"]
+        assert "combined points" in data["reply"]
+
+    def test_chat_fallback_explains_model_performance_grading(self, client):
+        with client.session_transaction() as sess:
+            sess["assistant_page_context"] = {
+                "page_kind": "model_performance",
+                "overall_accuracy": 62.5,
+                "wins": 15,
+                "losses": 9,
+                "finalized_predictions": 24,
+                "grading_logic": "Completed picks separate winner leg, totals leg, and overall verdict so the tracked outcome reflects the full ticket.",
+            }
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            rv = client.post(
+                "/chat",
+                data={"message": "How is accuracy graded?", "page_path": "/model-performance", "page_title": "Model Performance"},
+            )
+
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["mode"] == "fallback"
+        assert "62.5%" in data["reply"]
+        assert "15 wins and 9 losses" in data["reply"]
+        assert "winner leg" in data["reply"]
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────

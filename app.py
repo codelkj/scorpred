@@ -6,10 +6,12 @@ import os
 import re
 import unicodedata
 from datetime import date, datetime, timedelta
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
+import analysis_assistant as assistant
 import api_client as ac
 import model_tracker as mt
 import predictor as pred
@@ -1960,65 +1962,301 @@ def _team_form_payload(team_id: int, league_id: int | None = None) -> dict:
     return {"form_string": "".join(item.get("result", "") for item in form), "rows": form}
 
 
-def _fallback_chat_reply(message: str) -> str:
-    lower = (message or "").strip().lower()
-    team_a, team_b = _require_teams()
-    matchup = f"{team_a['name']} vs {team_b['name']}" if team_a and team_b else "your selected matchup"
+def _assistant_page_kind(page_path: str) -> str:
+    if re.match(r"^/prediction-result/[^/]+$", page_path or ""):
+        return "result_detail"
+    if page_path == "/matchup":
+        return "soccer_matchup"
+    if page_path == "/prediction":
+        return "soccer_prediction"
+    if page_path == "/props":
+        return "soccer_props"
+    if page_path == "/model-performance":
+        return "model_performance"
+    if page_path in {"/nba", "/nba/"}:
+        return "nba_home"
+    if page_path == "/nba/matchup":
+        return "nba_matchup"
+    if page_path == "/nba/prediction":
+        return "nba_prediction"
+    if page_path == "/nba/player":
+        return "nba_player"
+    if page_path == "/nba/props":
+        return "nba_props"
+    if page_path == "/nba/standings":
+        return "nba_standings"
+    if page_path == "/soccer":
+        return "soccer_home"
+    if page_path == "/":
+        return "home"
+    return "generic"
 
-    if "props" in lower:
-        return f"Use the Props page to generate player lines for {matchup}. Pick a player, choose markets, and the app will build a bet slip from live stats."
-    if "prediction" in lower or "winner" in lower:
-        return f"The Prediction page uses the Scorpred Engine — a weighted model combining form, H2H, injuries, venue advantage, and opponent strength — to predict {matchup}."
-    if "player" in lower:
-        return "The Player page compares squad members side by side and can generate prop ideas from their season profile and opponent context."
-    if "nba" in lower:
-        return "The NBA section has its own home, matchup, player, prediction, and standings views under /nba."
-    return "Ask about matchup analysis, player props, prediction logic, injuries, or where to find a specific football or NBA view."
+
+def _assistant_store_page_context(page_kind: str, payload: dict | None = None) -> None:
+    compact = {"page_kind": page_kind, "captured_at": _now_stamp()}
+    if payload:
+        compact.update(payload)
+    session["assistant_page_context"] = compact
 
 
-def _chat_reply(message: str, history: list[dict] | None = None) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key or anthropic is None:
-        return _fallback_chat_reply(message)
+def _assistant_extract_top_factors(prediction: dict) -> list[str]:
+    components_a = prediction.get("components_a") if isinstance(prediction.get("components_a"), dict) else {}
+    components_b = prediction.get("components_b") if isinstance(prediction.get("components_b"), dict) else {}
+    differences = []
 
-    system_prompt = (
-        "You are the ScorPred assistant — a helpful AI built into a football and NBA prediction app. "
-        "You help users navigate the app, understand predictions, interpret stats, and find features. "
-        "Key pages: Home (team selection + upcoming fixtures), Matchup (H2H, form, injuries), "
-        "Players (squad comparison, prop ideas), Prediction (Poisson model, win probability), "
-        "Props (player bet lines with 6-layer stat model), Fixtures (upcoming schedule), "
-        "NBA (full NBA section at /nba with standings, matchup, players, predictions), "
-        "World Cup (/worldcup). "
-        "Be concise (2-3 sentences max), accurate, and friendly. "
-        "Do not make up odds or guarantees. If unsure, say so."
+    for key in set(components_a) | set(components_b):
+        try:
+            a_val = float(components_a.get(key, 0) or 0)
+            b_val = float(components_b.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        diff = abs(a_val - b_val)
+        if diff <= 0:
+            continue
+        differences.append((diff, key.replace("_", " ").title()))
+
+    differences.sort(reverse=True)
+    return [label for _, label in differences[:3]]
+
+
+def _assistant_pick_probability(prediction: dict, team_a_name: str, team_b_name: str) -> float | None:
+    win_probs = prediction.get("win_probabilities") if isinstance(prediction.get("win_probabilities"), dict) else {}
+    pick = str(((prediction.get("best_pick") or {}).get("prediction") or "")).strip().lower()
+    if not pick:
+        return None
+    if pick == str(team_a_name or "").strip().lower():
+        return _safe_float(win_probs.get("a")) if win_probs.get("a") is not None else None
+    if pick == str(team_b_name or "").strip().lower():
+        return _safe_float(win_probs.get("b")) if win_probs.get("b") is not None else None
+    if pick == "draw":
+        return _safe_float(win_probs.get("draw")) if win_probs.get("draw") is not None else None
+    return None
+
+
+def _assistant_extract_totals_pick_display(prediction: dict) -> str | None:
+    totals_leg = _extract_totals_leg(prediction)
+    if not totals_leg:
+        return None
+    pick = str(totals_leg.get("pick") or "").strip()
+    line = totals_leg.get("line")
+    if pick and line is not None:
+        return f"{pick} {line}"
+    market = str(totals_leg.get("market") or "").strip()
+    return market or pick or None
+
+
+def _assistant_compact_prediction_context(
+    prediction: dict,
+    *,
+    sport: str,
+    team_a_name: str,
+    team_b_name: str,
+    league_name: str | None = None,
+) -> dict:
+    best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
+    return {
+        "sport": sport,
+        "team_a": team_a_name,
+        "team_b": team_b_name,
+        "league_name": league_name or "",
+        "winner_pick": best_pick.get("prediction") or "",
+        "winner_probability": _assistant_pick_probability(prediction, team_a_name, team_b_name),
+        "confidence": best_pick.get("confidence") or prediction.get("confidence") or "",
+        "reasoning": str(best_pick.get("reasoning") or "").strip(),
+        "totals_pick": _assistant_extract_totals_pick_display(prediction),
+        "top_factors": _assistant_extract_top_factors(prediction),
+    }
+
+
+def _assistant_store_soccer_matchup_context(
+    *,
+    team_a: dict,
+    team_b: dict,
+    prediction: dict,
+    league_name: str,
+    form_a: list[dict],
+    form_b: list[dict],
+    injuries_a: list[dict],
+    injuries_b: list[dict],
+) -> None:
+    payload = _assistant_compact_prediction_context(
+        prediction,
+        sport="soccer",
+        team_a_name=team_a.get("name", "Team A"),
+        team_b_name=team_b.get("name", "Team B"),
+        league_name=league_name,
+    )
+    payload.update(
+        {
+            "form_a": "".join(row.get("result", "") for row in form_a[:5]),
+            "form_b": "".join(row.get("result", "") for row in form_b[:5]),
+            "injury_count_a": len(injuries_a or []),
+            "injury_count_b": len(injuries_b or []),
+        }
+    )
+    _assistant_store_page_context("soccer_matchup", payload)
+
+
+def _assistant_store_soccer_prediction_context(
+    *,
+    team_a: dict,
+    team_b: dict,
+    prediction: dict,
+    league_name: str,
+) -> None:
+    _assistant_store_page_context(
+        "soccer_prediction",
+        _assistant_compact_prediction_context(
+            prediction,
+            sport="soccer",
+            team_a_name=team_a.get("name", "Team A"),
+            team_b_name=team_b.get("name", "Team B"),
+            league_name=league_name,
+        ),
     )
 
-    messages = []
-    for entry in (history or [])[-8:]:
-        role = entry.get("role", "")
-        content = entry.get("content", "")
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": message})
 
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-3-5-haiku-latest",
-            max_tokens=300,
-            system=system_prompt,
-            messages=messages,
-        )
-        text_blocks = [
-            block.text
-            for block in getattr(response, "content", [])
-            if getattr(block, "type", "") == "text"
-        ]
-        reply = " ".join(text_blocks).strip()
-        return reply or _fallback_chat_reply(message)
-    except Exception as exc:
-        app.logger.warning("Claude chat API error: %s", exc)
-        return _fallback_chat_reply(message)
+def _assistant_store_result_context(record: dict, comparison: dict, evidence: dict) -> None:
+    _assistant_store_page_context(
+        "result_detail",
+        {
+            "sport": record.get("sport") or "",
+            "team_a": record.get("team_a") or "",
+            "team_b": record.get("team_b") or "",
+            "winner_pick": comparison.get("winner_pick") or "",
+            "totals_pick": comparison.get("totals_pick") or "",
+            "winner_leg": comparison.get("winner_leg") or "",
+            "totals_leg": comparison.get("totals_leg") or "",
+            "overall_result": comparison.get("overall_result") or "",
+            "final_score": record.get("final_score_display") or "",
+            "actual_winner": record.get("actual_winner") or "",
+            "confidence": comparison.get("confidence") or "",
+            "evidence_summary": evidence.get("summary") or comparison.get("evidence_summary") or "",
+            "evidence_layer_label": evidence.get("evidence_layer_label") or "",
+        },
+    )
+
+
+def _assistant_store_model_performance_context(metrics: dict, sport_filter: str) -> None:
+    _assistant_store_page_context(
+        "model_performance",
+        {
+            "sport": sport_filter or "all",
+            "overall_accuracy": metrics.get("overall_accuracy"),
+            "wins": metrics.get("wins"),
+            "losses": metrics.get("losses"),
+            "finalized_predictions": metrics.get("finalized_predictions"),
+            "grading_logic": (
+                "Completed picks are tracked from settled results, and football detail pages separate winner leg, totals leg, and overall verdict so accuracy reflects the final tracked outcome rather than just one leg."
+            ),
+        },
+    )
+
+
+def _assistant_selected_football_context() -> dict:
+    team_a, team_b = _require_teams()
+    league_id = _coerce_league_id(session.get(LEAGUE_SESSION_KEY), DEFAULT_LEAGUE_ID)
+    return {
+        "sport": "soccer",
+        "league_id": league_id,
+        "league_name": (LEAGUE_BY_ID.get(league_id) or {}).get("name", ""),
+        "team_a": (team_a or {}).get("name", ""),
+        "team_b": (team_b or {}).get("name", ""),
+        "selected_fixture": (_selected_fixture() or {}).get("short_name", ""),
+    }
+
+
+def _assistant_selected_nba_context() -> dict:
+    selected_game = session.get("nba_selected_game") or {}
+    return {
+        "sport": "nba",
+        "team_a": session.get("nba_team_a_name", ""),
+        "team_b": session.get("nba_team_b_name", ""),
+        "selected_game": selected_game.get("short_name", ""),
+    }
+
+
+def _assistant_page_path_from_payload(payload: dict) -> str:
+    candidate = str(payload.get("page_path") or "").strip()
+    if candidate:
+        return candidate
+    if request.referrer:
+        try:
+            return urlparse(request.referrer).path or "/"
+        except Exception:
+            return "/"
+    return "/"
+
+
+def _assistant_page_context_for_kind(page_kind: str, page_path: str) -> dict:
+    stored = session.get("assistant_page_context") or {}
+    if stored.get("page_kind") == page_kind:
+        return stored
+
+    if page_kind == "result_detail":
+        match = re.match(r"^/prediction-result/([^/]+)$", page_path or "")
+        if match:
+            record = mt.get_prediction_by_id(match.group(1))
+            if record:
+                return {
+                    "page_kind": "result_detail",
+                    "sport": record.get("sport") or "",
+                    "team_a": record.get("team_a") or "",
+                    "team_b": record.get("team_b") or "",
+                    "winner_pick": _prediction_sentence(record),
+                    "totals_pick": record.get("totals_pick_display") or "",
+                    "winner_leg": "Hit" if record.get("winner_hit") is True else "Miss" if record.get("winner_hit") is False else "Pending",
+                    "totals_leg": "Hit" if record.get("ou_hit") is True else "Miss" if record.get("ou_hit") is False else "Pending",
+                    "overall_result": record.get("overall_game_result") or "",
+                    "final_score": record.get("final_score_display") or "",
+                    "actual_winner": record.get("actual_winner") or "",
+                    "confidence": record.get("confidence") or "",
+                }
+    if page_kind == "model_performance":
+        metrics = mt.get_summary_metrics()
+        return {
+            "page_kind": "model_performance",
+            "overall_accuracy": metrics.get("overall_accuracy"),
+            "wins": metrics.get("wins"),
+            "losses": metrics.get("losses"),
+            "finalized_predictions": metrics.get("finalized_predictions"),
+            "grading_logic": (
+                "Completed picks are tracked from settled results, and football detail pages separate winner leg, totals leg, and overall verdict so accuracy reflects the final tracked outcome rather than just one leg."
+            ),
+        }
+    return {}
+
+
+def _build_chat_request_context(payload: dict) -> dict:
+    page_path = _assistant_page_path_from_payload(payload)
+    page_kind = _assistant_page_kind(page_path)
+    page_context = _assistant_page_context_for_kind(page_kind, page_path)
+    inferred_sport = page_context.get("sport") or (
+        "nba" if page_kind.startswith("nba") else "soccer" if page_kind.startswith("soccer") or page_kind == "result_detail" else ""
+    )
+
+    return {
+        "page": {
+            "path": page_path,
+            "title": str(payload.get("page_title") or "").strip(),
+            "kind": page_kind,
+            "sport": inferred_sport,
+        },
+        "football": _assistant_selected_football_context(),
+        "nba": _assistant_selected_nba_context(),
+        "assistant_page": page_context,
+    }
+
+
+def _chat_reply(message: str, history: list[dict] | None = None, chat_context: dict | None = None) -> dict:
+    return assistant.build_ai_reply(
+        message,
+        chat_context or {},
+        history=history,
+        anthropic_module=anthropic,
+        api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        logger=app.logger,
+    )
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -2254,6 +2492,17 @@ def matchup():
         opp_strengths=opp_strengths,
     )
 
+    _assistant_store_soccer_matchup_context(
+        team_a=team_a,
+        team_b=team_b,
+        prediction=prediction,
+        league_name=(LEAGUE_BY_ID.get(league_id) or {}).get("name", ""),
+        form_a=form_a,
+        form_b=form_b,
+        injuries_a=injuries_a,
+        injuries_b=injuries_b,
+    )
+
     return render_template(
         "matchup.html",
         **_page_context(
@@ -2332,6 +2581,13 @@ def prediction():
         team_b_name=team_b["name"],
         sport="soccer",
         opp_strengths=_build_opp_strengths(standings),
+    )
+
+    _assistant_store_soccer_prediction_context(
+        team_a=team_a,
+        team_b=team_b,
+        prediction=result,
+        league_name=(LEAGUE_BY_ID.get(league_id) or {}).get("name", ""),
     )
 
     return render_template(
@@ -2525,13 +2781,16 @@ def props_generate():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    message = (request.get_json(silent=True) or request.form or {}).get("message", "")
+    payload = request.get_json(silent=True) or request.form or {}
+    message = payload.get("message", "")
     message = str(message).strip()
     if not message:
         return jsonify({"error": "message is required"}), 400
 
     history = session.get("chat_history", [])[-8:]
-    reply = _chat_reply(message, history=history)
+    chat_context = _build_chat_request_context(payload)
+    response = _chat_reply(message, history=history, chat_context=chat_context)
+    reply = response.get("reply") or ""
     history.extend(
         [
             {"role": "user", "content": message, "timestamp": _now_stamp()},
@@ -2539,7 +2798,16 @@ def chat():
         ]
     )
     session["chat_history"] = history[-10:]
-    return jsonify({"reply": reply, "history": session["chat_history"], "last_updated": _now_stamp()})
+    return jsonify(
+        {
+            "reply": reply,
+            "suggestions": response.get("suggestions", []),
+            "intent": response.get("intent"),
+            "mode": response.get("mode"),
+            "history": session["chat_history"],
+            "last_updated": _now_stamp(),
+        }
+    )
 
 
 @app.route("/chat/clear", methods=["POST"])
@@ -2812,6 +3080,8 @@ def model_performance():
         completed_predictions = []
         pending_predictions = []
 
+    _assistant_store_model_performance_context(metrics, sport_filter)
+
     return render_template(
         "model_performance.html",
         **_page_context(
@@ -2836,6 +3106,7 @@ def prediction_result_detail(prediction_id: str):
     )
 
     comparison = _build_prediction_vs_reality(record, evidence_summary=evidence.get("summary"))
+    _assistant_store_result_context(record, comparison, evidence)
 
     probability_rows = [
         {"label": record.get("team_a") or "Team A", "value": _safe_float(record.get("prob_a"), 0.0)},
