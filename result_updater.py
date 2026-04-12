@@ -61,7 +61,7 @@ def fetch_soccer_result(
     team_a: str,
     team_b: str,
     date_str: str,
-    league_id: int = 39,  # English Premier League by default
+    league_id: int = 39,
     season: int = 2025,
 ) -> dict[str, Any] | None:
     """
@@ -71,7 +71,7 @@ def fetch_soccer_result(
         team_a: Team A name (from prediction)
         team_b: Team B name (from prediction)
         date_str: Date in YYYY-MM-DD format
-        league_id: league ID (default: 39 = EPL)
+        league_id: competition ID for the tracked prediction
         season: season year
     
     Returns:
@@ -327,7 +327,12 @@ def update_pending_predictions() -> dict[str, Any]:
         
         try:
             if sport == "soccer":
-                result = fetch_soccer_result(team_a, team_b, date_str)
+                result = fetch_soccer_result(
+                    team_a,
+                    team_b,
+                    date_str,
+                    league_id=int(pred.get("league_id") or 39),
+                )
             elif sport == "nba":
                 result = fetch_nba_result(team_a, team_b, date_str)
             else:

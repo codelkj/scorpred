@@ -183,6 +183,27 @@ img { display: inline-block; }
   letter-spacing: .5px;
 }
 
+/* Native league selector on soccer page */
+.league-native-select {
+  min-width: 220px;
+  padding: .5rem .65rem;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.league-native-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Ensure option text stays readable when browser renders a light dropdown panel */
+.league-native-select option {
+  color: #111111;
+  background: #ffffff;
+}
+
 /* Custom select */
 .custom-select-wrap { position: relative; }
 .custom-select-trigger {

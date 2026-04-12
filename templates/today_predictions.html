@@ -9,7 +9,7 @@
       <h1>Upcoming Soccer Predictions</h1>
       <p class="text-muted">
         {% if total_fixtures > 0 %}
-          {{ total_predictions }} of {{ total_fixtures }} matches predicted — sorted by confidence
+          {{ total_predictions }} of {{ total_fixtures }} matches predicted across all supported leagues
         {% else %}
           No matches found in the next 36 hours
         {% endif %}
@@ -28,8 +28,15 @@
   <!-- ── TODAY'S PREDICTIONS ─────────────────────────────────────────── -->
   {% if predictions | length > 0 %}
 
+  {% for group in grouped_predictions %}
+  {% if group.predictions %}
+  <div class="row mt-4 mb-2">
+    <div class="col-md-12">
+      <h3 class="mb-2">{{ group.league_flag }} {{ group.league_name }}</h3>
+    </div>
+  </div>
   <div class="row">
-    {% for item in predictions %}
+    {% for item in group.predictions %}
     <div class="col-lg-6 col-xl-4 mb-3">
       <div class="card h-100 game-card
           {% if item.confidence == 'High' %}border-success{% elif item.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
@@ -105,6 +112,8 @@
     </div>
     {% endfor %}
   </div>
+  {% endif %}
+  {% endfor %}
 
   <!-- Summary Stats -->
   <div class="row mt-3 mb-2">

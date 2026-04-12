@@ -892,11 +892,9 @@ def prediction():
     except Exception as e:
         _log_err("Stats B for prediction", e)
 
-    # NOTE: Removed legacy nba_predictor.predict_winner() - using ONLY Scorpred Engine now
-    # This ensures a single source of truth for all predictions
-
     form_a_display = np_nba.extract_form_for_display(form_a_filtered, id_a)
     form_b_display = np_nba.extract_form_for_display(form_b_filtered, id_b)
+    h2h_rows = np_nba.h2h_display(h2h_games_filtered, id_a, id_b)
 
     # ── Scorpred Engine ────────────────────────────────────────────────────────
     scorpred = None
@@ -985,6 +983,7 @@ def prediction():
             stats_b=stats_b or {},
             form_a=form_a_display,
             form_b=form_b_display,
+            h2h_rows=h2h_rows,
             prediction=scorpred,
             scorpred=scorpred,    # template guards on {% if scorpred %} — expose it directly
             data_notes=data_notes,

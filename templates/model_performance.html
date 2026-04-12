@@ -39,6 +39,11 @@
   </div>
 
   <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
+    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Finalized</div>
+    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#e6edf3;">{{ metrics.finalized_predictions or 0 }}</div>
+  </div>
+
+  <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
     <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Losses</div>
     <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#ef4444;">{{ metrics.losses or 0 }}</div>
   </div>
@@ -75,6 +80,11 @@
       <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
         Final Score: {{ pred.final_score_display }}
       </div>
+      {% if pred.sport == 'soccer' and pred.league_name %}
+      <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
+        League: {{ pred.league_name }}
+      </div>
+      {% endif %}
       {% if pred.total_label %}
       <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
         {{ pred.total_label }}
@@ -163,6 +173,35 @@
 </div>
 {% endif %}
 
+{# ── By League ────────────────────────────────────────────────────────── #}
+{% if metrics.by_league %}
+<div class="section-title">Soccer Accuracy by League</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+  {% for league_name, league_data in metrics.by_league.items() %}
+  <div class="card glow-card" style="padding:1.25rem; text-align:center;">
+    <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.5rem;">
+      {{ league_name }}
+    </div>
+    {% if league_data.accuracy >= 55 %}
+      <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#00ff87;">{{ league_data.accuracy }}%</div>
+    {% elif league_data.accuracy >= 45 %}
+      <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#f59e0b;">{{ league_data.accuracy }}%</div>
+    {% else %}
+      <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#ef4444;">{{ league_data.accuracy }}%</div>
+    {% endif %}
+    <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">
+      Tracked: {{ league_data.count }} · Wins: {{ league_data.wins }} · Losses: {{ league_data.losses }}
+    </div>
+    <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.6rem; overflow:hidden;">
+      <div style="width:{{ league_data.accuracy }}%; height:100%;
+        background:{% if league_data.accuracy >= 55 %}#00ff87{% elif league_data.accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
+        transition:width .6s ease;"></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {# ── Active Filter Indicator ───────────────────────────────────────────── #}
 {% if sport_filter %}
 <div style="margin-bottom:1rem;">
@@ -217,6 +256,7 @@
         <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Date</th>
         <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Sport</th>
         <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Matchup</th>
+        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">League</th>
         <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Pick</th>
         <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Conf</th>
         <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Status</th>
@@ -231,6 +271,7 @@
             border-radius:4px; padding:.1rem .4rem; text-transform:uppercase;">{{ pred.sport }}</span>
         </td>
         <td style="padding:.55rem .9rem; color:#e6edf3;">{{ pred.team_a }} vs {{ pred.team_b }}</td>
+        <td style="padding:.55rem .9rem; color:#8b949e;">{{ pred.league_name if pred.sport == 'soccer' and pred.league_name else '—' }}</td>
         <td style="padding:.55rem .9rem; color:#00ff87; font-weight:600;">{{ pred.predicted_winner }}</td>
         <td style="padding:.55rem .9rem;">
           <span class="confidence-badge conf-{{ pred.confidence | lower }}" style="font-size:.7rem;">{{ pred.confidence }}</span>

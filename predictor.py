@@ -80,6 +80,34 @@ def filter_recent_completed_fixtures(
 
 def extract_form(fixtures: list, team_id: int) -> list[dict]:
     """Return per-match summary dicts for team_id from a fixture list."""
+    def _parse_numeric_stat(value: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.endswith("%"):
+            text = text[:-1].strip()
+        try:
+            return float(text)
+        except (TypeError, ValueError):
+            return None
+
+    def _fixture_team_stat(fixture: dict, stat_keys: list[str]) -> float | None:
+        stats_rows = fixture.get("stats") or []
+        wanted = {key.lower() for key in stat_keys}
+        for row in stats_rows:
+            team_row = row.get("team") or {}
+            if str(team_row.get("id")) != str(team_id):
+                continue
+            for stat in row.get("statistics") or []:
+                stat_type = str(stat.get("type") or "").strip().lower()
+                if stat_type in wanted:
+                    return _parse_numeric_stat(stat.get("value"))
+        return None
+
     form = []
     for f in filter_recent_completed_fixtures(fixtures):
         h_id = f["teams"]["home"]["id"]
@@ -103,10 +131,21 @@ def extract_form(fixtures: list, team_id: int) -> list[dict]:
         else:
             result = "D"
 
+        shots = _fixture_team_stat(f, ["Total Shots", "Shots"])
+        shots_on_target = _fixture_team_stat(f, ["Shots on Goal", "Shots on Target"])
+        possession = _fixture_team_stat(f, ["Ball Possession", "Possession"])
+        corners = _fixture_team_stat(f, ["Corner Kicks", "Corners"])
+
         form.append({
             "result": result,
             "gf": gf,
             "ga": ga,
+            "goals_for": gf,
+            "goals_against": ga,
+            "shots": shots,
+            "shots_on_target": shots_on_target,
+            "possession": possession,
+            "corners": corners,
             "opponent": opp_name,
             "opponent_logo": opp_logo,
             "home": is_home,

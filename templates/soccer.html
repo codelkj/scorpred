@@ -10,7 +10,7 @@
 <div class="card glow-card">
   <form method="GET" action="/soccer" style="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;margin-bottom:1rem;">
     <label for="league" style="font-size:.82rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">League</label>
-    <select id="league" name="league" onchange="this.form.submit()" style="min-width:220px;">
+    <select id="league" name="league" class="league-native-select" onchange="this.form.submit()">
       {% for league in supported_leagues %}
       <option value="{{ league.id }}" {% if league.id == current_league_id %}selected{% endif %}>{{ league.flag }} {{ league.name }}</option>
       {% endfor %}

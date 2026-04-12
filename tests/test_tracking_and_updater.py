@@ -84,6 +84,26 @@ class TestTrackingMetrics:
         assert metrics["by_sport"]["soccer"]["losses"] == 1
         assert metrics["by_sport"]["nba"]["wins"] == 1
 
+    def test_summary_metrics_include_soccer_by_league(self, tmp_path):
+        tracking_file = tmp_path / "prediction_tracking.json"
+        with patch.object(mt, "_TRACKING_FILE", str(tracking_file)):
+            p1 = mt.save_prediction(
+                "soccer", "Arsenal", "Chelsea", "A", {"a": 60, "b": 20, "draw": 20}, "High", "2026-04-01",
+                league_id=39, league_name="Premier League"
+            )
+            p2 = mt.save_prediction(
+                "soccer", "Madrid", "Sevilla", "A", {"a": 58, "b": 22, "draw": 20}, "Medium", "2026-04-01",
+                league_id=140, league_name="La Liga"
+            )
+
+            mt.update_prediction_result(p1, "A", {"a": 2, "b": 1})
+            mt.update_prediction_result(p2, "B", {"a": 0, "b": 1})
+            metrics = mt.get_summary_metrics()
+
+        assert metrics["by_league"]["Premier League"]["wins"] == 1
+        assert metrics["by_league"]["Premier League"]["count"] == 1
+        assert metrics["by_league"]["La Liga"]["losses"] == 1
+
 
 class TestResultUpdater:
     def test_fetch_nba_result_reads_live_client_shape(self):
@@ -179,3 +199,23 @@ class TestResultUpdater:
             assert stats["updated"] == 0
             row = [p for p in mt._load_predictions() if p.get("id") == pred_id][0]
             assert row["status"] == "pending"
+
+    def test_update_pending_predictions_passes_saved_soccer_league(self, tmp_path):
+        tracking_file = tmp_path / "prediction_tracking.json"
+        with patch.object(mt, "_TRACKING_FILE", str(tracking_file)):
+            mt.save_prediction(
+                sport="soccer",
+                team_a="Madrid",
+                team_b="Sevilla",
+                predicted_winner="A",
+                win_probs={"a": 55, "b": 25, "draw": 20},
+                confidence="High",
+                game_date="2026-04-01",
+                league_id=140,
+                league_name="La Liga",
+            )
+
+            with patch("result_updater.fetch_soccer_result", return_value=None) as fetch_mock:
+                ru.update_pending_predictions()
+
+        assert fetch_mock.call_args.kwargs["league_id"] == 140

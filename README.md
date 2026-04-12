@@ -1,6 +1,6 @@
 # ScorPred
 
-A football and NBA sports prediction web app built with Flask. Provides head-to-head analysis, win probability predictions, player prop line generation, live standings, and an AI-powered chatbot assistant.
+A football and NBA sports prediction web app built with Flask. Provides head-to-head analysis, multi-league predictions, model performance tracking, player prop line generation, live standings, and an AI-powered chatbot assistant.
 
 ---
 
@@ -9,10 +9,13 @@ A football and NBA sports prediction web app built with Flask. Provides head-to-
 | Feature | Description |
 |---|---|
 | **Football Matchup** | H2H history, form tables, home/away splits, injury reports |
+| **Today Soccer Predictions** | Grouped predictions across all supported soccer leagues |
+| **Top Picks Today** | High-confidence picks grouped by league, plus NBA high-confidence picks |
 | **Win Prediction** | Poisson distribution model weighted by form, H2H, home advantage, and injuries |
 | **Player Props** | 6-layer statistical prop line builder (season avg, last-5, vs-opponent, consistency, context, confidence) |
 | **Fixtures** | Upcoming fixtures with quick standings-based predictions |
-| **NBA Section** | Full NBA module — scoreboard, standings, matchup, players, predictions |
+| **NBA Section** | Full NBA module — scoreboard, standings, matchup, players, predictions, today predictions |
+| **Model Performance** | Tracks prediction outcomes with accuracy by confidence, sport, and soccer league |
 | **World Cup** | World Cup fixture viewer and team vs team predictor |
 | **AI Chatbot** | Claude-powered assistant with conversation history (falls back gracefully without API key) |
 
@@ -24,7 +27,7 @@ A football and NBA sports prediction web app built with Flask. Provides head-to-
 
 ```bash
 git clone <your-repo-url>
-cd ScorPred
+cd scorpred
 pip install -r requirements.txt
 ```
 
@@ -74,9 +77,12 @@ ScorPred/
 ├── api_client.py           # API-Football + ESPN wrapper with caching
 ├── nba_client.py           # NBA RapidAPI wrapper
 ├── nba_live_client.py      # ESPN public feed NBA client (no auth needed)
+├── scorpred_engine.py      # Unified prediction engine (soccer + NBA scoring components)
 ├── predictor.py            # Football prediction logic (Poisson model)
-├── nba_predictor.py        # NBA win probability model
+├── nba_predictor.py        # Legacy NBA model utilities (ScorPred is the primary NBA predictor)
 ├── props_engine.py         # 6-layer player prop line calculator
+├── model_tracker.py        # Prediction tracking + accuracy metrics
+├── result_updater.py       # Auto-update pending predictions with final results
 ├── league_config.py        # Supported leagues and configuration constants
 │
 ├── templates/
@@ -88,6 +94,9 @@ ScorPred/
 │   ├── prediction.html     # Win probability results
 │   ├── props.html          # Props bet builder
 │   ├── fixtures.html       # Fixture list
+│   ├── today_predictions.html  # Soccer predictions grouped by league
+│   ├── top_picks_today.html    # Soccer/NBA top-confidence picks
+│   ├── model_performance.html  # Accuracy dashboard
 │   ├── worldcup.html       # World Cup predictor
 │   └── nba/                # NBA-specific templates
 │
@@ -120,9 +129,14 @@ ScorPred/
 | `/players` | GET | Squad side-by-side comparison |
 | `/prediction` | GET | Win probability with Poisson model |
 | `/fixtures` | GET | Upcoming fixtures with quick predictions |
+| `/today-soccer-predictions` | GET | Predictions grouped by supported leagues |
+| `/top-picks-today` | GET | High-confidence soccer and NBA picks |
+| `/model-performance` | GET | Accuracy dashboard (overall, by confidence/sport/league) |
+| `/update-prediction-results` | GET/POST | Auto-update pending predictions with final scores |
 | `/worldcup` | GET/POST | World Cup predictor |
 | `/props` | GET | Player prop line builder UI |
 | `/props/generate` | GET/POST | Generate prop lines (JSON) |
+| `/health` | GET | Health check |
 
 ### NBA
 
@@ -133,6 +147,9 @@ ScorPred/
 | `/nba/matchup` | NBA head-to-head analysis |
 | `/nba/player` | NBA player comparison |
 | `/nba/prediction` | NBA win probability |
+| `/nba/today-predictions` | NBA predictions for today's/next games |
+| `/nba/props` | NBA props page |
+| `/nba/props/generate` | Generate NBA props (JSON/HTML) |
 | `/nba/standings` | Current NBA standings |
 
 ### API endpoints
@@ -179,6 +196,24 @@ Goals are then modelled with a Poisson distribution to produce:
 - Over/under probabilities
 - First goalscorer candidates
 
+### NBA (ScorPred Engine)
+
+NBA predictions use the unified ScorPred engine and expose a single `scorpred` payload in templates/routes.
+
+Weighted components:
+
+| Factor | Weight |
+|---|---|
+| Recent form | 40% |
+| Attack | 15% |
+| Defense | 15% |
+| Head-to-head | 10% |
+| Venue (home/away) | 8% |
+| Opponent quality | 7% |
+| Squad availability | 5% |
+
+Outputs include team scores (0-10 scale), win probabilities, confidence, best pick, key edges, and matchup reading.
+
 ### Props (6-layer model)
 
 Each player prop line is built through six layers:
@@ -206,6 +241,8 @@ All API responses are cached as JSON files in the `cache/` directory. TTLs:
 
 Force a cache refresh on any page by appending `?refresh=1`.
 
+Prediction tracking data is stored separately at `cache/prediction_tracking.json`.
+
 ---
 
 ## Running Tests
@@ -215,6 +252,12 @@ pytest -q
 ```
 
 Tests use `unittest.mock` to patch API calls, so no live network APIs are required.
+
+Useful targeted test runs:
+
+```bash
+pytest tests/test_routes.py tests/test_tracking_and_updater.py -q
+```
 
 ---
 

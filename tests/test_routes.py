@@ -118,6 +118,54 @@ class TestTodayPredictionsRoute:
         assert rv.status_code == 200
         assert b"Upcoming Soccer Predictions" in rv.data
 
+    def test_today_predictions_show_multiple_league_sections(self, client):
+        premier_fixture = {
+            "fixture": {"date": "2026-04-12T15:00:00+00:00"},
+            "teams": {
+                "home": {"name": "Alpha", "logo": ""},
+                "away": {"name": "Beta", "logo": ""},
+            },
+            "league": {"id": 39, "name": "Premier League"},
+            "prediction": {
+                "best_pick": {"prediction": "Alpha", "confidence": "High", "reasoning": "Edge"},
+                "win_probabilities": {"a": 61.0, "draw": 22.0, "b": 17.0},
+            },
+        }
+        laliga_fixture = {
+            "fixture": {"date": "2026-04-12T18:00:00+00:00"},
+            "teams": {
+                "home": {"name": "Gamma", "logo": ""},
+                "away": {"name": "Delta", "logo": ""},
+            },
+            "league": {"id": 140, "name": "La Liga"},
+            "prediction": {
+                "best_pick": {"prediction": "Gamma", "confidence": "Medium", "reasoning": "Form edge"},
+                "win_probabilities": {"a": 54.0, "draw": 24.0, "b": 22.0},
+            },
+        }
+        grouped = [
+            {
+                "league_id": 39,
+                "league_name": "Premier League",
+                "league_flag": "EN",
+                "fixtures": [premier_fixture],
+            },
+            {
+                "league_id": 140,
+                "league_name": "La Liga",
+                "league_flag": "ES",
+                "fixtures": [laliga_fixture],
+            },
+        ]
+
+        all_predictions = [premier_fixture, laliga_fixture]
+        with patch("app._load_grouped_upcoming_fixtures_all_leagues", return_value=(all_predictions, grouped, None, "configured")):
+            rv = client.get("/today-soccer-predictions?league=39")
+
+        assert rv.status_code == 200
+        assert b"Premier League" in rv.data
+        assert b"La Liga" in rv.data
+
 
 # ── Select / team selection ───────────────────────────────────────────────────
 
@@ -426,6 +474,27 @@ class TestLeagueSelectionFlow:
             assert "team_a_id" not in sess
             assert "team_b_id" not in sess
 
+    def test_team_form_payload_aggregates_supported_competitions(self, client):
+        calls = []
+
+        def _side_effect(team_id, league_id, season, last):
+            calls.append((team_id, league_id, season, last))
+            fixture = _mock_fixture()
+            fixture["fixture"]["status"] = {"short": "FT", "long": "Finished"}
+            fixture["league"] = {"id": league_id, "name": f"League {league_id}"}
+            fixture["teams"]["home"]["id"] = team_id
+            fixture["teams"]["away"]["id"] = 999
+            fixture["goals"] = {"home": 1, "away": 0}
+            return [fixture]
+
+        with patch("app.ac.get_team_fixtures", side_effect=_side_effect):
+            payload = flask_app_module._team_form_payload(33, league_id=140)
+
+        called_leagues = [league_id for _, league_id, _, _ in calls]
+        assert 140 in called_leagues
+        assert 39 in called_leagues
+        assert payload["form_string"]
+
 
 # ── Error pages ───────────────────────────────────────────────────────────────
 
@@ -565,6 +634,44 @@ class TestTopPicksRoute:
         assert b"Alpha" in rv.data
         assert b"Celtics" in rv.data
 
+    def test_top_picks_groups_soccer_picks_by_league(self, client):
+        soccer_fixtures = [
+            {
+                "teams": {
+                    "home": {"id": 1, "name": "Alpha"},
+                    "away": {"id": 2, "name": "Beta"},
+                },
+                "league": {"id": 39, "name": "Premier League"},
+                "prediction": {
+                    "best_pick": {"prediction": "Alpha", "confidence": "High", "reasoning": "Strong form edge"},
+                    "win_probabilities": {"a": 64.0, "b": 21.0, "draw": 15.0},
+                },
+            },
+            {
+                "teams": {
+                    "home": {"id": 3, "name": "Madrid"},
+                    "away": {"id": 4, "name": "Sevilla"},
+                },
+                "league": {"id": 140, "name": "La Liga"},
+                "prediction": {
+                    "best_pick": {"prediction": "Madrid", "confidence": "High", "reasoning": "Home edge"},
+                    "win_probabilities": {"a": 67.0, "b": 18.0, "draw": 15.0},
+                },
+            },
+        ]
+        grouped_fixtures = [
+            {"league_id": 39, "league_name": "Premier League", "league_flag": "EN", "fixtures": [soccer_fixtures[0]]},
+            {"league_id": 140, "league_name": "La Liga", "league_flag": "ES", "fixtures": [soccer_fixtures[1]]},
+        ]
+
+        with patch("app._load_grouped_upcoming_fixtures_all_leagues", return_value=(soccer_fixtures, grouped_fixtures, None, "configured")), \
+             patch("app.mt.get_recent_predictions", return_value=[]):
+            rv = client.get("/top-picks-today?league=39")
+
+        assert rv.status_code == 200
+        assert b"Premier League" in rv.data
+        assert b"La Liga" in rv.data
+
 
 class TestNbaFailureHandling:
     def test_nba_index_handles_fetch_failures(self, client):
@@ -608,6 +715,53 @@ class TestNbaFailureHandling:
         assert rv.status_code == 200
         assert b"Predicted winner: Celtics" in rv.data
         assert b"Game tied" not in rv.data
+
+    def test_nba_prediction_renders_with_scorpred_schema(self, client):
+        with client.session_transaction() as sess:
+            sess["nba_team_a_id"] = "1"
+            sess["nba_team_a_name"] = "Los Angeles Lakers"
+            sess["nba_team_a_logo"] = ""
+            sess["nba_team_a_nickname"] = "Lakers"
+            sess["nba_team_a_city"] = "Los Angeles"
+            sess["nba_team_b_id"] = "2"
+            sess["nba_team_b_name"] = "Boston Celtics"
+            sess["nba_team_b_logo"] = ""
+            sess["nba_team_b_nickname"] = "Celtics"
+            sess["nba_team_b_city"] = "Boston"
+
+        scorpred = {
+            "team_a_score": 7.1,
+            "team_b_score": 5.9,
+            "score_gap": 1.2,
+            "prob_a": 61.5,
+            "prob_b": 38.5,
+            "confidence": "Medium",
+            "winner_label": "Lakers to win",
+            "components_a": {"form": 7, "offense": 6, "defense": 7, "h2h": 6, "home_away": 7, "opp_strength": 5, "squad": 6},
+            "components_b": {"form": 5, "offense": 6, "defense": 5, "h2h": 4, "home_away": 3, "opp_strength": 5, "squad": 6},
+            "best_pick": {"prediction": "Lakers to win", "confidence": "Medium", "reasoning": "Better form", "market": "Moneyline", "team": "A"},
+            "optional_picks": [],
+            "key_edges": [{"team": "A", "team_name": "Lakers", "category": "Recent form", "margin": 1.2}],
+            "matchup_reading": "Lakers have the cleaner profile.",
+            "win_probabilities": {"team_a": 58, "team_b": 42},
+        }
+
+        with patch("nba_routes.nc.get_h2h", return_value=[]), \
+             patch("nba_routes.nc.get_team_recent_form", return_value=[]), \
+             patch("nba_routes.nc.get_team_injuries", return_value=[]), \
+             patch("nba_routes.nc.get_team_season_stats", return_value={"ppg": 110, "opp_ppg": 108, "net_rtg": 3.0}), \
+             patch("nba_routes.nc.get_standings", return_value=[]), \
+             patch("nba_routes.nc.get_route_support", return_value={}), \
+             patch("nba_routes.se.scorpred_predict", return_value=scorpred), \
+             patch("nba_routes.mt.save_prediction", return_value=None):
+            rv = client.get("/nba/prediction")
+
+        assert rv.status_code == 200
+        assert b"Prediction data could not be generated" not in rv.data
+        assert b"Match Winner Prediction" in rv.data
+        assert b"Scorpred Engine Score" in rv.data
+        assert b"Score Projections" not in rv.data
+        assert b"Key Prediction Factors" not in rv.data
 
     def test_worldcup_same_team_shows_error(self, client):
         with patch("app.ac.get_espn_fixtures", return_value=[], create=True):

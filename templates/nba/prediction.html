@@ -79,7 +79,7 @@
   <div class="nba-card glow-card" style="border-color:#ef4444;"><p style="color:#ef4444;">⚠ Prediction error: {{ error }}</p></div>
   {% endif %}
 
-  {% if result %}
+  {% if scorpred %}
 
   <!-- ── Win Probability ───────────────────────────────────────────────────── -->
   <div class="nba-card glow-card">
@@ -87,19 +87,19 @@
 
     <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:1rem; align-items:center; margin-bottom:1rem;">
       <div style="text-align:center;">
-        <div class="stat-number" data-target="{{ result.prob_a }}" style="font-size:2.5rem; font-weight:700; color:{% if result.winner == 'A' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-          {{ result.prob_a }}
+        <div class="stat-number" data-target="{{ scorpred.prob_a }}" style="font-size:2.5rem; font-weight:700; color:{% if scorpred.best_pick.team == 'A' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+          {{ scorpred.prob_a }}
         </div>
         <div style="color:var(--nba-muted); font-size:.85rem;">{{ team_a.nickname or team_a.name }} %</div>
       </div>
       <div style="text-align:center;">
-        <span class="nba-badge {% if result.confidence == 'High' %}nba-badge-high{% elif result.confidence == 'Medium' %}nba-badge-med{% else %}nba-badge-low{% endif %}">
-          {{ result.confidence }} Confidence
+        <span class="nba-badge {% if scorpred.confidence == 'High' %}nba-badge-high{% elif scorpred.confidence == 'Medium' %}nba-badge-med{% else %}nba-badge-low{% endif %}">
+          {{ scorpred.confidence }} Confidence
         </span>
       </div>
       <div style="text-align:center;">
-        <div class="stat-number" data-target="{{ result.prob_b }}" style="font-size:2.5rem; font-weight:700; color:{% if result.winner == 'B' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-          {{ result.prob_b }}
+        <div class="stat-number" data-target="{{ scorpred.prob_b }}" style="font-size:2.5rem; font-weight:700; color:{% if scorpred.best_pick.team == 'B' %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
+          {{ scorpred.prob_b }}
         </div>
         <div style="color:var(--nba-muted); font-size:.85rem;">{{ team_b.nickname or team_b.name }} %</div>
       </div>
@@ -107,11 +107,11 @@
 
     <!-- Win probability bar -->
     <div class="nba-prob-bar-wrap">
-      <div class="nba-prob-a" style="width:{{ result.prob_a }}%;">
-        {% if result.prob_a > 15 %}{{ result.prob_a }}%{% endif %}
+      <div class="nba-prob-a" style="width:{{ scorpred.prob_a }}%;">
+        {% if scorpred.prob_a > 15 %}{{ scorpred.prob_a }}%{% endif %}
       </div>
       <div class="nba-prob-b">
-        {% if result.prob_b > 15 %}{{ result.prob_b }}%{% endif %}
+        {% if scorpred.prob_b > 15 %}{{ scorpred.prob_b }}%{% endif %}
       </div>
     </div>
 
@@ -119,39 +119,7 @@
     <div style="text-align:center; margin-top:1rem;">
       <div style="font-size:.85rem; color:var(--nba-muted); margin-bottom:.3rem;">Recommended Winner</div>
       <div style="font-size:1.3rem; font-weight:700; color:var(--nba-gold);">
-        {{ team_a.nickname or team_a.name if result.winner == 'A' else team_b.nickname or team_b.name }}
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Score Projections ─────────────────────────────────────────────────── -->
-  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
-    <div class="nba-card glow-card" style="text-align:center; padding:1.25rem;">
-      <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Projected Score</div>
-      <div style="font-size:1.6rem; font-weight:700; color:var(--nba-text);">
-        <span class="stat-number" data-target="{{ result.proj_a_pts }}">{{ result.proj_a_pts }}</span>
-        –
-        <span class="stat-number" data-target="{{ result.proj_b_pts }}">{{ result.proj_b_pts }}</span>
-      </div>
-      <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
-        {{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}
-      </div>
-    </div>
-    <div class="nba-card glow-card" style="text-align:center; padding:1.25rem;">
-      <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Total Points O/U</div>
-      <div style="font-size:1.6rem; font-weight:700; color:var(--nba-gold);">{{ result.over_under_line }}</div>
-      <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
-        Projected: {{ result.proj_total }}
-        <span class="nba-badge {% if result.proj_total > result.over_under_line %}nba-badge-over{% else %}nba-badge-under{% endif %}" style="margin-left:.4rem; font-size:.75rem;">
-          {{ 'OVER' if result.proj_total > result.over_under_line else 'UNDER' }}
-        </span>
-      </div>
-    </div>
-    <div class="nba-card glow-card" style="text-align:center; padding:1.25rem;">
-      <div style="font-size:.78rem; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:.4rem;">Spread</div>
-      <div style="font-size:1.6rem; font-weight:700; color:var(--nba-text);">-{{ result.spread_line }}</div>
-      <div style="font-size:.8rem; color:var(--nba-muted); margin-top:.2rem;">
-        Favours: {{ team_a.nickname or team_a.name if result.spread_favoured == 'A' else team_b.nickname or team_b.name }}
+        {{ team_a.nickname or team_a.name if scorpred.best_pick.team == 'A' else team_b.nickname or team_b.name }}
       </div>
     </div>
   </div>
@@ -176,122 +144,7 @@
   </div>
   {% endif %}
 
-  <!-- ── Key Factors ───────────────────────────────────────────────────────── -->
-  <div class="nba-card glow-card">
-    <div class="nba-card-title">📋 Key Prediction Factors</div>
-    <div class="nba-factors">
-
-      <!-- H2H -->
-      {% set h2h_c = result.components.h2h %}
-      <div class="nba-factor-card glow-card">
-        <div class="nba-factor-name">H2H Record (20%)</div>
-        <div class="nba-factor-vals">
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ h2h_c.team_a_pct }}" style="color:{% if h2h_c.team_a_pct >= h2h_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ h2h_c.team_a_pct }}
-            </div>
-            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
-          </div>
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ h2h_c.team_b_pct }}" style="color:{% if h2h_c.team_b_pct > h2h_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ h2h_c.team_b_pct }}
-            </div>
-            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
-          </div>
-        </div>
-        <div style="font-size:.75rem;color:var(--nba-muted);margin-top:.4rem;">
-          {{ h2h_c.record.wins_a }}W – {{ h2h_c.record.wins_b }}W in {{ h2h_c.record.total }} games
-        </div>
-      </div>
-
-      <!-- Form -->
-      {% set form_c = result.components.form %}
-      <div class="nba-factor-card glow-card">
-        <div class="nba-factor-name">Recent Form (25%)</div>
-        <div class="nba-factor-vals">
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ form_c.team_a_pct }}" style="color:{% if form_c.team_a_pct >= form_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ form_c.team_a_pct }}
-            </div>
-            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
-          </div>
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ form_c.team_b_pct }}" style="color:{% if form_c.team_b_pct > form_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ form_c.team_b_pct }}
-            </div>
-            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Home/Away -->
-      {% set home_c = result.components.home_away %}
-      <div class="nba-factor-card glow-card">
-        <div class="nba-factor-name">Home Advantage (20%)</div>
-        <div class="nba-factor-vals">
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ home_c.team_a_pct }}" style="color:var(--nba-gold);">{{ home_c.team_a_pct }}</div>
-            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_a.nickname or team_a.name }}</div>
-          </div>
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ home_c.team_b_pct }}">{{ home_c.team_b_pct }}</div>
-            <div style="font-size:.75rem;color:var(--nba-muted);">{{ team_b.nickname or team_b.name }}</div>
-          </div>
-        </div>
-        <div style="font-size:.75rem;color:var(--nba-muted);margin-top:.4rem;">
-          Home court advantage applied to {{ team_a.nickname or team_a.name }}
-        </div>
-      </div>
-
-      <!-- Injuries -->
-      {% set inj_c = result.components.injuries %}
-      <div class="nba-factor-card glow-card">
-        <div class="nba-factor-name">Injury Impact (15%)</div>
-        <div class="nba-factor-vals">
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ inj_c.team_a_pct }}" style="color:{% if inj_c.team_a_pct >= inj_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ inj_c.team_a_pct }}
-            </div>
-            <div style="font-size:.75rem;color:var(--nba-muted);">{{ inj_c.team_a_count }} injuries</div>
-          </div>
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ inj_c.team_b_pct }}" style="color:{% if inj_c.team_b_pct > inj_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ inj_c.team_b_pct }}
-            </div>
-            <div style="font-size:.75rem;color:var(--nba-muted);">{{ inj_c.team_b_count }} injuries</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Ratings -->
-      {% set rtg_c = result.components.ratings %}
-      <div class="nba-factor-card glow-card">
-        <div class="nba-factor-name">Net Rating (20%)</div>
-        <div class="nba-factor-vals">
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ rtg_c.team_a_pct }}" style="color:{% if rtg_c.team_a_pct >= rtg_c.team_b_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ rtg_c.team_a_pct }}
-            </div>
-            <div style="font-size:.75rem;color:{% if rtg_c.team_a_net >= 0 %}#22c55e{% else %}#ef4444{% endif %};">
-              {{ '+' if rtg_c.team_a_net >= 0 else '' }}{{ rtg_c.team_a_net }}
-            </div>
-          </div>
-          <div>
-            <div class="nba-factor-val stat-number" data-target="{{ rtg_c.team_b_pct }}" style="color:{% if rtg_c.team_b_pct > rtg_c.team_a_pct %}var(--nba-gold){% else %}var(--nba-text){% endif %};">
-              {{ rtg_c.team_b_pct }}
-            </div>
-            <div style="font-size:.75rem;color:{% if rtg_c.team_b_net >= 0 %}#22c55e{% else %}#ef4444{% endif %};">
-              {{ '+' if rtg_c.team_b_net >= 0 else '' }}{{ rtg_c.team_b_net }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div><!-- /nba-factors -->
-  </div>
-
   <!-- ── Scorpred Engine Score ─────────────────────────────────────────────── -->
-  {% if scorpred %}
   <div class="nba-card glow-card">
     <div class="nba-card-title">⚡ Scorpred Engine Score</div>
     <div style="font-size:.78rem; color:var(--nba-muted); margin-bottom:1.25rem;">
@@ -410,37 +263,39 @@
     </div>
     {% endif %}
   </div>
-  {% endif %}
 
   <!-- ── Plain-English Explanation ──────────────────────────────────────────── -->
   <div class="nba-card glow-card">
     <div class="nba-card-title">💡 What's Driving This Prediction</div>
     <div style="line-height:1.9; color:var(--nba-text); font-size:.93rem;">
       <p style="margin-bottom:.75rem;">
-        <strong style="color:var(--nba-gold);">{{ team_a.nickname or team_a.name }}</strong> are playing at home, which adds a base {{ result.components.home_away.team_a_pct }}% edge from the home-court advantage component.
+        <strong style="color:var(--nba-gold);">{{ team_a.nickname or team_a.name }}</strong> are playing at home.
+        The venue component gives them a {{ scorpred.components_a.home_away }}/10 vs {{ team_b.nickname or team_b.name }}'s {{ scorpred.components_b.home_away }}/10.
       </p>
       <p style="margin-bottom:.75rem;">
-        In <strong>head-to-head history</strong>, {{ team_a.nickname or team_a.name }} have won {{ result.components.h2h.record.wins_a }} of the last {{ result.components.h2h.record.total }} meetings
-        ({{ result.components.h2h.team_a_pct }}% H2H edge).
+        In <strong>head-to-head history</strong>, {{ team_a.nickname or team_a.name }} score
+        {{ scorpred.components_a.h2h }}/10 vs {{ team_b.nickname or team_b.name }}'s {{ scorpred.components_b.h2h }}/10 in the H2H component.
       </p>
       <p style="margin-bottom:.75rem;">
-        <strong>Recent form</strong> (last 10 games) gives {{ team_a.nickname or team_a.name }} a {{ result.components.form.team_a_pct }}% advantage
-        vs {{ team_b.nickname or team_b.name }}'s {{ result.components.form.team_b_pct }}%.
+        <strong>Recent form</strong> (last 5 games): {{ team_a.nickname or team_a.name }} scores
+        {{ scorpred.components_a.form }}/10 vs {{ team_b.nickname or team_b.name }}'s {{ scorpred.components_b.form }}/10.
       </p>
-      {% if result.components.injuries.team_a_count > 0 or result.components.injuries.team_b_count > 0 %}
+      {% if injuries_a or injuries_b %}
       <p style="margin-bottom:.75rem;">
         <strong>Injury report:</strong>
-        {{ team_a.nickname or team_a.name }} has {{ result.components.injuries.team_a_count }} injury(-ies) —
-        {{ team_b.nickname or team_b.name }} has {{ result.components.injuries.team_b_count }}.
-        This is factored into the 15% injury component.
+        {{ team_a.nickname or team_a.name }} has {{ injuries_a | length }} reported injury(-ies) —
+        {{ team_b.nickname or team_b.name }} has {{ injuries_b | length }}.
+        This is reflected in the squad component.
       </p>
       {% endif %}
+      {% if stats_a.net_rtg is defined %}
       <p>
-        <strong>Net rating differential:</strong>
-        {{ team_a.nickname or team_a.name }} carries a {{ '+' if result.components.ratings.team_a_net >= 0 else '' }}{{ result.components.ratings.team_a_net }} net rating
-        vs {{ team_b.nickname or team_b.name }}'s {{ '+' if result.components.ratings.team_b_net >= 0 else '' }}{{ result.components.ratings.team_b_net }}.
-        This drives the 20% rating component.
+        <strong>Net rating:</strong>
+        {{ team_a.nickname or team_a.name }} carries a {{ '+' if stats_a.net_rtg >= 0 else '' }}{{ stats_a.net_rtg }} net rating
+        vs {{ team_b.nickname or team_b.name }}'s {{ '+' if stats_b.net_rtg >= 0 else '' }}{{ stats_b.net_rtg }},
+        reflected in the offense and defense components.
       </p>
+      {% endif %}
     </div>
   </div>
 
@@ -471,6 +326,83 @@
     </div>
   </div>
   {% endif %}
+
+  <!-- ── Recent Form + H2H ────────────────────────────────────────────────── -->
+  <div class="nba-card glow-card">
+    <div class="nba-card-title">🧾 Last 5 Form + H2H</div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.25rem;">
+      {% for team, form_list in [(team_a, form_a), (team_b, form_b)] %}
+      <div>
+        <div style="font-weight:600; color:var(--nba-gold); margin-bottom:.6rem;">{{ team.nickname or team.name }} — Last 5</div>
+        {% if form_list %}
+        <div class="nba-table-wrap">
+          <table class="nba-table">
+            <thead>
+              <tr><th>Date</th><th>Venue</th><th>Opponent</th><th>Score</th><th>Res</th></tr>
+            </thead>
+            <tbody>
+              {% for g in form_list[:5] %}
+              <tr>
+                <td>{{ g.date }}</td>
+                <td style="color:var(--nba-muted);">{{ g.venue }}</td>
+                <td>{{ g.opponent }}</td>
+                <td style="font-weight:600;">{{ g.score }}</td>
+                <td>
+                  <span class="nba-badge {% if g.result == 'W' %}nba-badge-w{% else %}nba-badge-l{% endif %}">{{ g.result }}</span>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p style="color:var(--nba-muted); font-size:.85rem;">No recent form data available.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div>
+      <div style="font-weight:600; color:var(--nba-gold); margin-bottom:.6rem;">Head-to-Head (Last 5 Meetings)</div>
+      {% if h2h_rows %}
+      <div class="nba-table-wrap">
+        <table class="nba-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Venue</th>
+              <th>{{ team_a.nickname or team_a.name }}</th>
+              <th>{{ team_b.nickname or team_b.name }}</th>
+              <th>Winner</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in h2h_rows[:5] %}
+            <tr>
+              <td>{{ g.date }}</td>
+              <td style="color:var(--nba-muted);">{{ g.venue }}</td>
+              <td style="font-weight:600;{% if g.a_pts > g.b_pts %}color:var(--nba-gold);{% endif %}">{{ g.a_pts }}</td>
+              <td style="font-weight:600;{% if g.b_pts > g.a_pts %}color:var(--nba-gold);{% endif %}">{{ g.b_pts }}</td>
+              <td>
+                {% if g.a_pts > g.b_pts %}
+                <span class="nba-badge nba-badge-w">{{ team_a.nickname or team_a.name }}</span>
+                {% elif g.b_pts > g.a_pts %}
+                <span class="nba-badge nba-badge-l">{{ team_b.nickname or team_b.name }}</span>
+                {% else %}
+                <span class="nba-badge nba-badge-push">Tie</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p style="color:var(--nba-muted); font-size:.85rem;">No recent H2H data available.</p>
+      {% endif %}
+    </div>
+  </div>
 
   <!-- ── Injury Reports ─────────────────────────────────────────────────────── -->
   {% if injuries_a or injuries_b %}
@@ -521,23 +453,25 @@
 {% endblock %}
 
 {% block scripts %}
-{% if result %}
+{% if scorpred %}
 <script>
 const ctx = document.getElementById('probChart');
 if (ctx) {
   new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: ['H2H (20%)', 'Form (25%)', 'Home Adv (20%)', 'Injuries (15%)', 'Net Rating (20%)'],
+      labels: ['Form (40%)', 'Attack (15%)', 'Defense (15%)', 'H2H (10%)', 'Venue (8%)', 'Opp. Quality (7%)', 'Squad (5%)'],
       datasets: [
         {
           label: '{{ team_a.nickname or team_a.name }}',
           data: [
-            {{ result.components.h2h.team_a_pct }},
-            {{ result.components.form.team_a_pct }},
-            {{ result.components.home_away.team_a_pct }},
-            {{ result.components.injuries.team_a_pct }},
-            {{ result.components.ratings.team_a_pct }}
+            {{ scorpred.components_a.form }},
+            {{ scorpred.components_a.offense }},
+            {{ scorpred.components_a.defense }},
+            {{ scorpred.components_a.h2h }},
+            {{ scorpred.components_a.home_away }},
+            {{ scorpred.components_a.opp_strength }},
+            {{ scorpred.components_a.squad }}
           ],
           backgroundColor: 'rgba(245,158,11,.7)',
           borderColor: '#f59e0b',
@@ -546,11 +480,13 @@ if (ctx) {
         {
           label: '{{ team_b.nickname or team_b.name }}',
           data: [
-            {{ result.components.h2h.team_b_pct }},
-            {{ result.components.form.team_b_pct }},
-            {{ result.components.home_away.team_b_pct }},
-            {{ result.components.injuries.team_b_pct }},
-            {{ result.components.ratings.team_b_pct }}
+            {{ scorpred.components_b.form }},
+            {{ scorpred.components_b.offense }},
+            {{ scorpred.components_b.defense }},
+            {{ scorpred.components_b.h2h }},
+            {{ scorpred.components_b.home_away }},
+            {{ scorpred.components_b.opp_strength }},
+            {{ scorpred.components_b.squad }}
           ],
           backgroundColor: 'rgba(59,130,246,.5)',
           borderColor: '#3b82f6',
@@ -565,7 +501,7 @@ if (ctx) {
         legend: { labels: { color: '#e8edf5', font: { family: 'Inter' } } }
       },
       scales: {
-        x: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' }, max: 100 },
+        x: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' }, max: 10 },
         y: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' } }
       }
     }

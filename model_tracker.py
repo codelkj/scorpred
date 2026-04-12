@@ -89,12 +89,22 @@ def _save_predictions(predictions: list[dict]) -> None:
         pass  # Silent fail if file can't be written
 
 
-def _get_game_key(sport: str, date: str, team_a: str, team_b: str) -> str:
+def _get_game_key(
+    sport: str,
+    date: str,
+    team_a: str,
+    team_b: str,
+    league_id: int | None = None,
+) -> str:
     """Generate a unique key for a game to prevent duplicates.
 
     Strict dedupe requires sport, date, home_team, and away_team to match exactly.
     """
-    return f"{sport.lower().strip()}|{str(date)[:10]}|{team_a.lower().strip()}|{team_b.lower().strip()}"
+    parts = [sport.lower().strip()]
+    if sport.lower().strip() == "soccer" and league_id is not None:
+        parts.append(str(league_id))
+    parts.extend([str(date)[:10], team_a.lower().strip(), team_b.lower().strip()])
+    return "|".join(parts)
 
 
 def _compute_prediction_outcome(prediction: dict) -> dict:
@@ -154,6 +164,8 @@ def save_prediction(
     win_probs: dict[str, float],  # {"a": x, "b": y, "draw": z}
     confidence: str,  # "High" | "Medium" | "Low"
     game_date: str | None = None,
+    league_id: int | None = None,
+    league_name: str | None = None,
 ) -> str:
     """
     Save or update a prediction in the tracking file.
@@ -164,7 +176,7 @@ def save_prediction(
     predictions = _load_predictions()
     
     game_date_normalized = _normalize_date(game_date)
-    game_key = _get_game_key(sport, game_date_normalized, team_a, team_b)
+    game_key = _get_game_key(sport, game_date_normalized, team_a, team_b, league_id)
     
     # Check for existing prediction with same game key
     for existing in predictions:
@@ -172,7 +184,8 @@ def save_prediction(
             existing.get("sport", ""),
             existing.get("date", ""),
             existing.get("team_a", ""),
-            existing.get("team_b", "")
+            existing.get("team_b", ""),
+            existing.get("league_id"),
         )
         if existing_key == game_key:
             if existing.get("status") != "completed":
@@ -189,6 +202,8 @@ def save_prediction(
                 existing["winner_result"] = None
                 existing["totals_result"] = None
                 existing["overall_result"] = None
+                existing["league_id"] = league_id
+                existing["league_name"] = league_name
                 existing["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
                 _save_predictions(predictions)
             return existing.get("id", "")
@@ -208,6 +223,8 @@ def save_prediction(
         "prob_b": round(win_probs.get("b", 0), 1),
         "prob_draw": round(win_probs.get("draw", 0), 1),
         "confidence": confidence,
+        "league_id": league_id,
+        "league_name": league_name,
         "status": "pending",
         "actual_result": None,
         "is_correct": None,
@@ -245,7 +262,8 @@ def clean_duplicate_predictions() -> int:
             pred.get("sport", ""),
             pred.get("date", ""),
             pred.get("team_a", ""),
-            pred.get("team_b", "")
+            pred.get("team_b", ""),
+            pred.get("league_id"),
         )
         if game_key not in seen_keys:
             seen_keys[game_key] = True
@@ -312,6 +330,9 @@ def get_summary_metrics() -> dict[str, Any]:
                 "soccer": {"accuracy": float, "count": int, "wins": int, "losses": int},
                 "nba": {"accuracy": float, "count": int, "wins": int, "losses": int},
             },
+            "by_league": {
+                "Premier League": {"accuracy": float, "count": int, "wins": int, "losses": int},
+            },
             "recent_predictions": list  # Last 10
         }
     """
@@ -326,6 +347,7 @@ def get_summary_metrics() -> dict[str, Any]:
             "overall_accuracy": None,
             "by_confidence": {},
             "by_sport": {},
+            "by_league": {},
             "recent_predictions": [],
         }
 
@@ -341,6 +363,7 @@ def get_summary_metrics() -> dict[str, Any]:
             "overall_accuracy": None,
             "by_confidence": {},
             "by_sport": {},
+            "by_league": {},
             "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
         }
     
@@ -380,6 +403,22 @@ def get_summary_metrics() -> dict[str, Any]:
                 "wins": sport_wins,
                 "losses": sport_losses,
             }
+
+    by_league = {}
+    soccer_preds = [p for p in finalized if p.get("sport") == "soccer"]
+    league_names = sorted({(p.get("league_name") or "Unspecified League") for p in soccer_preds})
+    for league_name in league_names:
+        league_preds = [p for p in soccer_preds if (p.get("league_name") or "Unspecified League") == league_name]
+        if not league_preds:
+            continue
+        league_wins = sum(1 for p in league_preds if is_game_win(p))
+        league_losses = len(league_preds) - league_wins
+        by_league[league_name] = {
+            "accuracy": round((league_wins / len(league_preds)) * 100, 1) if league_preds else 0,
+            "count": len(league_preds),
+            "wins": league_wins,
+            "losses": league_losses,
+        }
     
     return {
         "total_predictions": len(predictions),
@@ -389,6 +428,7 @@ def get_summary_metrics() -> dict[str, Any]:
         "overall_accuracy": round(overall_accuracy, 1),
         "by_confidence": by_confidence,
         "by_sport": by_sport,
+        "by_league": by_league,
         "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
     }
 

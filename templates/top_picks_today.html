@@ -29,8 +29,15 @@
   </div>
 
   {% if soccer_totals | length > 0 %}
+  {% for group in grouped_soccer_picks %}
+  {% if group.picks %}
+  <div class="row mb-2">
+    <div class="col-md-12">
+      <h3 class="mb-2">{{ group.league_flag }} {{ group.league_name }}</h3>
+    </div>
+  </div>
   <div class="row mb-4">
-    {% for pick in soccer_totals %}
+    {% for pick in group.picks %}
     <div class="col-lg-6 col-xl-4 mb-3">
       <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id, league=pick.league_id or current_league_id) }}" class="pick-card-link">
         <div class="card h-100 fpred-card border-primary">
@@ -73,6 +80,8 @@
     </div>
     {% endfor %}
   </div>
+  {% endif %}
+  {% endfor %}
   {% else %}
   <div class="row mb-4">
     <div class="col-md-8 mx-auto">

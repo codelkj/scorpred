@@ -60,6 +60,7 @@ _EMPTY_METRICS = {
     "overall_accuracy": None,
     "by_confidence": {},
     "by_sport": {},
+    "by_league": {},
     "recent_predictions": [],
 }
 
@@ -303,6 +304,7 @@ def _bootstrap_model_tracking() -> dict[str, int]:
             p.get("date", ""),
             p.get("team_a", ""),
             p.get("team_b", ""),
+            p.get("league_id"),
         )
         for p in mt._load_predictions()
     }
@@ -430,7 +432,7 @@ def _bootstrap_model_tracking() -> dict[str, int]:
         pred_winner = best_pick.get("prediction", "")
         probs = prediction.get("win_probabilities", {})
         conf = best_pick.get("confidence", "Low")
-        game_key = mt._get_game_key("soccer", fixture_date, home_name, away_name)
+        game_key = mt._get_game_key("soccer", fixture_date, home_name, away_name, league_id)
         existing = game_key in existing_keys
 
         try:
@@ -442,6 +444,8 @@ def _bootstrap_model_tracking() -> dict[str, int]:
                 win_probs=probs,
                 confidence=conf,
                 game_date=fixture_date,
+                league_id=league_id,
+                league_name=(LEAGUE_BY_ID.get(league_id) or {}).get("name"),
             )
             predictions_generated += 1
             if existing:
@@ -723,11 +727,11 @@ def _load_upcoming_fixtures(next_n: int = 20, league_id: int | None = None):
             except Exception:
                 app.logger.debug("Upcoming fixture h2h missing for %s vs %s", home_name, away_name)
             try:
-                fixtures_home = ac.get_team_fixtures(home_id, fixture_league_id, SEASON, last=10)
+                fixtures_home = _recent_team_fixtures_all_comps(home_id, fixture_league_id, season=SEASON, last=10)
             except Exception:
                 app.logger.debug("Upcoming fixture home team form missing for %s", home_name)
             try:
-                fixtures_away = ac.get_team_fixtures(away_id, fixture_league_id, SEASON, last=10)
+                fixtures_away = _recent_team_fixtures_all_comps(away_id, fixture_league_id, season=SEASON, last=10)
             except Exception:
                 app.logger.debug("Upcoming fixture away team form missing for %s", away_name)
             try:
@@ -740,8 +744,6 @@ def _load_upcoming_fixtures(next_n: int = 20, league_id: int | None = None):
                 app.logger.debug("Upcoming fixture away injuries missing for %s", away_name)
 
             h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
-            fixtures_home = pred.filter_recent_completed_fixtures(fixtures_home, current_season=SEASON)
-            fixtures_away = pred.filter_recent_completed_fixtures(fixtures_away, current_season=SEASON)
 
             form_home = pred.extract_form(fixtures_home, home_id)[:5]
             form_away = pred.extract_form(fixtures_away, away_id)[:5]
@@ -786,6 +788,51 @@ def _load_upcoming_fixtures(next_n: int = 20, league_id: int | None = None):
     return fixtures_with_pred, load_error, data_source, ""
 
 
+def _prediction_confidence_rank(item: dict) -> tuple[int, float]:
+    pred = item.get("prediction", {})
+    best_pick = pred.get("best_pick", {})
+    conf = best_pick.get("confidence", "Low")
+    conf_map = {"High": 0, "Medium": 1, "Low": 2}
+    prob_gap = abs(
+        pred.get("win_probabilities", {}).get("a", 0.5)
+        - pred.get("win_probabilities", {}).get("b", 0.5)
+    )
+    return (conf_map.get(conf, 3), -prob_gap)
+
+
+def _load_grouped_upcoming_fixtures_all_leagues(next_n_per_league: int = 8):
+    grouped_fixtures: list[dict] = []
+    all_fixtures: list[dict] = []
+    load_errors: list[str] = []
+    data_sources: set[str] = set()
+
+    for league_id in SUPPORTED_LEAGUE_IDS:
+        fixtures, load_error, data_source, _ = _load_upcoming_fixtures(
+            next_n=next_n_per_league,
+            league_id=league_id,
+        )
+        data_sources.add(data_source)
+        if load_error:
+            league_name = (LEAGUE_BY_ID.get(league_id) or {}).get("name", f"League {league_id}")
+            load_errors.append(f"{league_name}: {load_error}")
+
+        fixtures = sorted(fixtures or [], key=_prediction_confidence_rank)
+        league_info = LEAGUE_BY_ID.get(league_id, {})
+        grouped_fixtures.append(
+            {
+                "league_id": league_id,
+                "league_name": league_info.get("name", f"League {league_id}"),
+                "league_flag": league_info.get("flag", ""),
+                "fixtures": fixtures,
+            }
+        )
+        all_fixtures.extend(fixtures)
+
+    all_fixtures.sort(key=_prediction_confidence_rank)
+    data_source = "Multiple providers" if len(data_sources) > 1 else (next(iter(data_sources)) if data_sources else _football_data_source())
+    return all_fixtures, grouped_fixtures, " | ".join(load_errors), data_source
+
+
 def _require_teams():
     if "team_a_id" not in session:
         return None, None
@@ -823,10 +870,42 @@ def _store_selected_teams(
         session.pop("selected_fixture", None)
 
 
+def _recent_team_fixtures_all_comps(
+    team_id: int,
+    primary_league_id: int | None = None,
+    *,
+    season: int = SEASON,
+    last: int = 20,
+) -> list[dict]:
+    selected_league_id = _coerce_league_id(primary_league_id if primary_league_id is not None else _active_league_id())
+    ordered_leagues = [selected_league_id, *[lid for lid in SUPPORTED_LEAGUE_IDS if lid != selected_league_id]]
+    fixtures_by_key: dict[str, dict] = {}
+
+    for league_id in ordered_leagues:
+        try:
+            league_fixtures = ac.get_team_fixtures(team_id, league_id, season, last=last)
+        except Exception:
+            continue
+        for fixture in league_fixtures or []:
+            fixture_block = fixture.get("fixture") or {}
+            teams_block = fixture.get("teams") or {}
+            key = str(fixture_block.get("id") or "")
+            if not key:
+                home_id = (teams_block.get("home") or {}).get("id") or ""
+                away_id = (teams_block.get("away") or {}).get("id") or ""
+                key = f"{fixture_block.get('date') or ''}:{home_id}:{away_id}"
+            if key not in fixtures_by_key:
+                fixtures_by_key[key] = fixture
+
+    fixtures = list(fixtures_by_key.values())
+    fixtures.sort(key=lambda item: str((item.get("fixture") or {}).get("date") or ""), reverse=True)
+    fixtures = pred.filter_recent_completed_fixtures(fixtures, current_season=season)
+    return fixtures[:last]
+
+
 def _team_form_payload(team_id: int, league_id: int | None = None) -> dict:
     selected_league_id = _coerce_league_id(league_id if league_id is not None else _active_league_id())
-    fixtures = ac.get_team_fixtures(team_id, selected_league_id, SEASON, last=20)
-    fixtures = pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON)
+    fixtures = _recent_team_fixtures_all_comps(team_id, selected_league_id, season=SEASON, last=20)
     form = pred.extract_form(fixtures, team_id)[:5]
     return {"form_string": "".join(item.get("result", "") for item in form), "rows": form}
 
@@ -1041,18 +1120,16 @@ def matchup():
         app.logger.error("H2H fetch error: %s", exc)
 
     try:
-        fixtures_a = ac.get_team_fixtures(id_a, league_id, SEASON, last=20)
+        fixtures_a = _recent_team_fixtures_all_comps(id_a, league_id, season=SEASON, last=20)
     except Exception as exc:
         app.logger.error("Team A fixtures fetch error: %s", exc)
 
     try:
-        fixtures_b = ac.get_team_fixtures(id_b, league_id, SEASON, last=20)
+        fixtures_b = _recent_team_fixtures_all_comps(id_b, league_id, season=SEASON, last=20)
     except Exception as exc:
         app.logger.error("Team B fixtures fetch error: %s", exc)
 
     h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
-    fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
-    fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
 
     try:
         injuries_a_raw = ac.get_injuries(league_id, SEASON, id_a)
@@ -1079,12 +1156,26 @@ def matchup():
     injuries_a = _display_injuries(injuries_a_raw)
     injuries_b = _display_injuries(injuries_b_raw)
 
-    def _avg(rows: list[dict], key: str) -> float:
-        return round(sum(float(row.get(key, 0) or 0) for row in rows) / len(rows), 2) if rows else 0.0
+    def _avg(rows: list[dict], *keys: str) -> float:
+        if not rows:
+            return 0.0
+        total = 0.0
+        count = 0
+        for row in rows:
+            value = None
+            for key in keys:
+                if row.get(key) is not None:
+                    value = row.get(key)
+                    break
+            if value is None:
+                value = 0
+            total += float(value or 0)
+            count += 1
+        return round(total / count, 2) if count else 0.0
 
     stats_compare = [
-        {"label": "Goals scored", "a": _avg(form_a, "goals_for"), "b": _avg(form_b, "goals_for")},
-        {"label": "Goals conceded", "a": _avg(form_a, "goals_against"), "b": _avg(form_b, "goals_against")},
+        {"label": "Goals scored", "a": _avg(form_a, "goals_for", "gf"), "b": _avg(form_b, "goals_for", "gf")},
+        {"label": "Goals conceded", "a": _avg(form_a, "goals_against", "ga"), "b": _avg(form_b, "goals_against", "ga")},
         {"label": "Shots", "a": _avg(form_a, "shots"), "b": _avg(form_b, "shots")},
         {"label": "Shots on target", "a": _avg(form_a, "shots_on_target"), "b": _avg(form_b, "shots_on_target")},
         {"label": "Possession", "a": _avg(form_a, "possession"), "b": _avg(form_b, "possession")},
@@ -1146,18 +1237,12 @@ def prediction():
     id_a, id_b = team_a["id"], team_b["id"]
 
     try:
-        fixtures_a = pred.filter_recent_completed_fixtures(
-            ac.get_team_fixtures(id_a, league_id, SEASON, last=20),
-            current_season=SEASON,
-        )
+        fixtures_a = _recent_team_fixtures_all_comps(id_a, league_id, season=SEASON, last=20)
     except Exception:
         fixtures_a = []
 
     try:
-        fixtures_b = pred.filter_recent_completed_fixtures(
-            ac.get_team_fixtures(id_b, league_id, SEASON, last=20),
-            current_season=SEASON,
-        )
+        fixtures_b = _recent_team_fixtures_all_comps(id_b, league_id, season=SEASON, last=20)
     except Exception:
         fixtures_b = []
 
@@ -1492,38 +1577,21 @@ def today_soccer_predictions():
     """Show soccer predictions for today's fixtures or next available fixtures."""
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
-    load_error = None
-    data_source = _football_data_source()
-    fixtures_with_pred, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20, league_id=league_id)
+    fixtures_with_pred, grouped_fixtures, load_error, data_source = _load_grouped_upcoming_fixtures_all_leagues(
+        next_n_per_league=12
+    )
 
-    # Sort by confidence
-    def _confidence_rank(item):
-        pred = item.get("prediction", {})
-        best_pick = pred.get("best_pick", {})
-        conf = best_pick.get("confidence", "Low")
-        conf_map = {"High": 0, "Medium": 1, "Low": 2}
-        prob_gap = abs(
-            pred.get("win_probabilities", {}).get("a", 0.5)
-            - pred.get("win_probabilities", {}).get("b", 0.5)
-        )
-        return (conf_map.get(conf, 3), -prob_gap)
-
-    fixtures_with_pred.sort(key=_confidence_rank)
-
-    # Prepare predictions for template
-    predictions = []
-    for fixture in fixtures_with_pred:
+    def _build_prediction_item(fixture: dict) -> dict | None:
         try:
             teams_block = fixture.get("teams", {})
             home_team = teams_block.get("home", {})
             away_team = teams_block.get("away", {})
-            fixture_block = fixture.get("fixture", {})
             league_block = fixture.get("league", {})
             prediction = fixture.get("prediction", {})
             best_pick = prediction.get("best_pick", {})
             probs = prediction.get("win_probabilities", {})
 
-            predictions.append({
+            return {
                 "fixture": fixture,
                 "home_team": home_team,
                 "away_team": away_team,
@@ -1534,15 +1602,22 @@ def today_soccer_predictions():
                 "prob_draw": probs.get("draw", 0),
                 "prob_away": probs.get("b", 50),
                 "reasoning": best_pick.get("reasoning", ""),
-            })
+            }
         except Exception as e:
             app.logger.warning("Error preparing fixture prediction: %s", e)
-            continue
+            return None
+
+    predictions = [item for item in (_build_prediction_item(fixture) for fixture in fixtures_with_pred) if item]
+    grouped_predictions = []
+    for group in grouped_fixtures:
+        items = [item for item in (_build_prediction_item(fixture) for fixture in group.get("fixtures", [])) if item]
+        grouped_predictions.append({**group, "predictions": items})
 
     return render_template(
         "today_predictions.html",
         **_page_context(
             predictions=predictions,
+            grouped_predictions=grouped_predictions,
             total_fixtures=len(fixtures_with_pred),
             total_predictions=len(predictions),
             load_error=load_error,
@@ -1557,9 +1632,9 @@ def top_picks_today():
     """Show high-confidence picks from today's soccer and NBA predictions."""
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
-    
-    # Load soccer fixtures
-    soccer_predictions, _, _, _ = _load_upcoming_fixtures(next_n=20, league_id=league_id)
+    soccer_predictions, grouped_soccer_fixtures, load_error, _ = _load_grouped_upcoming_fixtures_all_leagues(
+        next_n_per_league=12
+    )
     soccer_picks = []
     for fixture in soccer_predictions:
         try:
@@ -1600,6 +1675,12 @@ def top_picks_today():
         except Exception as e:
             app.logger.debug("Error preparing soccer top pick: %s", e)
             continue
+
+    soccer_picks.sort(key=lambda item: (-float(item.get("probability", 0)), item.get("league_id", 0)))
+    grouped_soccer_picks = []
+    for group in grouped_soccer_fixtures:
+        league_picks = [pick for pick in soccer_picks if pick.get("league_id") == group.get("league_id")]
+        grouped_soccer_picks.append({**group, "picks": league_picks})
     
     # Load NBA predictions from tracker
     nba_picks = []
@@ -1647,9 +1728,11 @@ def top_picks_today():
         "top_picks_today.html",
         **_page_context(
             soccer_totals=soccer_picks[:10],
+            grouped_soccer_picks=grouped_soccer_picks,
             nba_winners=nba_picks[:10],
             soccer_picks=soccer_picks[:10],
             nba_picks=nba_picks[:10],
+            load_error=load_error,
             **_league_context(league_id),
         ),
     )
@@ -1671,6 +1754,7 @@ def model_performance():
         metrics.setdefault("finalized_predictions", 0)
         metrics.setdefault("by_confidence", {})
         metrics.setdefault("by_sport", {})
+        metrics.setdefault("by_league", {})
         metrics.setdefault("recent_predictions", [])
     except Exception as exc:
         app.logger.error("model_performance: get_summary_metrics failed — %s", exc, exc_info=True)
