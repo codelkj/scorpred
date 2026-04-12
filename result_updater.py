@@ -198,54 +198,52 @@ def fetch_nba_result(
     """
     target_date = _parse_date(date_str)
     
-    # Try fetching from recent games - check both today and yesterday
-    # to catch games that finished late or early
-    all_games = []
-    
+    all_games: list[dict] = []
+    seen_ids: set[str] = set()
+
+    candidate_days: list[datetime] = []
     try:
-        # Try to get today's games first
-        today_games = nc.get_today_games()
-        if today_games:
-            all_games.extend(today_games)
+        if target_date:
+            candidate_days.append(datetime.fromisoformat(target_date))
     except Exception:
         pass
-    
-    # Also try yesterday's games in case some finished late
-    try:
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        yesterday_games = nc.get_games_by_date(yesterday)
-        if yesterday_games:
-            all_games.extend(yesterday_games)
-    except Exception:
-        pass
-    
-    # If still not found, try recent completed games
-    if not all_games:
+    now = datetime.now()
+    candidate_days.extend([now - timedelta(days=1), now, now + timedelta(days=1)])
+
+    for day in candidate_days:
         try:
-            # Get recent games from the API
-            recent_games = nc.get_upcoming_games(next_n=50, days_ahead=0)
-            if recent_games:
-                all_games.extend(recent_games)
+            for game in nc.get_scoreboard_games(day):
+                game_id = str(game.get("id") or "")
+                if game_id and game_id in seen_ids:
+                    continue
+                seen_ids.add(game_id)
+                all_games.append(game)
         except Exception:
-            pass
+            continue
     
     for game in all_games:
         try:
-            game_date = _parse_date(game.get("date", ""))
+            game_date = _parse_date((game.get("date") or {}).get("start", ""))
             if game_date != target_date:
                 continue
             
             # Check if game is finished
-            status = (game.get("status") or "").upper()
-            if status != "FINAL" and "FINAL" not in status:
+            status_info = game.get("status") or {}
+            status = str(status_info.get("long") or status_info.get("short") or "").upper()
+            state = str(status_info.get("state") or "").lower()
+            if state != "post" and "FINAL" not in status:
                 continue
             
             # Get team names
-            home_name = (game.get("home") or {}).get("name") or (game.get("home") or {}).get("nickname", "")
-            away_name = (game.get("away") or {}).get("name") or (game.get("away") or {}).get("nickname", "")
+            teams = game.get("teams") or {}
+            home_team = teams.get("home") or {}
+            away_team = teams.get("visitors") or {}
+            home_name = home_team.get("name") or home_team.get("nickname", "")
+            away_name = away_team.get("name") or away_team.get("nickname", "")
             
-            home_score = int(game.get("home", {}).get("score") or 0)
-            away_score = int(game.get("away", {}).get("score") or 0)
+            scores = game.get("scores") or {}
+            home_score = int((scores.get("home") or {}).get("points") or 0)
+            away_score = int((scores.get("visitors") or {}).get("points") or 0)
             
             # Check if teams match (try both orderings)
             if (_teams_match(team_a, home_name) and _teams_match(team_b, away_name)):
