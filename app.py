@@ -223,6 +223,548 @@ def _safe_int(value, default: int = 0) -> int:
         return default
 
 
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _format_prediction_date(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "Unknown"
+    for candidate in (raw, raw.replace("Z", "+00:00"), f"{raw[:10]}T00:00:00"):
+        try:
+            return datetime.fromisoformat(candidate).strftime("%b %d, %Y")
+        except ValueError:
+            continue
+    return raw[:10]
+
+
+def _team_names_match(left: str, right: str) -> bool:
+    a = _normalize_team_name(left)
+    b = _normalize_team_name(right)
+    if not a or not b:
+        return False
+    return a == b or a in b or b in a
+
+
+def _fixture_finished(fixture: dict) -> bool:
+    status = ((fixture.get("fixture") or {}).get("status") or {}).get("short", "")
+    return str(status).upper() in {"FT", "AET", "PEN"}
+
+
+def _parse_stat_value(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("%"):
+        text = text[:-1].strip()
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_stat_number(value: float | None, *, percent: bool = False) -> str:
+    if value is None:
+        return "N/A"
+    if percent:
+        return f"{round(value, 1)}%"
+    if float(value).is_integer():
+        return str(int(value))
+    return str(round(value, 2))
+
+
+def _prediction_pick_display(record: dict) -> str:
+    winner_code = str(record.get("predicted_winner", "")).strip().lower()
+    if winner_code == "a":
+        return record.get("team_a", "Team A")
+    if winner_code == "b":
+        return record.get("team_b", "Team B")
+    if winner_code == "draw":
+        return "Draw"
+    return str(record.get("predicted_winner") or "Unknown")
+
+
+def _actual_outcome_probability(record: dict) -> float | None:
+    actual_code = str(record.get("actual_result") or "").lower()
+    mapping = {"a": "prob_a", "b": "prob_b", "draw": "prob_draw"}
+    key = mapping.get(actual_code)
+    if not key:
+        return None
+    raw = record.get(key)
+    return _safe_float(raw) if raw is not None else None
+
+
+def _build_prediction_vs_reality(record: dict, evidence_summary: str | None = None) -> dict:
+    predicted = _prediction_pick_display(record)
+    actual_winner = record.get("actual_winner") or "Unknown"
+    final_score = record.get("final_score_display") or "Unknown"
+    confidence = record.get("confidence") or "Unknown"
+    winner_hit = bool(record.get("winner_hit")) if record.get("status") == "completed" else None
+
+    if winner_hit is True:
+        verdict = "Hit"
+    elif winner_hit is False:
+        verdict = "Miss"
+    else:
+        verdict = "Pending"
+
+    upset_label = None
+    actual_prob = _actual_outcome_probability(record)
+    if actual_prob is not None:
+        if actual_prob <= 25:
+            upset_label = "Major upset"
+        elif actual_prob <= 40:
+            upset_label = "Notable upset"
+        else:
+            upset_label = "Expected range"
+
+    reality_text = f"{actual_winner} ({final_score})" if final_score != "Unknown" else actual_winner
+    return {
+        "prediction_text": f"{predicted} to win",
+        "reality_text": reality_text,
+        "confidence": confidence,
+        "verdict": verdict,
+        "upset_label": upset_label,
+        "actual_outcome_probability": actual_prob,
+        "evidence_summary": evidence_summary or "Limited evidence available from the current data providers.",
+    }
+
+
+def _pick_stat_from_row(team_row: dict, aliases: list[str]) -> float | None:
+    wanted = {alias.lower() for alias in aliases}
+    for stat in team_row.get("statistics") or []:
+        stat_type = str(stat.get("type") or "").strip().lower()
+        if stat_type in wanted:
+            return _parse_stat_value(stat.get("value"))
+    return None
+
+
+def _soccer_form_snapshot(team_id: int, league_id: int) -> dict | None:
+    try:
+        fixtures = ac.get_team_fixtures(team_id, league_id, SEASON, last=10)
+    except Exception:
+        return None
+
+    recent = pred.extract_form(pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON), team_id)[:5]
+    if not recent:
+        return None
+
+    return {
+        "matches": len(recent),
+        "wins": sum(1 for row in recent if row.get("result") == "W"),
+        "draws": sum(1 for row in recent if row.get("result") == "D"),
+        "losses": sum(1 for row in recent if row.get("result") == "L"),
+        "avg_goals_for": round(sum(_safe_float(row.get("gf")) for row in recent) / len(recent), 2),
+        "avg_goals_against": round(sum(_safe_float(row.get("ga")) for row in recent) / len(recent), 2),
+    }
+
+
+def _build_soccer_evidence(record: dict) -> dict:
+    evidence = {
+        "sport": "soccer",
+        "available": False,
+        "metrics": [],
+        "key_events": [],
+        "player_impacts": [],
+        "injuries": {},
+        "form_compare": {},
+        "notes": [],
+        "summary": "",
+        "fixture_context": {},
+    }
+
+    league_id = _coerce_league_id(record.get("league_id"), default=DEFAULT_LEAGUE_ID)
+    target_date = str(record.get("game_date") or record.get("date") or "")[:10]
+    team_a_name = str(record.get("team_a") or "")
+    team_b_name = str(record.get("team_b") or "")
+
+    teams = []
+    try:
+        teams = ac.get_teams(league_id, SEASON)
+    except Exception:
+        teams = []
+
+    team_a = _resolve_provider_team_by_name(team_a_name, teams)
+    team_b = _resolve_provider_team_by_name(team_b_name, teams)
+    team_a_id = _safe_int((team_a or {}).get("id"))
+    team_b_id = _safe_int((team_b or {}).get("id"))
+
+    fixture = None
+    if team_a_id and team_b_id:
+        try:
+            h2h_candidates = ac.get_h2h(team_a_id, team_b_id, last=20)
+        except Exception:
+            h2h_candidates = []
+
+        for item in h2h_candidates:
+            if not _fixture_finished(item):
+                continue
+            fixture_date = str((item.get("fixture") or {}).get("date") or "")[:10]
+            home_name = ((item.get("teams") or {}).get("home") or {}).get("name", "")
+            away_name = ((item.get("teams") or {}).get("away") or {}).get("name", "")
+            names_match = (
+                (_team_names_match(team_a_name, home_name) and _team_names_match(team_b_name, away_name))
+                or (_team_names_match(team_a_name, away_name) and _team_names_match(team_b_name, home_name))
+            )
+            if not names_match:
+                continue
+            if target_date and fixture_date != target_date:
+                continue
+            fixture = item
+            break
+
+        if fixture is None:
+            for item in h2h_candidates:
+                if not _fixture_finished(item):
+                    continue
+                home_name = ((item.get("teams") or {}).get("home") or {}).get("name", "")
+                away_name = ((item.get("teams") or {}).get("away") or {}).get("name", "")
+                names_match = (
+                    (_team_names_match(team_a_name, home_name) and _team_names_match(team_b_name, away_name))
+                    or (_team_names_match(team_a_name, away_name) and _team_names_match(team_b_name, home_name))
+                )
+                if names_match:
+                    fixture = item
+                    break
+
+    enriched = fixture or {}
+    if fixture:
+        try:
+            enriched = ac.enrich_fixture(fixture)
+        except Exception:
+            enriched = {**fixture, "stats": [], "events": []}
+
+    stats_rows = enriched.get("stats") or []
+    team_a_row = next(
+        (row for row in stats_rows if _team_names_match((row.get("team") or {}).get("name", ""), team_a_name)),
+        {},
+    )
+    team_b_row = next(
+        (row for row in stats_rows if _team_names_match((row.get("team") or {}).get("name", ""), team_b_name)),
+        {},
+    )
+
+    metric_specs = [
+        ("Possession", ["Ball Possession", "Possession"], True, True),
+        ("Shots", ["Total Shots", "Shots"], False, True),
+        ("Shots on Target", ["Shots on Goal", "Shots on Target"], False, True),
+        ("xG", ["Expected Goals", "xG"], False, True),
+        ("Corners", ["Corner Kicks", "Corners"], False, True),
+        ("Fouls", ["Fouls", "Fouls Committed"], False, False),
+        ("Yellow Cards", ["Yellow Cards"], False, False),
+        ("Red Cards", ["Red Cards"], False, False),
+    ]
+
+    metrics = []
+    support_score = 0
+    for label, aliases, is_percent, higher_is_better in metric_specs:
+        a_val = _pick_stat_from_row(team_a_row, aliases) if team_a_row else None
+        b_val = _pick_stat_from_row(team_b_row, aliases) if team_b_row else None
+        if a_val is None and b_val is None:
+            continue
+
+        leader = "Even"
+        if a_val is not None and b_val is not None and a_val != b_val:
+            a_better = a_val > b_val if higher_is_better else a_val < b_val
+            leader = team_a_name if a_better else team_b_name
+        elif a_val is not None and b_val is None:
+            leader = team_a_name
+        elif b_val is not None and a_val is None:
+            leader = team_b_name
+
+        actual_winner_code = str(record.get("actual_result") or "").lower()
+        if actual_winner_code in {"a", "b"} and leader != "Even":
+            winner_name = team_a_name if actual_winner_code == "a" else team_b_name
+            support_score += 1 if leader == winner_name else -1
+
+        metrics.append(
+            {
+                "label": label,
+                "team_a": _format_stat_number(a_val, percent=is_percent),
+                "team_b": _format_stat_number(b_val, percent=is_percent),
+                "leader": leader,
+            }
+        )
+
+    events = []
+    for event in (enriched.get("events") or [])[:40]:
+        event_type = str(event.get("type") or "")
+        if event_type not in {"Goal", "Card", "subst", "Var"}:
+            continue
+        elapsed = ((event.get("time") or {}).get("elapsed"))
+        elapsed_display = f"{elapsed}'" if elapsed is not None else ""
+        player_name = ((event.get("player") or {}).get("name") or "")
+        detail = str(event.get("detail") or event.get("comments") or "").strip()
+        team_name = ((event.get("team") or {}).get("name") or "")
+        events.append(
+            {
+                "minute": elapsed_display,
+                "type": event_type,
+                "team": team_name,
+                "player": player_name,
+                "detail": detail,
+            }
+        )
+        if len(events) >= 8:
+            break
+
+    player_impacts = []
+    fixture_id = _safe_int((fixture or {}).get("fixture", {}).get("id"))
+    if fixture_id:
+        try:
+            player_rows = ac.get_fixture_players(fixture_id)
+        except Exception:
+            player_rows = []
+
+        for team_entry in player_rows:
+            team_name = ((team_entry.get("team") or {}).get("name") or "")
+            for player in team_entry.get("players") or []:
+                player_name = ((player.get("player") or {}).get("name") or "")
+                stat = (player.get("statistics") or [{}])[0]
+                goals = _safe_int((stat.get("goals") or {}).get("total"))
+                assists = _safe_int((stat.get("goals") or {}).get("assists"))
+                shots_on = _safe_int((stat.get("shots") or {}).get("on"))
+                rating = _safe_float((stat.get("games") or {}).get("rating"), default=0.0)
+                impact = goals * 4 + assists * 3 + shots_on + (rating / 10)
+                if impact <= 0:
+                    continue
+                player_impacts.append(
+                    {
+                        "name": player_name,
+                        "team": team_name,
+                        "goals": goals,
+                        "assists": assists,
+                        "shots_on": shots_on,
+                        "rating": round(rating, 2) if rating else None,
+                        "impact": round(impact, 2),
+                    }
+                )
+
+    player_impacts.sort(key=lambda row: row.get("impact", 0), reverse=True)
+    player_impacts = player_impacts[:6]
+
+    form_compare = {}
+    if team_a_id:
+        snapshot = _soccer_form_snapshot(team_a_id, league_id)
+        if snapshot:
+            form_compare[team_a_name] = snapshot
+    if team_b_id:
+        snapshot = _soccer_form_snapshot(team_b_id, league_id)
+        if snapshot:
+            form_compare[team_b_name] = snapshot
+
+    injuries = {}
+    for team_name, team_id in ((team_a_name, team_a_id), (team_b_name, team_b_id)):
+        if not team_id:
+            continue
+        try:
+            items = _display_injuries(ac.get_injuries(league_id, SEASON, team_id))
+        except Exception:
+            items = []
+        injuries[team_name] = {
+            "count": len(items),
+            "notable": [row.get("name") for row in items[:4] if row.get("name")],
+        }
+
+    if support_score >= 2:
+        summary = "Match stats strongly supported the actual winner through chance quality and control metrics."
+    elif support_score >= 0:
+        summary = "Stat profile was mixed, but the eventual winner still showed enough edge in key moments."
+    else:
+        summary = "Underlying stats conflicted with the final result, suggesting variance or decisive moments not captured by volume alone."
+
+    if not metrics and not events:
+        summary = "Detailed fixture stats were unavailable from provider feeds for this completed match."
+
+    evidence.update(
+        {
+            "available": bool(metrics or events or player_impacts),
+            "metrics": metrics,
+            "key_events": events,
+            "player_impacts": player_impacts,
+            "injuries": injuries,
+            "form_compare": form_compare,
+            "summary": summary,
+            "fixture_context": {
+                "fixture_id": fixture_id if fixture_id else None,
+                "fixture_date": str(((fixture or {}).get("fixture") or {}).get("date") or "")[:10],
+            },
+        }
+    )
+    return evidence
+
+
+def _build_nba_evidence(record: dict) -> dict:
+    evidence = {
+        "sport": "nba",
+        "available": False,
+        "metrics": [],
+        "key_events": [],
+        "player_impacts": [],
+        "injuries": {},
+        "form_compare": {},
+        "notes": [],
+        "summary": "",
+    }
+
+    if nc is None or np_nba is None:
+        evidence["summary"] = "NBA detail evidence is unavailable because live NBA providers are not configured."
+        return evidence
+
+    team_a_name = str(record.get("team_a") or "")
+    team_b_name = str(record.get("team_b") or "")
+    target_date = str(record.get("game_date") or record.get("date") or "")[:10]
+
+    candidate_days = []
+    if target_date:
+        try:
+            candidate_days.append(datetime.fromisoformat(target_date))
+        except ValueError:
+            pass
+    candidate_days.extend([datetime.now() - timedelta(days=1), datetime.now(), datetime.now() + timedelta(days=1)])
+
+    matched_game = None
+    seen_ids = set()
+    for day in candidate_days:
+        try:
+            games = nc.get_scoreboard_games(day)
+        except Exception:
+            games = []
+        for game in games:
+            game_id = str(game.get("id") or "")
+            if game_id in seen_ids:
+                continue
+            seen_ids.add(game_id)
+            home_name = ((game.get("teams") or {}).get("home") or {}).get("name", "")
+            away_name = ((game.get("teams") or {}).get("visitors") or {}).get("name", "")
+            names_match = (
+                (_team_names_match(team_a_name, home_name) and _team_names_match(team_b_name, away_name))
+                or (_team_names_match(team_a_name, away_name) and _team_names_match(team_b_name, home_name))
+            )
+            if not names_match:
+                continue
+            game_date = str((game.get("date") or {}).get("start") or "")[:10]
+            if target_date and game_date != target_date:
+                continue
+            matched_game = game
+            break
+        if matched_game:
+            break
+
+    if not matched_game:
+        evidence["summary"] = "NBA result is tracked, but detailed scoreboard evidence for that game was not available in current feeds."
+        return evidence
+
+    teams = matched_game.get("teams") or {}
+    home = teams.get("home") or {}
+    away = teams.get("visitors") or {}
+
+    is_a_home = _team_names_match(team_a_name, home.get("name", ""))
+    scores = matched_game.get("scores") or {}
+    home_pts = _safe_int((scores.get("home") or {}).get("points"))
+    away_pts = _safe_int((scores.get("visitors") or {}).get("points"))
+    a_pts = home_pts if is_a_home else away_pts
+    b_pts = away_pts if is_a_home else home_pts
+
+    evidence["metrics"].append({"label": "Final Points", "team_a": str(a_pts), "team_b": str(b_pts), "leader": team_a_name if a_pts > b_pts else team_b_name})
+
+    team_a_id = str(home.get("id") if is_a_home else away.get("id") or "")
+    team_b_id = str(away.get("id") if is_a_home else home.get("id") or "")
+
+    for label, field in (("PPG", "ppg"), ("Opp PPG", "opp_ppg"), ("Net Rating", "net_rtg")):
+        try:
+            stats_a = nc.get_team_season_stats(team_a_id)
+        except Exception:
+            stats_a = None
+        try:
+            stats_b = nc.get_team_season_stats(team_b_id)
+        except Exception:
+            stats_b = None
+        a_val = stats_a.get(field) if isinstance(stats_a, dict) else None
+        b_val = stats_b.get(field) if isinstance(stats_b, dict) else None
+        if a_val is None and b_val is None:
+            continue
+        evidence["metrics"].append(
+            {
+                "label": label,
+                "team_a": _format_stat_number(_safe_float(a_val) if a_val is not None else None),
+                "team_b": _format_stat_number(_safe_float(b_val) if b_val is not None else None),
+                "leader": team_a_name if _safe_float(a_val, -9999) > _safe_float(b_val, -9999) else team_b_name,
+            }
+        )
+
+    leaders = matched_game.get("leaders") or {}
+    if is_a_home:
+        a_leaders = leaders.get("home") or []
+        b_leaders = leaders.get("visitors") or []
+    else:
+        a_leaders = leaders.get("visitors") or []
+        b_leaders = leaders.get("home") or []
+
+    for side_name, side_leaders in ((team_a_name, a_leaders), (team_b_name, b_leaders)):
+        for leader in side_leaders:
+            top = (leader.get("leaders") or [{}])[0]
+            athlete = top.get("athlete") or {}
+            evidence["player_impacts"].append(
+                {
+                    "name": athlete.get("displayName") or athlete.get("fullName") or "",
+                    "team": side_name,
+                    "metric": leader.get("displayName") or leader.get("name") or "",
+                    "value": top.get("displayValue") or "",
+                }
+            )
+
+    evidence["player_impacts"] = [row for row in evidence["player_impacts"] if row.get("name")][:6]
+
+    for name, team_id in ((team_a_name, team_a_id), (team_b_name, team_b_id)):
+        if not team_id:
+            continue
+        try:
+            injuries = nc.get_team_injuries(team_id)
+        except Exception:
+            injuries = []
+        evidence["injuries"][name] = {
+            "count": len(injuries),
+            "notable": [
+                " ".join(filter(None, [
+                    (row.get("player") or {}).get("firstname"),
+                    (row.get("player") or {}).get("lastname"),
+                ])).strip()
+                for row in injuries[:4]
+            ],
+        }
+
+        try:
+            raw_form = nc.get_team_recent_form(team_id, n=5)
+            extracted = np_nba.extract_recent_form(raw_form, team_id, n=5)
+        except Exception:
+            extracted = []
+        if extracted:
+            evidence["form_compare"][name] = {
+                "matches": len(extracted),
+                "wins": sum(1 for row in extracted if row.get("result") == "W"),
+                "losses": sum(1 for row in extracted if row.get("result") == "L"),
+                "avg_points_for": round(sum(_safe_float(row.get("our_pts")) for row in extracted) / len(extracted), 2),
+                "avg_points_against": round(sum(_safe_float(row.get("their_pts")) for row in extracted) / len(extracted), 2),
+            }
+
+    evidence["available"] = bool(evidence["metrics"] or evidence["player_impacts"])
+    evidence["summary"] = (
+        "NBA evidence combines final score context with live leaders and season profile metrics from available feeds."
+        if evidence["available"]
+        else "Detailed NBA evidence is limited for this game in current provider responses."
+    )
+    return evidence
+
+
 def _clear_selected_matchup() -> None:
     for key in (
         "team_a_id",
@@ -446,6 +988,8 @@ def _bootstrap_model_tracking() -> dict[str, int]:
                 game_date=fixture_date,
                 league_id=league_id,
                 league_name=(LEAGUE_BY_ID.get(league_id) or {}).get("name"),
+                prediction_notes=best_pick.get("reasoning"),
+                model_factors=prediction.get("component_scores") if isinstance(prediction.get("component_scores"), dict) else {},
             )
             predictions_generated += 1
             if existing:
@@ -578,6 +1122,8 @@ def _bootstrap_model_tracking() -> dict[str, int]:
                     win_probs=probs,
                     confidence=conf,
                     game_date=fixture_date,
+                    prediction_notes=best_pick.get("reasoning"),
+                    model_factors=prediction.get("component_scores") if isinstance(prediction.get("component_scores"), dict) else {},
                 )
                 predictions_generated += 1
                 if existing:
@@ -1769,6 +2315,44 @@ def model_performance():
             completed_predictions=completed_predictions,
             pending_predictions=pending_predictions,
             sport_filter=sport_filter,
+        ),
+    )
+
+
+@app.route("/prediction-result/<prediction_id>")
+def prediction_result_detail(prediction_id: str):
+    record = mt.get_prediction_by_id(prediction_id)
+    if not record:
+        return _critical_error("Prediction result not found for the provided ID.", status_code=404)
+
+    evidence = (
+        _build_soccer_evidence(record)
+        if str(record.get("sport") or "").lower() == "soccer"
+        else _build_nba_evidence(record)
+    )
+
+    comparison = _build_prediction_vs_reality(record, evidence_summary=evidence.get("summary"))
+
+    probability_rows = [
+        {"label": record.get("team_a") or "Team A", "value": _safe_float(record.get("prob_a"), 0.0)},
+        {"label": "Draw", "value": _safe_float(record.get("prob_draw"), 0.0)} if str(record.get("sport") or "").lower() == "soccer" else None,
+        {"label": record.get("team_b") or "Team B", "value": _safe_float(record.get("prob_b"), 0.0)},
+    ]
+    probability_rows = [row for row in probability_rows if row]
+
+    model_components = record.get("model_factors") if isinstance(record.get("model_factors"), dict) else {}
+
+    return render_template(
+        "prediction_result_detail.html",
+        **_page_context(
+            record=record,
+            prediction_date_display=_format_prediction_date(record.get("date") or record.get("created_at")),
+            updated_at_display=_format_prediction_date(record.get("updated_at") or record.get("date")),
+            predicted_pick_display=_prediction_pick_display(record),
+            probability_rows=probability_rows,
+            evidence=evidence,
+            comparison=comparison,
+            model_components=model_components,
         ),
     )
 

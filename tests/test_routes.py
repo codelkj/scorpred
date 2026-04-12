@@ -543,6 +543,138 @@ class TestUpdateResultsRoute:
         assert b"Overall Accuracy" in rv.data
 
 
+class TestPredictionResultDetailRoute:
+    def test_prediction_result_detail_renders_completed_soccer_result(self, client):
+        record = {
+            "id": "abc123",
+            "sport": "soccer",
+            "league_name": "Premier League",
+            "date": "2026-04-10",
+            "created_at": "2026-04-10T10:30:00Z",
+            "updated_at": "2026-04-10T19:00:00Z",
+            "team_a": "Arsenal",
+            "team_b": "Bournemouth",
+            "predicted_winner": "A",
+            "predicted_winner_display": "Arsenal",
+            "prob_a": 63.4,
+            "prob_b": 21.2,
+            "prob_draw": 15.4,
+            "confidence": "High",
+            "status": "completed",
+            "actual_result": "B",
+            "actual_winner": "Bournemouth",
+            "winner_hit": False,
+            "game_win": False,
+            "overall_game_result": "Loss",
+            "final_score_display": "1-2",
+            "total_label": "Total Goals: 3",
+            "prediction_notes": "Arsenal projected edge on recent form.",
+            "model_factors": {"form": 7.2, "defense": 6.9},
+        }
+        evidence = {
+            "available": True,
+            "metrics": [{"label": "Shots on Target", "team_a": "4", "team_b": "6", "leader": "Bournemouth"}],
+            "key_events": [],
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "Bournemouth were more clinical in front of goal.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_soccer_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/abc123")
+
+        assert rv.status_code == 200
+        assert b"Prediction Result Detail" in rv.data
+        assert b"Bournemouth were more clinical" in rv.data
+
+    def test_prediction_result_detail_invalid_id_returns_404(self, client):
+        with patch("model_tracker.get_prediction_by_id", return_value=None):
+            rv = client.get("/prediction-result/missing-id")
+        assert rv.status_code == 404
+
+    def test_prediction_result_detail_handles_missing_evidence_gracefully(self, client):
+        record = {
+            "id": "pred-nba-1",
+            "sport": "nba",
+            "date": "2026-04-10",
+            "created_at": "2026-04-10T10:30:00Z",
+            "updated_at": "2026-04-10T21:30:00Z",
+            "team_a": "Celtics",
+            "team_b": "Heat",
+            "predicted_winner": "A",
+            "predicted_winner_display": "Celtics",
+            "prob_a": 56.0,
+            "prob_b": 44.0,
+            "prob_draw": 0.0,
+            "confidence": "Medium",
+            "status": "completed",
+            "actual_result": "A",
+            "actual_winner": "Celtics",
+            "winner_hit": True,
+            "game_win": True,
+            "overall_game_result": "Win",
+            "final_score_display": "112-108",
+            "model_factors": {},
+        }
+        evidence = {
+            "available": False,
+            "metrics": [],
+            "key_events": [],
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "Detailed NBA evidence is limited for this game in current provider responses.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_nba_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/pred-nba-1")
+
+        assert rv.status_code == 200
+        assert b"Detailed fixture evidence is limited" in rv.data
+
+    def test_model_performance_completed_cards_link_to_detail_route(self, client):
+        completed = [
+            {
+                "id": "pred42",
+                "team_a": "Arsenal",
+                "team_b": "Bournemouth",
+                "sport": "soccer",
+                "league_name": "Premier League",
+                "final_score_display": "1-2",
+                "winner_hit": False,
+                "winner_display": "Winner Pick: Miss",
+                "ou_display": "U/O 2.5: Hit",
+                "ou_hit": True,
+                "game_win": False,
+                "overall_game_result": "Loss",
+                "confidence": "High",
+                "total_label": "Total Goals: 3",
+            }
+        ]
+        metrics = {
+            "total_predictions": 1,
+            "finalized_predictions": 1,
+            "wins": 0,
+            "losses": 1,
+            "overall_accuracy": 0.0,
+            "by_confidence": {},
+            "by_sport": {},
+            "by_league": {},
+            "recent_predictions": [],
+        }
+
+        with patch("model_tracker.get_summary_metrics", return_value=metrics), \
+             patch("model_tracker.get_completed_predictions", return_value=completed), \
+             patch("model_tracker.get_pending_predictions", return_value=[]):
+            rv = client.get("/model-performance")
+
+        assert rv.status_code == 200
+        assert b"/prediction-result/pred42" in rv.data
+
+
 class TestConnectedFlows:
     def test_soccer_connected_flow(self, client):
         with patch("api_client.get_teams", return_value=_mock_teams()), \

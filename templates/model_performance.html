@@ -72,7 +72,7 @@
 </div>
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; margin-bottom:1.5rem;">
   {% for pred in completed_predictions %}
-  <div class="card glow-card" style="padding:1.25rem;">
+  <a href="{{ url_for('prediction_result_detail', prediction_id=pred.id) }}" class="card glow-card completed-result-card" style="padding:1.25rem; display:block; text-decoration:none; color:inherit;">
     <div style="margin-bottom:1rem;">
       <div style="font-size:1.1rem; font-weight:600; color:#e6edf3; margin-bottom:.5rem;">
         {{ pred.team_a }} vs {{ pred.team_b }}
@@ -106,8 +106,9 @@
         <span class="confidence-badge conf-{{ pred.confidence | lower }}" style="font-size:.7rem;">{{ pred.confidence }}</span>
       </div>
       {% endif %}
+      <div style="margin-top:.65rem; font-size:.72rem; color:#8b949e;">Open full result breakdown →</div>
     </div>
-  </div>
+  </a>
   {% endfor %}
 </div>
 {% endif %}

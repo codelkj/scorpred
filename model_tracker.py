@@ -156,6 +156,50 @@ def _compute_prediction_outcome(prediction: dict) -> dict:
     }
 
 
+def _display_predicted_winner(prediction: dict) -> str:
+    """Return a human-readable predicted winner label for a stored prediction."""
+    winner_code = str(prediction.get("predicted_winner", "")).strip().lower()
+    if winner_code == "a":
+        return prediction.get("team_a", "Team A")
+    if winner_code == "b":
+        return prediction.get("team_b", "Team B")
+    if winner_code == "draw":
+        return "Draw"
+    return str(prediction.get("predicted_winner") or "Unknown")
+
+
+def _enhance_prediction_record(prediction: dict) -> dict:
+    """Return a copy of a prediction with derived display fields."""
+    pred = dict(prediction or {})
+    sport = str(pred.get("sport") or "").lower()
+    final_score = pred.get("final_score", {})
+
+    pred["predicted_winner_display"] = _display_predicted_winner(pred)
+    pred["predicted_winner_code"] = str(pred.get("predicted_winner") or "").lower()
+
+    if isinstance(final_score, dict) and "a" in final_score and "b" in final_score:
+        total_value = final_score.get("a", 0) + final_score.get("b", 0)
+        pred["total_scored"] = total_value
+        pred["total_label"] = (
+            f"Total Goals: {total_value}" if sport == "soccer" else f"Total Points: {total_value}"
+        )
+        pred["final_score_display"] = f"{final_score.get('a', 0)}-{final_score.get('b', 0)}"
+    else:
+        pred["final_score_display"] = "Unknown"
+
+    outcome = _compute_prediction_outcome(pred)
+    pred["actual_winner"] = outcome["actual_winner"]
+    pred["winner_hit"] = outcome["winner_hit"]
+    pred["winner_display"] = f"Winner Pick: {'Hit' if outcome['winner_hit'] else 'Miss'}"
+    pred["ou_result"] = outcome["totals_result"]
+    pred["ou_hit"] = outcome["totals_hit"]
+    pred["ou_display"] = outcome["ou_display"]
+    pred["game_win"] = outcome["game_win"]
+    pred["overall_game_result"] = outcome["overall_result"]
+
+    return pred
+
+
 def save_prediction(
     sport: str,
     team_a: str,
@@ -166,6 +210,8 @@ def save_prediction(
     game_date: str | None = None,
     league_id: int | None = None,
     league_name: str | None = None,
+    prediction_notes: str | None = None,
+    model_factors: dict[str, Any] | None = None,
 ) -> str:
     """
     Save or update a prediction in the tracking file.
@@ -204,6 +250,8 @@ def save_prediction(
                 existing["overall_result"] = None
                 existing["league_id"] = league_id
                 existing["league_name"] = league_name
+                existing["prediction_notes"] = prediction_notes
+                existing["model_factors"] = model_factors if isinstance(model_factors, dict) else {}
                 existing["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
                 _save_predictions(predictions)
             return existing.get("id", "")
@@ -225,6 +273,8 @@ def save_prediction(
         "confidence": confidence,
         "league_id": league_id,
         "league_name": league_name,
+        "prediction_notes": prediction_notes,
+        "model_factors": model_factors if isinstance(model_factors, dict) else {},
         "status": "pending",
         "actual_result": None,
         "is_correct": None,
@@ -462,33 +512,16 @@ def get_completed_predictions(limit: int = 50) -> list[dict]:
     # Sort by most recent first
     completed = sorted(completed, key=lambda p: p.get("updated_at", ""), reverse=True)[:limit]
     
-    # Enhance with calculated fields
-    for pred in completed:
-        sport = pred.get("sport", "").lower()
-        final_score = pred.get("final_score", {})
-        outcome = _compute_prediction_outcome(pred)
+    return [_enhance_prediction_record(pred) for pred in completed]
 
-        if isinstance(final_score, dict) and "a" in final_score and "b" in final_score:
-            total_value = final_score.get("a", 0) + final_score.get("b", 0)
-            if sport == "soccer":
-                pred["total_scored"] = total_value
-                pred["total_label"] = f"Total Goals: {total_value}"
-            else:
-                pred["total_scored"] = total_value
-                pred["total_label"] = f"Total Points: {total_value}"
 
-        pred["final_score_display"] = (
-            f"{final_score.get('a', 0)}-{final_score.get('b', 0)}"
-            if isinstance(final_score, dict)
-            else "Unknown"
-        )
-        pred["actual_winner"] = outcome["actual_winner"]
-        pred["winner_hit"] = outcome["winner_hit"]
-        pred["winner_display"] = f"Winner Pick: {'Hit' if outcome['winner_hit'] else 'Miss'}"
-        pred["ou_result"] = outcome["totals_result"]
-        pred["ou_hit"] = outcome["totals_hit"]
-        pred["ou_display"] = outcome["ou_display"]
-        pred["game_win"] = outcome["game_win"]
-        pred["overall_game_result"] = outcome["overall_result"]
-    
-    return completed
+def get_prediction_by_id(pred_id: str) -> dict | None:
+    """Fetch a prediction by its stable tracking ID with derived display fields."""
+    lookup = str(pred_id or "").strip()
+    if not lookup:
+        return None
+
+    for pred in _load_predictions():
+        if str(pred.get("id") or "") == lookup:
+            return _enhance_prediction_record(pred)
+    return None

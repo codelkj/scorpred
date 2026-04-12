@@ -954,6 +954,8 @@ def prediction():
                 predicted_winner=pred_winner,
                 win_probs=probs,
                 confidence=conf,
+                prediction_notes=best_pick.get("reasoning"),
+                model_factors=scorpred.get("component_scores") if isinstance(scorpred.get("component_scores"), dict) else {},
             )
     except Exception:
         pass  # Silent fail if tracking fails
