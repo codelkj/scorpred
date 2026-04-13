@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
-import unicodedata
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -17,6 +15,9 @@ import props_engine as pe
 import scorpred_engine as se
 import model_tracker as mt
 import result_updater as ru
+from services import analysis_assistant as assistant_services
+from services import evidence as evidence_services
+from services import tracking_bootstrap as bootstrap_services
 from league_config import (
     CURRENT_SEASON,
     DEFAULT_LEAGUE_ID,
@@ -46,58 +47,36 @@ SEASON = CURRENT_SEASON
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _now_stamp() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return assistant_services.now_stamp()
 
 
 def _refresh_requested() -> bool:
-    return str(request.args.get("refresh", "")).strip().lower() in {"1", "true", "yes", "on"}
+    return bootstrap_services.refresh_requested(request.args)
 
 
 def _set_data_refresh() -> bool:
-    refresh = _refresh_requested()
-    try:
-        ac.set_force_refresh(refresh)
-    except Exception:
-        pass
-    return refresh
+    return bootstrap_services.set_data_refresh(ac, request.args)
 
 
 @app.after_request
 def _reset_force_refresh(response):
-    try:
-        ac.set_force_refresh(False)
-    except Exception:
-        pass
-    return response
+    return bootstrap_services.reset_force_refresh(ac, response)
 
 
 def _football_data_source() -> str:
-    return "API-Football via RapidAPI" if getattr(ac, "RAPIDAPI_OK", False) else "ESPN public football fallback"
+    return assistant_services.football_data_source(ac)
 
 
 def _page_context(data_source: str | None = None, **kwargs) -> dict:
-    context = {
-        "data_source": data_source or _football_data_source(),
-        "last_updated": _now_stamp(),
-    }
-    context.update(kwargs)
-    return context
+    return assistant_services.page_context(ac, data_source=data_source, **kwargs)
 
 
 def _clean_injuries(items: list[dict]) -> list[dict]:
-    cleaned = []
-    for item in items or []:
-        if item.get("placeholder"):
-            continue
-        player = item.get("player") or {}
-        if player.get("name") == "No injuries reported":
-            continue
-        cleaned.append(item)
-    return cleaned
+    return evidence_services.clean_injuries(items)
 
 
 def _display_injuries(items: list[dict]) -> list[dict]:
-    return _clean_injuries(items)
+    return evidence_services.display_injuries(items)
 
 
 def _build_opp_strengths(standings: list) -> dict:
@@ -122,223 +101,60 @@ def _normalise_probs(win_prob: dict) -> dict:
 
 
 def _football_supported_leagues() -> list[dict]:
-    leagues = []
-    for key, league_id in getattr(ac, "LEAGUES", {}).items():
-        config = LEAGUE_BY_ID.get(league_id, {})
-        leagues.append(
-            {
-                "key": key,
-                "id": league_id,
-                "name": config.get("name", key.replace("_", " ").title()),
-                "country": config.get("country", ""),
-                "flag": config.get("flag", ""),
-                "difficulty": config.get("difficulty", 1.0),
-                "type": config.get("type", "competition"),
-            }
-        )
-    return leagues
+    return bootstrap_services.football_supported_leagues(ac, LEAGUE_BY_ID)
 
 
 def _critical_error(message: str, status_code: int = 503):
     return render_template("error.html", **_page_context(msg=message)), status_code
 
 
-def _normalize_team_name(name: str) -> str:
-    text = unicodedata.normalize("NFKD", str(name or ""))
-    text = text.encode("ascii", "ignore").decode("ascii").lower()
-    text = text.replace("&", " and ")
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    ignored = {"fc", "cf", "sc", "afc", "club"}
-    tokens = [token for token in text.split() if token not in ignored]
-    return " ".join(tokens)
-
-
 def _resolve_provider_team_by_name(name: str, teams: list[dict]) -> dict | None:
-    target = _normalize_team_name(name)
-    if not target:
-        return None
-
-    provider_teams = [(entry.get("team") or entry) for entry in teams]
-    provider_teams = [team for team in provider_teams if team.get("id")]
-
-    for team in provider_teams:
-        if _normalize_team_name(team.get("name")) == target:
-            return team
-
-    for team in provider_teams:
-        candidate = _normalize_team_name(team.get("name"))
-        if candidate and (target in candidate or candidate in target):
-            return team
-
-    target_tokens = set(target.split())
-    best_team = None
-    best_score = 0
-    for team in provider_teams:
-        candidate_tokens = set(_normalize_team_name(team.get("name")).split())
-        score = len(target_tokens & candidate_tokens)
-        if score > best_score:
-            best_score = score
-            best_team = team
-
-    return best_team if best_score else None
+    return bootstrap_services.resolve_provider_team_by_name(name, teams)
 
 
 def _fixture_context_from_form() -> dict | None:
-    fixture_id = request.form.get("fixture_id", "").strip()
-    fixture_date = request.form.get("fixture_date", "").strip()
-    if not fixture_id and not fixture_date:
-        return None
-    return {
-        "id": fixture_id,
-        "date": fixture_date,
-        "league_name": request.form.get("league_name", "").strip(),
-        "round": request.form.get("round", "").strip(),
-        "venue_name": request.form.get("venue_name", "").strip(),
-        "data_source": request.form.get("data_source", "configured").strip().lower() or "configured",
-        "home_name": request.form.get("team_a_name", "").strip(),
-        "home_logo": request.form.get("team_a_logo", "").strip(),
-        "away_name": request.form.get("team_b_name", "").strip(),
-        "away_logo": request.form.get("team_b_logo", "").strip(),
-    }
+    return bootstrap_services.fixture_context_from_form(request.form)
 
 
 def _selected_fixture() -> dict:
-    return session.get("selected_fixture", {})
+    return bootstrap_services.selected_fixture(session)
 
 
 def _load_upcoming_fixtures(next_n: int = 20):
-    load_error = None
-    fixtures_with_pred = []
-    data_source = _football_data_source()
-
-    try:
-        upcoming = ac.get_upcoming_fixtures(LEAGUE, SEASON, next_n=next_n)
-    except Exception as exc:
-        upcoming = []
-        load_error = str(exc)
-        app.logger.error("Upcoming fixtures fetch failed: %s", exc)
-
-    try:
-        standings_list = ac.get_standings(LEAGUE, SEASON)
-    except Exception as exc:
-        standings_list = []
-        app.logger.warning("Standings unavailable for quick predictions: %s", exc)
-
-    for fixture in upcoming:
-        prediction = None
-        try:
-            home_id = fixture["teams"]["home"]["id"]
-            away_id = fixture["teams"]["away"]["id"]
-            home_name = fixture["teams"]["home"]["name"]
-            away_name = fixture["teams"]["away"]["name"]
-
-            h2h_raw = []
-            fixtures_home = []
-            fixtures_away = []
-            injuries_home = []
-            injuries_away = []
-
-            try:
-                h2h_raw = ac.get_h2h(home_id, away_id, last=10)
-            except Exception:
-                app.logger.debug("Upcoming fixture h2h missing for %s vs %s", home_name, away_name)
-            try:
-                fixtures_home = ac.get_team_fixtures(home_id, LEAGUE, SEASON, last=10)
-            except Exception:
-                app.logger.debug("Upcoming fixture home team form missing for %s", home_name)
-            try:
-                fixtures_away = ac.get_team_fixtures(away_id, LEAGUE, SEASON, last=10)
-            except Exception:
-                app.logger.debug("Upcoming fixture away team form missing for %s", away_name)
-            try:
-                injuries_home = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, home_id))
-            except Exception:
-                app.logger.debug("Upcoming fixture home injuries missing for %s", home_name)
-            try:
-                injuries_away = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, away_id))
-            except Exception:
-                app.logger.debug("Upcoming fixture away injuries missing for %s", away_name)
-
-            h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
-            fixtures_home = pred.filter_recent_completed_fixtures(fixtures_home, current_season=SEASON)
-            fixtures_away = pred.filter_recent_completed_fixtures(fixtures_away, current_season=SEASON)
-
-            form_home = pred.extract_form(fixtures_home, home_id)[:5]
-            form_away = pred.extract_form(fixtures_away, away_id)[:5]
-            h2h_form_home = pred.extract_form(h2h_raw, home_id)[:5]
-            h2h_form_away = pred.extract_form(h2h_raw, away_id)[:5]
-
-            prediction = se.scorpred_predict(
-                form_a=form_home,
-                form_b=form_away,
-                h2h_form_a=h2h_form_home,
-                h2h_form_b=h2h_form_away,
-                injuries_a=injuries_home,
-                injuries_b=injuries_away,
-                team_a_is_home=True,
-                team_a_name=home_name,
-                team_b_name=away_name,
-                sport="soccer",
-                opp_strengths=_build_opp_strengths(standings_list),
-            )
-        except Exception as exc:
-            app.logger.warning("Upcoming fixture prediction failed for %s vs %s: %s", fixture.get("fixture", {}).get("id"), exc)
-            prediction = se.scorpred_predict(
-                form_a=[],
-                form_b=[],
-                h2h_form_a=[],
-                h2h_form_b=[],
-                injuries_a=[],
-                injuries_b=[],
-                team_a_is_home=True,
-                team_a_name=fixture.get("teams", {}).get("home", {}).get("name", "Home"),
-                team_b_name=fixture.get("teams", {}).get("away", {}).get("name", "Away"),
-                sport="soccer",
-                opp_strengths={},
-            )
-        fixtures_with_pred.append({**fixture, "prediction": prediction})
-
-    return fixtures_with_pred, load_error, data_source, ""
-
-
-def _require_teams():
-    """Return (team_a, team_b) session dicts, or None if not set."""
-    if "team_a_id" not in session:
-        return None, None
-    return (
-        {"id": session["team_a_id"], "name": session["team_a_name"], "logo": session["team_a_logo"]},
-        {"id": session["team_b_id"], "name": session["team_b_name"], "logo": session["team_b_logo"]},
+    return evidence_services.load_upcoming_fixtures(
+        ac,
+        pred,
+        se,
+        league=LEAGUE,
+        season=SEASON,
+        logger=app.logger,
+        football_data_source=_football_data_source,
+        next_n=next_n,
     )
 
 
-def _store_selected_teams(team_a: dict, team_b: dict, fixture_context: dict | None = None) -> None:
-    session["team_a_id"] = int(team_a["id"])
-    session["team_a_name"] = team_a.get("name", "")
-    session["team_a_logo"] = team_a.get("logo", "")
-    session["team_b_id"] = int(team_b["id"])
-    session["team_b_name"] = team_b.get("name", "")
-    session["team_b_logo"] = team_b.get("logo", "")
+def _require_teams():
+    return bootstrap_services.require_teams(session)
 
-    if fixture_context:
-        fixture_context["home_name"] = fixture_context["home_name"] or team_a.get("name", "")
-        fixture_context["home_logo"] = fixture_context["home_logo"] or team_a.get("logo", "")
-        fixture_context["away_name"] = fixture_context["away_name"] or team_b.get("name", "")
-        fixture_context["away_logo"] = fixture_context["away_logo"] or team_b.get("logo", "")
-        session["selected_fixture"] = fixture_context
-    else:
-        session.pop("selected_fixture", None)
+
+def _store_selected_teams(team_a: dict, team_b: dict, fixture_context: dict | None = None) -> None:
+    bootstrap_services.store_selected_teams(session, team_a, team_b, fixture_context)
 
 
 def _team_form_payload(team_id: int) -> dict:
-    fixtures = ac.get_team_fixtures(team_id, LEAGUE, SEASON, last=20)
-    fixtures = pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON)
-    form = pred.extract_form(fixtures, team_id)[:5]
-    return {"form_string": "".join(item.get("result", "") for item in form), "rows": form}
+    return evidence_services.team_form_payload(
+        ac,
+        pred,
+        team_id=team_id,
+        league=LEAGUE,
+        season=SEASON,
+    )
 
 
 def _fallback_chat_reply(message: str) -> str:
     lower = (message or "").strip().lower()
     team_a, team_b = _require_teams()
+    return assistant_services.fallback_chat_reply(message, team_a=team_a, team_b=team_b)
     matchup = f"{team_a['name']} vs {team_b['name']}" if team_a and team_b else "your selected matchup"
 
     if "props" in lower:
@@ -353,6 +169,16 @@ def _fallback_chat_reply(message: str) -> str:
 
 
 def _chat_reply(message: str, history: list[dict] | None = None) -> str:
+    team_a, team_b = _require_teams()
+    return assistant_services.chat_reply(
+        message,
+        history=history,
+        anthropic_module=anthropic,
+        api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        team_a=team_a,
+        team_b=team_b,
+        logger=app.logger,
+    )
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key or anthropic is None:
         return _fallback_chat_reply(message)
@@ -638,60 +464,14 @@ def matchup():
 
 
 def _build_key_threats(squad: list, injuries: list, fixtures: list, team_id: int) -> list[dict]:
-    """Return up to 5 key threat players ranked by position + form."""
-    injured_ids = {
-        (inj.get("player") or {}).get("id")
-        for inj in injuries
-        if (inj.get("player") or {}).get("id")
-    }
-    fixtures = pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON)
-    form = pred.extract_form(fixtures, team_id)
-    avg_gf = pred.avg_goals(form, scored=True) if form else 1.2
-    team_lambda = max(0.3, avg_gf)
-
-    position_order = {"Attacker": 0, "Midfielder": 1, "Defender": 2, "Goalkeeper": 3}
-    threat_labels = {
-        "Attacker": "Goal Threat",
-        "Midfielder": "Creative Threat",
-        "Defender": "Set Piece Threat",
-        "Goalkeeper": "Shot Stopper",
-    }
-    contribution_map = {
-        "Attacker": "goals / shots on target",
-        "Midfielder": "key passes / assists",
-        "Defender": "aerial duels / clearances",
-        "Goalkeeper": "saves / clean sheet",
-    }
-
-    candidates = []
-    for p in squad:
-        player_obj = p.get("player") or p
-        pid = player_obj.get("id")
-        if not pid:
-            continue
-        position = player_obj.get("position") or p.get("position") or "Unknown"
-        is_injured = pid in injured_ids
-        pos_rank = position_order.get(position, 4)
-
-        # Score: attackers first, healthy players first, position boost
-        pos_boost = 1.4 if position == "Attacker" else 1.1 if position == "Midfielder" else 0.7
-        health_penalty = 0.5 if is_injured else 1.0
-        score = pos_boost * health_penalty * team_lambda
-
-        candidates.append({
-            "id": pid,
-            "name": player_obj.get("name") or "",
-            "photo": player_obj.get("photo", ""),
-            "position": position,
-            "pos_rank": pos_rank,
-            "threat_label": threat_labels.get(position, "Key Player"),
-            "contribution": contribution_map.get(position, "match impact"),
-            "injured": is_injured,
-            "score": score,
-        })
-
-    candidates.sort(key=lambda x: (-x["score"], x["pos_rank"]))
-    return candidates[:5]
+    return evidence_services.build_key_threats(
+        squad,
+        injuries,
+        fixtures,
+        team_id,
+        predictor=pred,
+        current_season=SEASON,
+    )
 
 
 @app.route("/player")
