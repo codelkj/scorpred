@@ -834,6 +834,8 @@ def prediction():
     error = None
     h2h_games = []
     h2h_games_filtered = []
+    h2h_rows = []
+    h2h_summary = {}
     form_a_raw = []
     form_b_raw = []
     form_a_filtered = []
@@ -856,6 +858,8 @@ def prediction():
     try:
         h2h_games = nc.get_h2h(id_a, id_b)
         h2h_games_filtered = np_nba.filter_completed_nba_games(h2h_games)
+        h2h_rows = np_nba.h2h_display(h2h_games_filtered, id_a, id_b)
+        h2h_summary = np_nba.build_h2h_summary(h2h_games_filtered, id_a, id_b, n=5)
     except Exception as e:
         _log_err("H2H for prediction", e)
 
@@ -987,6 +991,8 @@ def prediction():
             stats_b=stats_b or {},
             form_a=form_a_display,
             form_b=form_b_display,
+            h2h_rows=h2h_rows,
+            h2h_summary=h2h_summary,
             prediction=scorpred,
             scorpred=scorpred,    # template guards on {% if scorpred %} — expose it directly
             data_notes=data_notes,
