@@ -967,6 +967,9 @@ def prediction():
                 predicted_winner=pred_winner,
                 win_probs=probs,
                 confidence=conf,
+                game_date=(selected_game or {}).get("date") or None,
+                team_a_id=team_a["id"],
+                team_b_id=team_b["id"],
             )
     except Exception:
         pass  # Silent fail if tracking fails

@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 import uuid
 
 _TRACKING_FILE = os.path.join(os.path.dirname(__file__), "cache", "prediction_tracking.json")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _ensure_tracking_file() -> None:
@@ -54,14 +58,14 @@ def _migrate_predictions() -> None:
         pass  # Silent fail if migration fails
 
 
-def _normalize_date(date_str: str | None) -> str:
-    """Return YYYY-MM-DD for any date-like string, or today if missing."""
+def _normalize_date(date_str: str | None) -> str | None:
+    """Return YYYY-MM-DD for any date-like string, or None if missing."""
     if not date_str:
-        return datetime.utcnow().strftime("%Y-%m-%d")
+        return None
     try:
         return str(date_str)[:10]
     except Exception:
-        return datetime.utcnow().strftime("%Y-%m-%d")
+        return None
 
 
 def _load_predictions() -> list[dict]:
@@ -100,6 +104,10 @@ def save_prediction(
     win_probs: dict[str, float],  # {"a": x, "b": y, "draw": z}
     confidence: str,  # "High" | "Medium" | "Low"
     game_date: str | None = None,
+    team_a_id: str | int | None = None,
+    team_b_id: str | int | None = None,
+    league_id: int | None = None,
+    season: int | None = None,
 ) -> str:
     """
     Save a new prediction to the tracking file.
@@ -107,10 +115,13 @@ def save_prediction(
     Returns the prediction ID for later updates.
     Checks for duplicates based on sport, date, and teams.
     If a duplicate exists, returns the existing ID without saving.
+    If no concrete game date is available, the prediction is not tracked.
     """
     predictions = _load_predictions()
     
     game_date_normalized = _normalize_date(game_date)
+    if not game_date_normalized:
+        return ""
     game_key = _get_game_key(sport, game_date_normalized, team_a, team_b)
     
     # Check for existing prediction with same game key
@@ -126,7 +137,7 @@ def save_prediction(
             return existing.get("id", "")
     
     pred_id = str(uuid.uuid4())[:8]
-    now = datetime.utcnow().isoformat() + "Z"
+    now = _utc_now().isoformat().replace("+00:00", "Z")
     
     prediction = {
         "id": pred_id,
@@ -146,6 +157,14 @@ def save_prediction(
         "created_at": now,
         "updated_at": now,
     }
+    if team_a_id is not None:
+        prediction["team_a_id"] = str(team_a_id)
+    if team_b_id is not None:
+        prediction["team_b_id"] = str(team_b_id)
+    if league_id is not None:
+        prediction["league_id"] = int(league_id)
+    if season is not None:
+        prediction["season"] = int(season)
     
     predictions.append(prediction)
     _save_predictions(predictions)
@@ -205,7 +224,7 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
             pred["is_correct"] = (pred.get("predicted_winner") == actual_result)
             pred["status"] = "completed"
             pred["final_score"] = final_score
-            pred["updated_at"] = datetime.utcnow().isoformat() + "Z"
+            pred["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
             _save_predictions(predictions)
             return True
     
@@ -214,10 +233,10 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
 
 def get_summary_metrics() -> dict[str, Any]:
     """
-    Compute summary metrics across all predictions using parlay-style grading.
-    
-    Each completed game is graded as Win/Loss based on whether ALL included picks hit.
-    Accuracy = wins / completed_games
+    Compute summary metrics across tracked winner predictions.
+
+    Completed predictions are graded from the persisted winner outcome stored in
+    `is_correct`, which is the source of truth for dashboard accuracy.
     
     Returns:
         {
@@ -252,8 +271,11 @@ def get_summary_metrics() -> dict[str, Any]:
             "recent_predictions": [],
         }
 
-    # Filter to only finalized predictions (status = completed)
-    finalized = [p for p in predictions if p.get("status") == "completed"]
+    # Filter to only finalized predictions with an actual graded outcome.
+    finalized = [
+        p for p in predictions
+        if p.get("status") == "completed" and p.get("is_correct") is not None
+    ]
 
     if not finalized:
         return {
@@ -267,12 +289,14 @@ def get_summary_metrics() -> dict[str, Any]:
             "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
         }
     
-    # Calculate game-level wins/losses (parlay logic)
-    def is_game_win(pred):
-        winner_hit = pred.get("winner_hit", False)
-        has_totals = bool(pred.get("ou_display"))
-        totals_hit = pred.get("ou_hit", True) if has_totals else True  # If no totals, don't count as miss
-        return winner_hit and totals_hit
+    def is_game_win(pred: dict[str, Any]) -> bool:
+        if pred.get("is_correct") is not None:
+            return bool(pred.get("is_correct"))
+        if pred.get("winner_hit") is not None:
+            return bool(pred.get("winner_hit"))
+        if pred.get("game_win") is not None:
+            return bool(pred.get("game_win"))
+        return False
     
     wins = sum(1 for p in finalized if is_game_win(p))
     losses = len(finalized) - wins
@@ -406,10 +430,9 @@ def get_completed_predictions(limit: int = 50) -> list[dict]:
         pred["winner_hit"] = pred.get("is_correct", False)
         pred["winner_display"] = f"Winner Pick: {'Hit' if pred['winner_hit'] else 'Miss'}"
         
-        # Overall game result (parlay logic)
-        has_totals = bool(pred.get("ou_display"))
-        totals_hit = pred.get("ou_hit", True) if has_totals else True
-        pred["game_win"] = pred["winner_hit"] and totals_hit
+        # The tracked prediction is the winner pick. Totals are shown as context,
+        # but dashboard grading should follow the actual persisted winner result.
+        pred["game_win"] = pred["winner_hit"]
         pred["overall_game_result"] = "Win" if pred["game_win"] else "Loss"
     
     return completed

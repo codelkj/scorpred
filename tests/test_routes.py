@@ -163,6 +163,31 @@ class TestPredictionRoute:
             rv = client.get("/prediction")
         assert rv.status_code == 200
 
+    def test_prediction_tracks_selected_fixture_date(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+            sess["selected_fixture"] = {
+                "date": "2026-04-21T19:45:00+00:00",
+                "data_source": "configured",
+            }
+
+        fixtures = [_mock_fixture()]
+        with patch("api_client.get_h2h", return_value=fixtures), \
+             patch("api_client.get_team_fixtures", return_value=fixtures), \
+             patch("api_client.get_injuries", return_value=[]), \
+             patch("api_client.get_squad", return_value=[]), \
+             patch("model_tracker.save_prediction") as mock_save:
+            rv = client.get("/prediction")
+
+        assert rv.status_code == 200
+        assert mock_save.call_count == 1
+        assert mock_save.call_args.kwargs["game_date"] == "2026-04-21T19:45:00+00:00"
+
 
 # ── Chat API ──────────────────────────────────────────────────────────────────
 

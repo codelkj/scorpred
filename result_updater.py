@@ -14,6 +14,7 @@ from typing import Any
 import api_client as ac
 import nba_live_client as nc
 import model_tracker as mt
+from league_config import CURRENT_SEASON
 
 
 def _normalize_team_name(name: str) -> str:
@@ -57,12 +58,25 @@ def _parse_date(date_str: str) -> str:
         return ""
 
 
+def _team_ids_match(
+    team_a_id: str | int | None,
+    team_b_id: str | int | None,
+    home_id: str | int | None,
+    away_id: str | int | None,
+) -> bool:
+    if team_a_id is None or team_b_id is None:
+        return False
+    return str(team_a_id) == str(home_id) and str(team_b_id) == str(away_id)
+
+
 def fetch_soccer_result(
     team_a: str,
     team_b: str,
     date_str: str,
     league_id: int = 39,  # English Premier League by default
     season: int = 2025,
+    team_a_id: str | int | None = None,
+    team_b_id: str | int | None = None,
 ) -> dict[str, Any] | None:
     """
     Fetch the actual result of a soccer match.
@@ -124,11 +138,20 @@ def fetch_soccer_result(
             # Get team names and scores
             h_name = (fixture.get("teams") or {}).get("home", {}).get("name", "")
             a_name = (fixture.get("teams") or {}).get("away", {}).get("name", "")
+            h_id = (fixture.get("teams") or {}).get("home", {}).get("id")
+            a_id = (fixture.get("teams") or {}).get("away", {}).get("id")
             h_goals = fixture.get("goals", {}).get("home")
             a_goals = fixture.get("goals", {}).get("away")
             
+            home_match = _team_ids_match(team_a_id, team_b_id, h_id, a_id) or (
+                _teams_match(team_a, h_name) and _teams_match(team_b, a_name)
+            )
+            away_match = _team_ids_match(team_a_id, team_b_id, a_id, h_id) or (
+                _teams_match(team_a, a_name) and _teams_match(team_b, h_name)
+            )
+
             # Check if teams match (try both orderings)
-            if (_teams_match(team_a, h_name) and _teams_match(team_b, a_name)):
+            if home_match:
                 # team_a is home
                 if h_goals is None or a_goals is None:
                     continue
@@ -148,7 +171,7 @@ def fetch_soccer_result(
                     "found": True,
                 }
             
-            elif (_teams_match(team_a, a_name) and _teams_match(team_b, h_name)):
+            elif away_match:
                 # team_a is away
                 if h_goals is None or a_goals is None:
                     continue
@@ -173,10 +196,36 @@ def fetch_soccer_result(
     return None
 
 
+def _candidate_nba_scoreboard_dates(date_str: str) -> list[datetime]:
+    candidates: list[datetime] = []
+    target_date = _parse_date(date_str)
+    if target_date:
+        try:
+            base = datetime.fromisoformat(target_date)
+        except ValueError:
+            base = None
+        if base is not None:
+            candidates.extend([base - timedelta(days=1), base, base + timedelta(days=1)])
+
+    today = datetime.now()
+    candidates.extend([today - timedelta(days=1), today, today + timedelta(days=1)])
+
+    unique: list[datetime] = []
+    seen_dates: set[str] = set()
+    for candidate in candidates:
+        key = candidate.strftime("%Y-%m-%d")
+        if key not in seen_dates:
+            seen_dates.add(key)
+            unique.append(candidate)
+    return unique
+
+
 def fetch_nba_result(
     team_a: str,
     team_b: str,
     date_str: str,
+    team_a_id: str | int | None = None,
+    team_b_id: str | int | None = None,
 ) -> dict[str, Any] | None:
     """
     Fetch the actual result of an NBA game.
@@ -196,59 +245,54 @@ def fetch_nba_result(
         }
         or None if not found
     """
-    target_date = _parse_date(date_str)
-    
-    # Try fetching from recent games - check both today and yesterday
-    # to catch games that finished late or early
     all_games = []
-    
-    try:
-        # Try to get today's games first
-        today_games = nc.get_today_games()
-        if today_games:
-            all_games.extend(today_games)
-    except Exception:
-        pass
-    
-    # Also try yesterday's games in case some finished late
-    try:
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        yesterday_games = nc.get_games_by_date(yesterday)
-        if yesterday_games:
-            all_games.extend(yesterday_games)
-    except Exception:
-        pass
-    
-    # If still not found, try recent completed games
-    if not all_games:
+
+    for candidate in _candidate_nba_scoreboard_dates(date_str):
         try:
-            # Get recent games from the API
-            recent_games = nc.get_upcoming_games(next_n=50, days_ahead=0)
-            if recent_games:
-                all_games.extend(recent_games)
+            all_games.extend(nc.get_scoreboard_games(candidate))
         except Exception:
-            pass
+            continue
     
     for game in all_games:
         try:
-            game_date = _parse_date(game.get("date", ""))
+            game_date = _parse_date((game.get("date") or {}).get("start", ""))
+            target_date = _parse_date(date_str)
             if game_date != target_date:
                 continue
             
             # Check if game is finished
-            status = (game.get("status") or "").upper()
-            if status != "FINAL" and "FINAL" not in status:
+            status = game.get("status") or {}
+            status_state = str(status.get("state", "")).lower()
+            status_long = str(status.get("long", "")).upper()
+            if status_state != "post" and "FINAL" not in status_long:
                 continue
             
             # Get team names
-            home_name = (game.get("home") or {}).get("name") or (game.get("home") or {}).get("nickname", "")
-            away_name = (game.get("away") or {}).get("name") or (game.get("away") or {}).get("nickname", "")
+            teams = game.get("teams") or {}
+            scores = game.get("scores") or {}
+            home = teams.get("home") or {}
+            away = teams.get("visitors") or {}
+            home_name = home.get("name") or home.get("nickname", "")
+            away_name = away.get("name") or away.get("nickname", "")
+            home_id = home.get("id")
+            away_id = away.get("id")
             
-            home_score = int(game.get("home", {}).get("score") or 0)
-            away_score = int(game.get("away", {}).get("score") or 0)
+            home_score = scores.get("home", {}).get("points")
+            away_score = scores.get("visitors", {}).get("points")
+            if home_score is None or away_score is None:
+                continue
+            home_score = int(home_score)
+            away_score = int(away_score)
+
+            home_match = _team_ids_match(team_a_id, team_b_id, home_id, away_id) or (
+                _teams_match(team_a, home_name) and _teams_match(team_b, away_name)
+            )
+            away_match = _team_ids_match(team_a_id, team_b_id, away_id, home_id) or (
+                _teams_match(team_a, away_name) and _teams_match(team_b, home_name)
+            )
             
             # Check if teams match (try both orderings)
-            if (_teams_match(team_a, home_name) and _teams_match(team_b, away_name)):
+            if home_match:
                 # team_a is home
                 if home_score > away_score:
                     winner = "A"
@@ -256,14 +300,14 @@ def fetch_nba_result(
                     winner = "B"
                 
                 return {
-                    "status": status,
+                    "status": status_long or "FINAL",
                     "score": {"a": home_score, "b": away_score},
                     "winner": winner,
                     "teams": {"a": home_name, "b": away_name},
                     "found": True,
                 }
             
-            elif (_teams_match(team_a, away_name) and _teams_match(team_b, home_name)):
+            elif away_match:
                 # team_a is away
                 if away_score > home_score:
                     winner = "A"
@@ -271,7 +315,7 @@ def fetch_nba_result(
                     winner = "B"
                 
                 return {
-                    "status": status,
+                    "status": status_long or "FINAL",
                     "score": {"a": away_score, "b": home_score},
                     "winner": winner,
                     "teams": {"a": away_name, "b": home_name},
@@ -324,14 +368,36 @@ def update_pending_predictions() -> dict[str, Any]:
         team_b = pred.get("team_b", "")
         date_str = pred.get("game_date") or pred.get("date", "")
         pred_id = pred.get("id", "")
+        team_a_id = pred.get("team_a_id")
+        team_b_id = pred.get("team_b_id")
+        league_id = pred.get("league_id") or 39
+        season = pred.get("season") or CURRENT_SEASON
         
         result = None
+
+        if not date_str:
+            stats["errors"].append(f"{pred_id} ({team_a} vs {team_b}): Missing stored game date")
+            continue
         
         try:
             if sport == "soccer":
-                result = fetch_soccer_result(team_a, team_b, date_str)
+                result = fetch_soccer_result(
+                    team_a,
+                    team_b,
+                    date_str,
+                    league_id=int(league_id),
+                    season=int(season),
+                    team_a_id=team_a_id,
+                    team_b_id=team_b_id,
+                )
             elif sport == "nba":
-                result = fetch_nba_result(team_a, team_b, date_str)
+                result = fetch_nba_result(
+                    team_a,
+                    team_b,
+                    date_str,
+                    team_a_id=team_a_id,
+                    team_b_id=team_b_id,
+                )
             else:
                 stats["errors"].append(f"Unknown sport: {sport}")
                 continue

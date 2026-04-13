@@ -606,6 +606,11 @@ def matchup():
             predicted_winner=best_pick.get("team", ""),
             win_probs=scorpred.get("win_probabilities", {}),
             confidence=best_pick.get("confidence", "Low"),
+            game_date=(selected_fixture or {}).get("date") or None,
+            team_a_id=team_a["id"],
+            team_b_id=team_b["id"],
+            league_id=LEAGUE,
+            season=SEASON,
         )
     except Exception:
         pass
@@ -923,6 +928,11 @@ def prediction():
             predicted_winner=pred_winner,
             win_probs=probs,
             confidence=conf,
+            game_date=(selected_fixture or {}).get("date") or None,
+            team_a_id=team_a["id"],
+            team_b_id=team_b["id"],
+            league_id=LEAGUE,
+            season=SEASON,
         )
     except Exception:
         pass  # Silent fail if tracking fails
