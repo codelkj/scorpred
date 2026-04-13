@@ -58,7 +58,12 @@ def filter_recent_completed_fixtures(
     current_season: int = CURRENT_SEASON,
     seasons_back: int = 2,
 ) -> list[dict]:
-    valid_seasons = {current_season - i for i in range(seasons_back)}
+    # Keep the current season plus the requested number of prior season
+    # start-years. With current_season=2025 and seasons_back=2 that means
+    # 2025, 2024, and 2023, which correctly spans the active season and the
+    # two previous completed soccer seasons around spring boundary dates.
+    seasons_back = max(0, int(seasons_back))
+    valid_seasons = {current_season - i for i in range(seasons_back + 1)}
     filtered = []
     for fixture in fixtures or []:
         if not _is_completed_fixture(fixture):
