@@ -2,7 +2,7 @@
 
 ScorPred is a Flask app for soccer and NBA matchup analysis. It combines fixture data, recent form, head-to-head context, team stats, player props tooling, tracking, and a lightweight chat assistant into a single local web app.
 
-Status: active development. The current local baseline is `92` passing tests, but the repo is not production-ready yet. CI, CSRF protection, stronger secret handling, and rate limiting are still on the roadmap.
+Status: active development. The current local baseline is `111` passing tests. Basic CI, CSRF protection, stronger secret handling, chat rate limiting, and a leakage-safe ML comparison utility are now in place, but the repo is still not production-ready yet.
 
 ## Features
 
@@ -10,6 +10,7 @@ Status: active development. The current local baseline is `92` passing tests, bu
 - NBA scoreboard, matchup, player, and prediction routes backed by the live ESPN-based client
 - JSON-backed prediction tracking and result reconciliation
 - Player prop generation for NBA and soccer
+- Leakage-safe ML model comparison utilities for logistic regression vs. random forest baselines
 - Filesystem caching for upstream API responses
 - Chat assistant with Anthropic support and a graceful fallback mode
 
@@ -51,6 +52,7 @@ result_updater.py       Result reconciliation for completed games
 nba_live_client.py      Current NBA route data client
 nba_client.py           Legacy NBA compatibility helpers used by props/live adapters
 props_engine.py         Player props engine
+ml_pipeline.py          Leakage-safe ML model comparison helpers
 templates/              Jinja templates
 static/                 Frontend assets
 tests/                  Pytest suite
@@ -90,7 +92,7 @@ pytest tests -q
 Current local baseline:
 
 ```text
-92 passed
+111 passed
 ```
 
 Tests use mocks for external APIs, so the suite does not depend on live network responses.
