@@ -1,1 +1,0 @@
-{"get": "fixtures", "parameters": {"league": "39", "season": "2024", "next": "20"}, "errors": {"plan": "Free plans do not have access to the Next parameter."}, "results": 0, "paging": {"current": 1, "total": 1}, "response": []}

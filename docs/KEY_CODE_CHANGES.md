@@ -1,5 +1,9 @@
 # Key Code Changes & Improvements
 
+This is a historical implementation note. It describes one improvement pass and
+should not be treated as a current statement that the repository is
+production-ready.
+
 ## 1. Enhanced Result Tracking with Final Scores
 
 ### model_tracker.py - Updated update_prediction_result()

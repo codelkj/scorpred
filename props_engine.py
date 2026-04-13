@@ -9,9 +9,10 @@ Applies a 6-layer model to every prop calculation:
   Layer 5 — Final Projection Formula
   Layer 6 — Confidence Score
 
-Supports both NBA (via nba_client RapidAPI) and Soccer (via api_client_provider).
-All calculations happen server-side.  Frontend receives a clean JSON payload.
-Cache: cache/props/  (1-hour TTL for season data, 24-hour for historical/career)
+Supports NBA props through the legacy nba_client compatibility layer and
+soccer props through the main football api_client module.
+All calculations happen server-side. Frontend receives a clean JSON payload.
+Cache: cache/props/ (1-hour TTL for season data, 24-hour for historical/career)
 """
 
 from __future__ import annotations
