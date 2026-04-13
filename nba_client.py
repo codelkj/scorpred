@@ -13,6 +13,7 @@ import requests
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
+from utils.parsing import safe_float as _safe_float, safe_int as _safe_int
 
 load_dotenv()
 
@@ -287,20 +288,6 @@ def _has_played(game_stat: dict) -> bool:
     s = game_stat.get("statistics", [{}])[0] if game_stat.get("statistics") else {}
     raw_min = s.get("min", "0") or "0"
     return raw_min not in ("0", "0:00", "", None)
-
-
-def _safe_float(val) -> float:
-    try:
-        return float(val or 0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _safe_int(val) -> int | None:
-    try:
-        return int(val)
-    except (TypeError, ValueError):
-        return None
 
 
 def _pct(made, attempted) -> str:

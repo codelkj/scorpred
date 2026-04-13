@@ -7,7 +7,6 @@ in the tracking file to mark them correct or incorrect.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -15,18 +14,15 @@ import api_client as ac
 import nba_live_client as nc
 import model_tracker as mt
 from league_config import CURRENT_SEASON
+from utils.parsing import normalize_date, normalize_team_name as _shared_normalize_team_name
 
 
 def _normalize_team_name(name: str) -> str:
-    """Normalize team name for matching: lowercase, remove special chars."""
-    if not name:
-        return ""
-    text = name.lower().strip()
-    # Remove common abbreviations and special characters
-    text = re.sub(r"[^\w\s]", "", text)
-    text = re.sub(r"\b(fc|cf|sc|afc|club|united|city)\b", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    """Normalize team name for tolerant result matching."""
+    return _shared_normalize_team_name(
+        name,
+        ignored_tokens={"fc", "cf", "sc", "afc", "club", "united", "city"},
+    )
 
 
 def _teams_match(team_a: str, team_b: str) -> bool:
@@ -50,12 +46,7 @@ def _teams_match(team_a: str, team_b: str) -> bool:
 
 def _parse_date(date_str: str) -> str:
     """Extract YYYY-MM-DD from various date formats."""
-    if not date_str:
-        return ""
-    try:
-        return str(date_str)[:10]
-    except Exception:
-        return ""
+    return normalize_date(date_str) or ""
 
 
 def _team_ids_match(

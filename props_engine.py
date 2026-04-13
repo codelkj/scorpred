@@ -29,6 +29,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from league_config import DEFAULT_LEAGUE_ID
+from utils.parsing import safe_float as _sf
 
 # ── Cache ──────────────────────────────────────────────────────────────────────
 
@@ -166,16 +167,6 @@ POSITION_DEFAULT_MARKETS: dict[str, list[str]] = {
 
 
 # ── Helper utilities ───────────────────────────────────────────────────────────
-
-def _sf(val, default: float = 0.0) -> float:
-    """Safe float conversion."""
-    if val is None:
-        return default
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return default
-
 
 def _round_half(x: float) -> float:
     """Round to nearest 0.5."""

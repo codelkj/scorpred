@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import re
-import unicodedata
+from utils.parsing import normalize_team_name
 
 
 def refresh_requested(args) -> bool:
@@ -43,17 +42,6 @@ def football_supported_leagues(api_client, league_by_id: dict) -> list[dict]:
             }
         )
     return leagues
-
-
-def normalize_team_name(name: str) -> str:
-    text = unicodedata.normalize("NFKD", str(name or ""))
-    text = text.encode("ascii", "ignore").decode("ascii").lower()
-    text = text.replace("&", " and ")
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    ignored = {"fc", "cf", "sc", "afc", "club"}
-    tokens = [token for token in text.split() if token not in ignored]
-    return " ".join(tokens)
-
 
 def resolve_provider_team_by_name(name: str, teams: list[dict]) -> dict | None:
     target = normalize_team_name(name)

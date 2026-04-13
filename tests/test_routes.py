@@ -14,6 +14,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import app as flask_app_module
+import security
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -23,6 +24,19 @@ def client():
     flask_app_module.app.config["TESTING"] = True
     flask_app_module.app.config["SECRET_KEY"] = "test-secret"
     flask_app_module.app.config["WTF_CSRF_ENABLED"] = False
+    security.reset_chat_rate_limits()
+    with flask_app_module.app.test_client() as c:
+        yield c
+
+
+@pytest.fixture
+def secure_client():
+    flask_app_module.app.config["TESTING"] = True
+    flask_app_module.app.config["SECRET_KEY"] = "test-secret"
+    flask_app_module.app.config["WTF_CSRF_ENABLED"] = True
+    flask_app_module.app.config["CHAT_RATE_LIMIT_COUNT"] = 2
+    flask_app_module.app.config["CHAT_RATE_LIMIT_WINDOW_SECONDS"] = 60
+    security.reset_chat_rate_limits()
     with flask_app_module.app.test_client() as c:
         yield c
 
@@ -410,6 +424,44 @@ class TestChatRoute:
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
+
+class TestSecurityHardening:
+    def test_select_rejects_missing_csrf_token(self, secure_client):
+        with patch("api_client.get_teams", return_value=_mock_teams()):
+            rv = secure_client.post("/select", data={"team_a": "33", "team_b": "40"})
+
+        assert rv.status_code == 400
+        assert b"csrf" in rv.data.lower()
+
+    def test_select_accepts_valid_csrf_token(self, secure_client):
+        with secure_client.session_transaction() as sess:
+            sess[security.CSRF_SESSION_KEY] = "known-token"
+
+        with patch("api_client.get_teams", return_value=_mock_teams()):
+            rv = secure_client.post(
+                "/select",
+                data={"team_a": "33", "team_b": "40", "csrf_token": "known-token"},
+            )
+
+        assert rv.status_code in (302, 303)
+        assert "/matchup" in rv.headers.get("Location", "")
+
+    def test_chat_rate_limit_returns_429(self, secure_client):
+        with secure_client.session_transaction() as sess:
+            sess[security.CSRF_SESSION_KEY] = "chat-token"
+
+        with patch.object(flask_app_module, "_chat_reply", return_value="Stub reply"):
+            rv1 = secure_client.post("/chat", data={"message": "One", "csrf_token": "chat-token"})
+            rv2 = secure_client.post("/chat", data={"message": "Two", "csrf_token": "chat-token"})
+            rv3 = secure_client.post("/chat", data={"message": "Three", "csrf_token": "chat-token"})
+
+        assert rv1.status_code == 200
+        assert rv2.status_code == 200
+        assert rv3.status_code == 429
+        data = json.loads(rv3.data)
+        assert "retry_after" in data
+        assert "rate limit" in data["error"].lower()
+
 
 class TestAPIRoutes:
     def test_football_leagues_api(self, client):

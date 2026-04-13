@@ -12,6 +12,7 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 import uuid
+from utils.parsing import normalize_date
 
 _TRACKING_FILE = os.path.join(os.path.dirname(__file__), "cache", "prediction_tracking.json")
 
@@ -56,16 +57,6 @@ def _migrate_predictions() -> None:
                 json.dump({"predictions": predictions}, f, indent=2)
     except Exception:
         pass  # Silent fail if migration fails
-
-
-def _normalize_date(date_str: str | None) -> str | None:
-    """Return YYYY-MM-DD for any date-like string, or None if missing."""
-    if not date_str:
-        return None
-    try:
-        return str(date_str)[:10]
-    except Exception:
-        return None
 
 
 def _load_predictions() -> list[dict]:
@@ -119,7 +110,7 @@ def save_prediction(
     """
     predictions = _load_predictions()
     
-    game_date_normalized = _normalize_date(game_date)
+    game_date_normalized = normalize_date(game_date)
     if not game_date_normalized:
         return ""
     game_key = _get_game_key(sport, game_date_normalized, team_a, team_b)

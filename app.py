@@ -15,6 +15,7 @@ import props_engine as pe
 import scorpred_engine as se
 import model_tracker as mt
 import result_updater as ru
+from security import check_chat_rate_limit, configure_security
 from services import analysis_assistant as assistant_services
 from services import evidence as evidence_services
 from services import tracking_bootstrap as bootstrap_services
@@ -35,7 +36,7 @@ except Exception:  # pragma: no cover
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "scorpred-dev-secret")
+configure_security(app, os.getenv("SECRET_KEY", "").strip())
 
 # ── Blueprints ─────────────────────────────────────────────────────────────────
 app.register_blueprint(nba_bp)
@@ -1082,6 +1083,18 @@ def props_generate():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    retry_after = check_chat_rate_limit(
+        limit=int(app.config.get("CHAT_RATE_LIMIT_COUNT", 8)),
+        window_seconds=int(app.config.get("CHAT_RATE_LIMIT_WINDOW_SECONDS", 60)),
+    )
+    if retry_after:
+        return jsonify(
+            {
+                "error": "Chat rate limit exceeded. Please wait before sending another message.",
+                "retry_after": retry_after,
+            }
+        ), 429
+
     message = (request.get_json(silent=True) or request.form or {}).get("message", "")
     message = str(message).strip()
     if not message:

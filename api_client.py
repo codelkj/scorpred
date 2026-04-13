@@ -20,6 +20,7 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from utils.parsing import safe_float as _sf, safe_int
 
 from league_config import (
     COMP_DIFFICULTY,
@@ -569,18 +570,8 @@ def _espn_top_players(league_id: int, stat_name: str) -> list[dict]:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _sf(v, d: float = 0.0) -> float:
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return d
-
-
-def _si(v, d: int = 0) -> int:
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return d
+def _si(v, d: int | None = 0) -> int | None:
+    return safe_int(v, d)
 
 
 def _league_name(league_id: int) -> str:

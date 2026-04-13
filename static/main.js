@@ -189,6 +189,28 @@ const chatInput = document.getElementById('chat-input');
 const chatMessages = document.getElementById('chat-messages');
 const chatClear = document.getElementById('chat-clear');
 
+function getCsrfToken() {
+  return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+}
+
+function csrfHeaders(extra = {}) {
+  const token = getCsrfToken();
+  return token ? { ...extra, 'X-CSRF-Token': token } : extra;
+}
+
+document.querySelectorAll('form').forEach(form => {
+  const method = (form.getAttribute('method') || 'GET').toUpperCase();
+  if (method !== 'POST') return;
+  if (form.querySelector('input[name="csrf_token"]')) return;
+  const token = getCsrfToken();
+  if (!token) return;
+  const input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'csrf_token';
+  input.value = token;
+  form.appendChild(input);
+});
+
 function appendChatMessage(role, text) {
   if (!chatMessages || !text) return;
   const row = document.createElement('div');
@@ -217,8 +239,8 @@ if (chatForm && chatInput) {
     try {
       const response = await fetch('/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ message }).toString()
+        headers: csrfHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+        body: new URLSearchParams({ message, csrf_token: getCsrfToken() }).toString()
       });
       const data = await response.json();
       appendChatMessage('assistant', data.reply || data.error || 'No reply available.');
@@ -231,7 +253,11 @@ if (chatForm && chatInput) {
 if (chatClear) {
   chatClear.addEventListener('click', async () => {
     try {
-      await fetch('/chat/clear', { method: 'POST' });
+      await fetch('/chat/clear', {
+        method: 'POST',
+        headers: csrfHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+        body: new URLSearchParams({ csrf_token: getCsrfToken() }).toString()
+      });
     } catch (error) {
       console.error(error);
     }
