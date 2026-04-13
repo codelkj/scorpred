@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Strategy Lab | ScorPred{% endblock %}
+
+{% block content %}
+<section class="strategy-lab-hero">
+  <div class="strategy-lab-kicker">Strategy Lab</div>
+  <h1 class="strategy-lab-title">Full strategy performance in one view.</h1>
+  <p class="strategy-lab-subtitle">
+    Compare live tracked prediction outcomes, segment performance, and the latest offline ML model comparison without cluttering the page.
+  </p>
+</section>
+
+<section class="strategy-lab-stat-grid">
+  {% for card in hero_cards %}
+  <article class="card glow-card strategy-lab-stat-card">
+    <div class="strategy-lab-stat-label">{{ card.label }}</div>
+    <div class="strategy-lab-stat-value strategy-tone-{{ card.tone }}">{{ card.value }}</div>
+    <p class="strategy-lab-stat-meta">{{ card.meta }}</p>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="strategy-lab-section">
+  <div class="section-title">Strategy Comparison</div>
+  <div class="strategy-lab-panel-grid">
+    <article class="card glow-card strategy-lab-panel">
+      <div class="strategy-lab-kicker">Live Backtesting</div>
+      <h2 class="strategy-lab-panel-title">Tracked winner performance</h2>
+      <p class="strategy-lab-panel-copy">{{ backtest_summary.blurb }}</p>
+      <div class="strategy-lab-mini-grid">
+        <div class="strategy-lab-mini-card">
+          <span class="strategy-lab-mini-label">Current Hit Rate</span>
+          <strong class="strategy-lab-mini-value">{{ backtest_summary.overall_accuracy_display }}</strong>
+        </div>
+        <div class="strategy-lab-mini-card">
+          <span class="strategy-lab-mini-label">Finalized Predictions</span>
+          <strong class="strategy-lab-mini-value">{{ backtest_summary.finalized_predictions }}</strong>
+        </div>
+        <div class="strategy-lab-mini-card">
+          <span class="strategy-lab-mini-label">Pending Results</span>
+          <strong class="strategy-lab-mini-value">{{ backtest_summary.pending_predictions }}</strong>
+        </div>
+        <div class="strategy-lab-mini-card">
+          <span class="strategy-lab-mini-label">Best Sport</span>
+          <strong class="strategy-lab-mini-value">
+            {% if backtest_summary.best_sport %}
+              {{ backtest_summary.best_sport.label }} ({{ backtest_summary.best_sport.accuracy_display }})
+            {% else %}
+              Awaiting sample
+            {% endif %}
+          </strong>
+        </div>
+      </div>
+    </article>
+
+    <article class="card glow-card strategy-lab-panel">
+      <div class="strategy-lab-kicker">Key Insights</div>
+      <h2 class="strategy-lab-panel-title">What the current sample is saying</h2>
+      <ul class="strategy-lab-insights">
+        {% for insight in key_insights %}
+        <li>{{ insight }}</li>
+        {% endfor %}
+      </ul>
+    </article>
+  </div>
+</section>
+
+<section class="strategy-lab-section">
+  <div class="section-title">Breakdown Sections</div>
+  <div class="strategy-lab-panel-grid">
+    <article class="card glow-card strategy-lab-panel">
+      <div class="strategy-lab-kicker">By Sport</div>
+      <h2 class="strategy-lab-panel-title">Where the tracked sample is strongest</h2>
+      {% if sport_breakdown %}
+      <div class="strategy-lab-breakdown-list">
+        {% for row in sport_breakdown %}
+        <div class="strategy-lab-breakdown-row">
+          <div>
+            <div class="strategy-lab-row-label">{{ row.label }}</div>
+            <div class="strategy-lab-row-meta">{{ row.count }} graded | {{ row.wins }} wins | {{ row.losses }} losses</div>
+          </div>
+          <div class="strategy-lab-row-value strategy-tone-{{ row.tone }}">{{ row.accuracy_display }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="strategy-lab-empty">Sport-level performance will appear once more finalized outcomes are available.</p>
+      {% endif %}
+    </article>
+
+    <article class="card glow-card strategy-lab-panel">
+      <div class="strategy-lab-kicker">By Confidence</div>
+      <h2 class="strategy-lab-panel-title">How each confidence tier is grading out</h2>
+      {% if confidence_breakdown %}
+      <div class="strategy-lab-breakdown-list">
+        {% for row in confidence_breakdown %}
+        <div class="strategy-lab-breakdown-row">
+          <div>
+            <div class="strategy-lab-row-label">{{ row.label }}</div>
+            <div class="strategy-lab-row-meta">{{ row.count }} graded | {{ row.wins }} wins | {{ row.losses }} losses</div>
+          </div>
+          <div class="strategy-lab-row-value strategy-tone-{{ row.tone }}">{{ row.accuracy_display }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="strategy-lab-empty">Confidence-tier breakdowns will populate after more tracked predictions finalize.</p>
+      {% endif %}
+    </article>
+  </div>
+</section>
+
+<section class="strategy-lab-section">
+  <div class="section-title">ML Model Comparison</div>
+  {% if ml_comparison.available %}
+  <div class="strategy-lab-panel-grid">
+    <article class="card glow-card gradient-border strategy-lab-panel">
+      <div class="strategy-lab-kicker">Best ML Model</div>
+      <h2 class="strategy-lab-panel-title">{{ ml_comparison.best_model_label }}</h2>
+      <p class="strategy-lab-panel-copy">{{ ml_comparison.summary }}</p>
+      <div class="strategy-lab-mini-grid">
+        <div class="strategy-lab-mini-card">
+          <span class="strategy-lab-mini-label">Baseline Logistic Regression</span>
+          <strong class="strategy-lab-mini-value">{{ ml_comparison.baseline_logistic_accuracy }}%</strong>
+        </div>
+        <div class="strategy-lab-mini-card">
+          <span class="strategy-lab-mini-label">Random Forest</span>
+          <strong class="strategy-lab-mini-value">{{ ml_comparison.random_forest_accuracy }}%</strong>
+        </div>
+        <div class="strategy-lab-mini-card">
+          <span class="strategy-lab-mini-label">Accuracy Gap</span>
+          <strong class="strategy-lab-mini-value">{{ ml_comparison.accuracy_gap_display }}</strong>
+        </div>
+        <div class="strategy-lab-mini-card">
+          <span class="strategy-lab-mini-label">Evaluation Matches</span>
+          <strong class="strategy-lab-mini-value">{{ ml_comparison.evaluation_matches }}</strong>
+        </div>
+      </div>
+    </article>
+
+    <article class="card glow-card strategy-lab-panel">
+      <div class="strategy-lab-kicker">Top Signals</div>
+      <h2 class="strategy-lab-panel-title">Readable feature cues from the leading model</h2>
+      {% if ml_comparison.top_signals %}
+      <div class="strategy-lab-pill-row">
+        {% for signal in ml_comparison.top_signals %}
+        <span class="strategy-lab-pill">{{ signal }}</span>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="strategy-lab-empty">No top-signal summary was stored with the current comparison report.</p>
+      {% endif %}
+      <div class="strategy-lab-advanced-note">
+        Leading model: {{ ml_comparison.best_model_label }}
+        {% if ml_comparison.generated_at %}
+        | Saved report: {{ ml_comparison.generated_at }}
+        {% endif %}
+      </div>
+    </article>
+  </div>
+  {% else %}
+  <article class="card glow-card strategy-lab-panel strategy-lab-fallback">
+    <div class="strategy-lab-kicker">ML Model Comparison</div>
+    <h2 class="strategy-lab-panel-title">ML comparison is not available yet.</h2>
+    <p class="strategy-lab-panel-copy">{{ ml_comparison.message }}</p>
+    <div class="strategy-lab-command">{{ ml_comparison.command }}</div>
+    <p class="strategy-lab-advanced-note">Expected report path: {{ ml_comparison.report_path }}</p>
+  </article>
+  {% endif %}
+</section>
+
+<section class="strategy-lab-section">
+  <div class="section-title">Advanced Details</div>
+  <div class="strategy-lab-panel-grid">
+    <article class="card glow-card strategy-lab-panel">
+      <div class="strategy-lab-kicker">Recent Graded Outcomes</div>
+      <h2 class="strategy-lab-panel-title">Latest finalized winner picks</h2>
+      {% if recent_completed_predictions %}
+      <div class="strategy-lab-results">
+        {% for pred in recent_completed_predictions %}
+        <div class="strategy-lab-result-row">
+          <div>
+            <div class="strategy-lab-row-label">{{ pred.team_a }} vs {{ pred.team_b }}</div>
+            <div class="strategy-lab-row-meta">
+              {{ pred.date or pred.game_date or 'Date pending' }} | {{ pred.final_score_display or 'Final pending' }}
+            </div>
+          </div>
+          <div class="strategy-lab-result-outcome {% if pred.winner_hit %}is-win{% else %}is-loss{% endif %}">
+            {{ pred.overall_game_result or ('Win' if pred.winner_hit else 'Loss') }}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="strategy-lab-empty">Finalized winner results will appear here once result reconciliation has graded recent predictions.</p>
+      {% endif %}
+    </article>
+
+    <article class="card glow-card strategy-lab-panel">
+      <div class="strategy-lab-kicker">Evaluation Window</div>
+      <h2 class="strategy-lab-panel-title">Saved report context</h2>
+      {% if ml_comparison.available %}
+      <div class="strategy-lab-breakdown-list">
+        <div class="strategy-lab-breakdown-row">
+          <div>
+            <div class="strategy-lab-row-label">Training Window</div>
+            <div class="strategy-lab-row-meta">{{ ml_comparison.workflow.train_start }} to {{ ml_comparison.workflow.train_end }}</div>
+          </div>
+          <div class="strategy-lab-row-value">{{ ml_comparison.workflow.train_size }}</div>
+        </div>
+        <div class="strategy-lab-breakdown-row">
+          <div>
+            <div class="strategy-lab-row-label">Evaluation Window</div>
+            <div class="strategy-lab-row-meta">{{ ml_comparison.workflow.test_start }} to {{ ml_comparison.workflow.test_end }}</div>
+          </div>
+          <div class="strategy-lab-row-value">{{ ml_comparison.workflow.test_size }}</div>
+        </div>
+        <div class="strategy-lab-breakdown-row">
+          <div>
+            <div class="strategy-lab-row-label">Feature Count</div>
+            <div class="strategy-lab-row-meta">Top-signal summary only, no raw debug dump</div>
+          </div>
+          <div class="strategy-lab-row-value">{{ ml_comparison.workflow.feature_count }}</div>
+        </div>
+      </div>
+      {% else %}
+      <p class="strategy-lab-empty">Generate the saved comparison report to populate train/test windows and feature counts here.</p>
+      {% endif %}
+    </article>
+  </div>
+</section>
+{% endblock %}

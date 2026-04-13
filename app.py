@@ -18,6 +18,7 @@ import result_updater as ru
 from security import check_chat_rate_limit, configure_security
 from services import analysis_assistant as assistant_services
 from services import evidence as evidence_services
+from services import strategy_lab as strategy_lab_services
 from services import tracking_bootstrap as bootstrap_services
 from league_config import (
     CURRENT_SEASON,
@@ -958,6 +959,21 @@ def model_performance():
             pending_predictions=pending_predictions,
             sport_filter=sport_filter,
         ),
+    )
+
+
+@app.route("/strategy-lab")
+def strategy_lab():
+    """Display product-facing strategy and ML comparison context."""
+    try:
+        context = strategy_lab_services.build_strategy_lab_context()
+    except Exception as exc:
+        app.logger.error("strategy_lab: failed to build context - %s", exc, exc_info=True)
+        context = strategy_lab_services.empty_strategy_lab_context()
+
+    return render_template(
+        "strategy_lab.html",
+        **_page_context(**context),
     )
 
 

@@ -158,6 +158,42 @@ def _mock_nba_scorpred():
     }
 
 
+def _mock_strategy_metrics() -> dict:
+    return {
+        "total_predictions": 28,
+        "finalized_predictions": 20,
+        "wins": 11,
+        "losses": 9,
+        "overall_accuracy": 55.0,
+        "by_confidence": {
+            "High": {"accuracy": 62.5, "count": 8, "wins": 5, "losses": 3},
+            "Medium": {"accuracy": 50.0, "count": 8, "wins": 4, "losses": 4},
+            "Low": {"accuracy": 50.0, "count": 4, "wins": 2, "losses": 2},
+        },
+        "by_sport": {
+            "soccer": {"accuracy": 58.3, "count": 12, "wins": 7, "losses": 5},
+            "nba": {"accuracy": 50.0, "count": 8, "wins": 4, "losses": 4},
+        },
+        "recent_predictions": [],
+    }
+
+
+def _mock_completed_prediction(
+    team_a: str = "Arsenal",
+    team_b: str = "Chelsea",
+    overall_result: str = "Win",
+    winner_hit: bool = True,
+) -> dict:
+    return {
+        "team_a": team_a,
+        "team_b": team_b,
+        "date": "2026-04-10",
+        "final_score_display": "2-1",
+        "overall_game_result": overall_result,
+        "winner_hit": winner_hit,
+    }
+
+
 # ── Home page ─────────────────────────────────────────────────────────────────
 
 class TestIndexRoute:
@@ -378,6 +414,88 @@ class TestNbaPredictionRoute:
         assert b"Team Snapshot" in rv.data
         assert mock_save.call_count == 1
         assert mock_save.call_args.kwargs["game_date"] == "2026-04-21T19:30:00Z"
+
+
+class TestStrategyLabRoute:
+    def test_strategy_lab_renders_saved_ml_comparison(self, client, tmp_path, monkeypatch):
+        report_path = tmp_path / "model_comparison.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "best_model": "random_forest",
+                    "generated_at": "2026-04-13T10:00:00Z",
+                    "models": {
+                        "logistic_regression": {
+                            "accuracy": 0.482,
+                            "top_features": [{"feature": "home_form_last_5"}],
+                        },
+                        "random_forest": {
+                            "accuracy": 0.501,
+                            "top_features": [
+                                {"feature": "home_form_last_5"},
+                                {"feature": "away_goals_conceded_last_5"},
+                                {"feature": "strength_gap"},
+                                {"feature": "league_draw_rate"},
+                                {"feature": "recent_goal_trend"},
+                            ],
+                        },
+                    },
+                    "workflow": {
+                        "train_size": 2800,
+                        "test_size": 943,
+                        "train_start": "2021-08-01",
+                        "train_end": "2025-03-15",
+                        "test_start": "2025-03-16",
+                        "test_end": "2026-03-30",
+                        "feature_keys": [
+                            "home_form_last_5",
+                            "away_goals_conceded_last_5",
+                            "strength_gap",
+                            "league_draw_rate",
+                            "recent_goal_trend",
+                        ],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(flask_app_module.strategy_lab_services.mt, "get_summary_metrics", lambda: _mock_strategy_metrics())
+        monkeypatch.setattr(
+            flask_app_module.strategy_lab_services.mt,
+            "get_completed_predictions",
+            lambda limit=6: [_mock_completed_prediction()] * limit,
+        )
+        monkeypatch.setattr(flask_app_module.strategy_lab_services.mlp, "DEFAULT_REPORT_PATH", report_path)
+
+        rv = client.get("/strategy-lab")
+
+        assert rv.status_code == 200
+        assert b"ML Model Comparison" in rv.data
+        assert b"Best ML Model" in rv.data
+        assert b"Baseline Logistic Regression" in rv.data
+        assert b"Random Forest" in rv.data
+        assert b"50.1%" in rv.data
+        assert b"Top Signals" in rv.data
+        assert b"Evaluation Matches" in rv.data
+
+    def test_strategy_lab_renders_clean_fallback_without_report(self, client, tmp_path, monkeypatch):
+        missing_path = tmp_path / "missing_model_comparison.json"
+
+        monkeypatch.setattr(flask_app_module.strategy_lab_services.mt, "get_summary_metrics", lambda: _mock_strategy_metrics())
+        monkeypatch.setattr(
+            flask_app_module.strategy_lab_services.mt,
+            "get_completed_predictions",
+            lambda limit=6: [_mock_completed_prediction(winner_hit=False, overall_result="Loss")] * limit,
+        )
+        monkeypatch.setattr(flask_app_module.strategy_lab_services.mlp, "DEFAULT_REPORT_PATH", missing_path)
+
+        rv = client.get("/strategy-lab")
+
+        assert rv.status_code == 200
+        assert b"ML comparison is not available yet" in rv.data
+        assert b"generate_ml_report.py" in rv.data
+        assert str(missing_path).encode("utf-8") in rv.data
 
 
 # ── Chat API ──────────────────────────────────────────────────────────────────

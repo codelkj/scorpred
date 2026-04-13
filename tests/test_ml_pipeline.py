@@ -81,3 +81,78 @@ def test_compare_binary_models_rejects_single_class_train_or_test_windows():
             feature_keys=["form_gap", "xg_gap", "home_edge", "injuries_gap"],
             test_ratio=0.2,
         )
+
+
+def test_save_and_load_comparison_report_round_trip(tmp_path):
+    report = mlp.compare_binary_models(
+        _sample_rows(),
+        feature_keys=["form_gap", "xg_gap", "home_edge", "injuries_gap"],
+        test_ratio=0.25,
+    )
+
+    report_path = tmp_path / "model_comparison.json"
+    saved_path = mlp.save_comparison_report(report, report_path)
+    loaded = mlp.load_comparison_report(saved_path)
+
+    assert saved_path == report_path
+    assert loaded is not None
+    assert loaded["best_model"] == report["best_model"]
+    assert loaded["workflow"]["test_size"] == 6
+    assert "generated_at" in loaded
+
+
+def test_build_strategy_lab_summary_formats_ml_comparison_for_ui():
+    report = {
+        "best_model": "random_forest",
+        "models": {
+            "logistic_regression": {
+                "accuracy": 0.482,
+                "top_features": [
+                    {"feature": "home_form_last_5", "weight": 0.81},
+                    {"feature": "league_draw_rate", "weight": -0.52},
+                ],
+            },
+            "random_forest": {
+                "accuracy": 0.501,
+                "top_features": [
+                    {"feature": "home_form_last_5", "importance": 0.24},
+                    {"feature": "away_goals_conceded_last_5", "importance": 0.19},
+                    {"feature": "strength_gap", "importance": 0.16},
+                    {"feature": "league_draw_rate", "importance": 0.11},
+                    {"feature": "recent_goal_trend", "importance": 0.09},
+                ],
+            },
+        },
+        "workflow": {
+            "train_size": 2800,
+            "test_size": 943,
+            "train_start": "2021-08-01",
+            "train_end": "2025-03-15",
+            "test_start": "2025-03-16",
+            "test_end": "2026-03-30",
+            "feature_keys": [
+                "home_form_last_5",
+                "away_goals_conceded_last_5",
+                "strength_gap",
+                "league_draw_rate",
+                "recent_goal_trend",
+            ],
+        },
+    }
+
+    summary = mlp.build_strategy_lab_summary(report=report)
+
+    assert summary["available"] is True
+    assert summary["best_model_label"] == "Random Forest"
+    assert summary["baseline_logistic_accuracy"] == 48.2
+    assert summary["random_forest_accuracy"] == 50.1
+    assert summary["accuracy_gap"] == 1.9
+    assert summary["accuracy_gap_display"] == "+1.9 pts"
+    assert summary["evaluation_matches"] == 943
+    assert summary["top_signals"] == [
+        "home_form_last_5",
+        "away_goals_conceded_last_5",
+        "strength_gap",
+        "league_draw_rate",
+        "recent_goal_trend",
+    ]

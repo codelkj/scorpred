@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+import json
 import math
+from pathlib import Path
 from typing import Any
 
 from sklearn.ensemble import RandomForestClassifier
@@ -13,6 +16,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from utils.parsing import normalize_date, safe_float
+
+DEFAULT_REPORT_PATH = Path(__file__).resolve().parent / "cache" / "ml" / "model_comparison.json"
+MODEL_LABELS = {
+    "logistic_regression": "Baseline Logistic Regression",
+    "random_forest": "Random Forest",
+}
 
 
 def _row_date(row: dict[str, Any], date_key: str) -> str:
@@ -124,6 +133,168 @@ def _top_features(model_pipeline: Pipeline, feature_keys: list[str], limit: int 
         ]
 
     return []
+
+
+def _report_path(path: str | Path | None = None) -> Path:
+    return Path(path or DEFAULT_REPORT_PATH)
+
+
+def _display_accuracy(value: Any) -> float | None:
+    numeric = safe_float(value, math.nan)
+    if math.isnan(numeric):
+        return None
+    if 0.0 <= numeric <= 1.0:
+        numeric *= 100.0
+    return round(float(numeric), 1)
+
+
+def _model_label(name: str) -> str:
+    return MODEL_LABELS.get(name, name.replace("_", " ").title())
+
+
+def _top_signal_names(entries: Any, limit: int = 5) -> list[str]:
+    signals: list[str] = []
+    for entry in entries or []:
+        if isinstance(entry, dict):
+            name = str(entry.get("feature") or entry.get("name") or "").strip()
+        else:
+            name = str(entry or "").strip()
+        if name and name not in signals:
+            signals.append(name)
+        if len(signals) >= limit:
+            break
+    return signals
+
+
+def save_comparison_report(
+    report: dict[str, Any],
+    path: str | Path | None = None,
+) -> Path:
+    """Persist a comparison report to disk for UI consumption."""
+    target = _report_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.loads(json.dumps(report))
+    payload.setdefault("generated_at", datetime.now(UTC).isoformat().replace("+00:00", "Z"))
+    target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return target
+
+
+def load_comparison_report(path: str | Path | None = None) -> dict[str, Any] | None:
+    """Load a saved comparison report if it exists."""
+    target = _report_path(path)
+    if not target.exists():
+        return None
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def build_strategy_lab_summary(
+    report: dict[str, Any] | None = None,
+    path: str | Path | None = None,
+) -> dict[str, Any]:
+    """
+    Convert the saved comparison report into a compact, UI-friendly payload for
+    Strategy Lab.
+    """
+    report_path = _report_path(path)
+    payload = report if isinstance(report, dict) else load_comparison_report(report_path)
+    fallback_command = (
+        f'python generate_ml_report.py --input path\\to\\matches.json '
+        f'--features feature_a,feature_b,feature_c --label label --date-key date '
+        f'--output "{report_path}"'
+    )
+
+    fallback = {
+        "available": False,
+        "best_model": None,
+        "best_model_label": None,
+        "baseline_logistic_accuracy": None,
+        "random_forest_accuracy": None,
+        "accuracy_gap": None,
+        "accuracy_gap_display": None,
+        "evaluation_matches": None,
+        "summary": "ML comparison is not available yet.",
+        "message": (
+            "Generate the saved ML comparison report to surface the logistic "
+            "baseline, Random Forest challenger, and top feature signals here."
+        ),
+        "command": fallback_command,
+        "report_path": str(report_path),
+        "top_signals": [],
+        "generated_at": None,
+        "workflow": {},
+    }
+
+    if not payload:
+        return fallback
+
+    models = payload.get("models") or {}
+    logistic = models.get("logistic_regression") or {}
+    random_forest = models.get("random_forest") or {}
+    logistic_accuracy = _display_accuracy(logistic.get("accuracy"))
+    random_forest_accuracy = _display_accuracy(random_forest.get("accuracy"))
+    if logistic_accuracy is None or random_forest_accuracy is None:
+        return fallback
+
+    best_model = str(
+        payload.get("best_model")
+        or (payload.get("ranking") or [{}])[0].get("model")
+        or ""
+    ).strip()
+    if not best_model:
+        best_model = (
+            "random_forest"
+            if random_forest_accuracy >= logistic_accuracy
+            else "logistic_regression"
+        )
+
+    workflow = payload.get("workflow") or {}
+    feature_keys = workflow.get("feature_keys") or []
+    gap = round(random_forest_accuracy - logistic_accuracy, 1)
+    evaluation_matches = workflow.get("test_size")
+    top_signals = _top_signal_names(
+        (models.get(best_model) or {}).get("top_features"),
+        limit=5,
+    )
+    leader_label = _model_label(best_model)
+    summary = (
+        f"{leader_label} leads the saved leakage-safe evaluation by "
+        f"{abs(gap):.1f} pts across {evaluation_matches or 0} matches."
+    )
+    if gap == 0:
+        summary = (
+            f"Baseline Logistic Regression and Random Forest are tied in the "
+            f"saved evaluation across {evaluation_matches or 0} matches."
+        )
+
+    return {
+        "available": True,
+        "best_model": best_model,
+        "best_model_label": leader_label,
+        "baseline_logistic_accuracy": logistic_accuracy,
+        "random_forest_accuracy": random_forest_accuracy,
+        "accuracy_gap": gap,
+        "accuracy_gap_display": f"{gap:+.1f} pts",
+        "evaluation_matches": evaluation_matches,
+        "summary": summary,
+        "message": None,
+        "command": fallback_command,
+        "report_path": str(report_path),
+        "top_signals": top_signals,
+        "generated_at": payload.get("generated_at"),
+        "workflow": {
+            "train_size": workflow.get("train_size"),
+            "test_size": workflow.get("test_size"),
+            "train_start": workflow.get("train_start"),
+            "train_end": workflow.get("train_end"),
+            "test_start": workflow.get("test_start"),
+            "test_end": workflow.get("test_end"),
+            "feature_count": len(feature_keys),
+        },
+    }
 
 
 def compare_binary_models(
