@@ -688,6 +688,8 @@ def _build_matchup_reading(
         lines.append(f"{name_b}'s recent results came against weaker opposition — treat their form with caution.")
     if opp_a > 7.0:
         lines.append(f"{name_a} have been tested by quality opponents recently, making their form more credible.")
+    if opp_b > 7.0:
+        lines.append(f"{name_b} have been tested by quality opponents recently, making their form more credible.")
 
     # Match context / rest check
     context_a = comp_a.get("match_context", 5.0)
