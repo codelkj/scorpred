@@ -89,7 +89,13 @@
   </div>
 
   {% if error %}
-  <div class="nba-card glow-card" style="border-color:#ef4444; margin-bottom:1rem;"><p style="color:#ef4444; margin:0;">⚠ {{ error }}</p></div>
+  <div class="system-notice is-danger" style="margin-bottom:1rem;">
+    <div class="system-notice-icon">x</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">{{ error }}</div>
+    </div>
+  </div>
   {% endif %}
 
   <!-- Game context -->

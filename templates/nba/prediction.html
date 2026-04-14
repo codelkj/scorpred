@@ -62,24 +62,41 @@
     {% endif %}
   </div>
   {% else %}
-  <div class="alert alert-warn">
-    Manual team selection is active. Pick an upcoming NBA game on the home page to attach a real fixture date to prediction tracking.
+  <div class="system-notice is-info">
+    <div class="system-notice-icon">i</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">
+        Manual team selection is active. Pick an upcoming NBA game from the home page if you want prediction
+        tracking tied to the real game date automatically.
+      </div>
+    </div>
   </div>
   {% endif %}
 
   {% if data_notes %}
-  <div class="alert alert-warn">
-    <strong>Data notes:</strong>
-    <ul style="margin: .5rem 0 0 1.1rem;">
+  <div class="system-notice is-warning">
+    <div class="system-notice-icon">!</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">A few data inputs are limited for this matchup, so review the context before relying on the final call.</div>
+      <ul class="system-notice-list">
       {% for note in data_notes %}
       <li>{{ note }}</li>
       {% endfor %}
-    </ul>
+      </ul>
+    </div>
   </div>
   {% endif %}
 
   {% if error %}
-  <div class="alert alert-error">Prediction error: {{ error }}</div>
+  <div class="system-notice is-danger">
+    <div class="system-notice-icon">x</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">Prediction error: {{ error }}</div>
+    </div>
+  </div>
   {% endif %}
 
   {% if scorpred %}

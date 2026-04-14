@@ -1975,6 +1975,90 @@ a {
   background: rgba(239, 68, 68, 0.08);
 }
 
+.system-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(31, 41, 55, 0.9);
+  background: rgba(15, 23, 42, 0.82);
+  box-shadow: var(--shadow-soft);
+}
+
+.system-notice-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.system-notice-body {
+  min-width: 0;
+}
+
+.system-notice-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.96rem;
+  line-height: 1.15;
+  color: var(--text);
+}
+
+.system-notice-copy {
+  margin-top: 0.28rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.system-notice-list {
+  margin: 0.45rem 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.system-notice.is-info {
+  border-left: 4px solid var(--info);
+}
+
+.system-notice.is-info .system-notice-icon {
+  color: var(--info);
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.system-notice.is-warning {
+  border-left: 4px solid var(--warning);
+}
+
+.system-notice.is-warning .system-notice-icon {
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.system-notice.is-success {
+  border-left: 4px solid var(--accent);
+}
+
+.system-notice.is-success .system-notice-icon {
+  color: var(--accent);
+  background: rgba(0, 245, 160, 0.14);
+}
+
+.system-notice.is-danger {
+  border-left: 4px solid var(--danger);
+}
+
+.system-notice.is-danger .system-notice-icon {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.14);
+}
+
 .analysis-grid,
 .performance-grid,
 .performance-detail-grid,

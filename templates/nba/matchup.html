@@ -67,14 +67,25 @@
     </div>
   </div>
   {% else %}
-  <div style="background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:8px; padding:.65rem 1rem; font-size:.81rem; color:#f59e0b; margin-bottom:1rem;">
-    Manual team selection is active. Pick an upcoming NBA game on the home page to attach live fixture context to this analysis.
+  <div class="system-notice is-info" style="margin-bottom:1rem;">
+    <div class="system-notice-icon">i</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">
+        Manual team selection is active. Pick an upcoming NBA game from the home page if you want live fixture
+        context attached automatically to this analysis.
+      </div>
+    </div>
   </div>
   {% endif %}
 
   {% if error %}
-  <div class="nba-card glow-card" style="border-color:#ef4444;">
-    <p style="color:#ef4444;">⚠ {{ error }}</p>
+  <div class="system-notice is-danger" style="margin-bottom:1rem;">
+    <div class="system-notice-icon">x</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">{{ error }}</div>
+    </div>
   </div>
   {% endif %}
 
