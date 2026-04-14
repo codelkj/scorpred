@@ -18,6 +18,16 @@
 </section>
 
 <section class="section-stack">
+  {% if selection_notice %}
+  <div class="system-notice is-warning">
+    <div class="system-notice-icon">!</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">{{ selection_notice }}</div>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="split-layout">
     <article class="card glow-card fixture-shell">
       <div class="fixture-head">
@@ -124,14 +134,14 @@
 </section>
 
 <section class="section-stack">
-  <article class="card glow-card team-select-card">
-    <div class="split-header">
+  <details class="card glow-card team-select-card analysis-advanced-drawer">
+    <summary>
       <div>
-        <span class="page-kicker">Manual Matchup</span>
-        <h2 class="section-title">Build a custom comparison.</h2>
-        <p class="page-sub">Choose any two teams to inspect form, head-to-head history, and the final ScorPred edge.</p>
+        <span class="page-kicker">Advanced Tools</span>
+        <h2 class="section-title">Build a custom matchup manually.</h2>
+        <p class="page-sub">Use this when the live fixture list does not cover the teams you want to inspect.</p>
       </div>
-    </div>
+    </summary>
 
     {% if not teams %}
     <div class="alert alert-warn">
@@ -201,7 +211,7 @@
       </button>
     </form>
     {% endif %}
-  </article>
+  </details>
 </section>
 
 <section class="section-stack">

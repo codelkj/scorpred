@@ -35,6 +35,32 @@ def _sample_rows(count: int = 24) -> list[dict]:
     return rows
 
 
+def _sample_result_rows(count: int = 24) -> list[dict]:
+    rows = []
+    start = date(2024, 1, 1)
+    for idx in range(count):
+        home_goals = (idx * 3) % 4
+        away_goals = (idx + 1) % 3
+        goal_diff = home_goals - away_goals
+        if goal_diff > 0:
+            result = "HomeWin"
+        elif goal_diff < 0:
+            result = "AwayWin"
+        else:
+            result = "Draw"
+        rows.append(
+            {
+                "date": (start + timedelta(days=idx)).isoformat(),
+                "form": float((idx * 7) % 11),
+                "goals_scored": home_goals,
+                "goals_conceded": away_goals,
+                "goal_diff": goal_diff,
+                "result": result,
+            }
+        )
+    return rows
+
+
 def test_chronological_train_test_split_orders_rows_before_splitting():
     rows = [
         {"date": "2024-02-10", "label": 1},
@@ -150,9 +176,22 @@ def test_build_strategy_lab_summary_formats_ml_comparison_for_ui():
     assert summary["accuracy_gap_display"] == "+1.9 pts"
     assert summary["evaluation_matches"] == 943
     assert summary["top_signals"] == [
-        "home_form_last_5",
-        "away_goals_conceded_last_5",
-        "strength_gap",
-        "league_draw_rate",
-        "recent_goal_trend",
+        "home_form_last_5 (importance 0.240)",
+        "away_goals_conceded_last_5 (importance 0.190)",
+        "strength_gap (importance 0.160)",
+        "league_draw_rate (importance 0.110)",
+        "recent_goal_trend (importance 0.090)",
     ]
+
+
+def test_compare_binary_models_accepts_homewin_draw_awaywin_labels():
+    report = mlp.compare_binary_models(
+        _sample_result_rows(),
+        feature_keys=["form", "goals_scored", "goals_conceded", "goal_diff"],
+        label_key="result",
+        date_key="date",
+        test_ratio=0.25,
+    )
+
+    assert report["best_model"] in {"logistic_regression", "random_forest"}
+    assert report["workflow"]["label_key"] == "result"

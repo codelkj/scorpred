@@ -157,7 +157,15 @@ def get_standings(season: int = NBA_SEASON) -> dict:
 
 
 def get_team_season_stats(team_id, season: int = NBA_SEASON):
-    return legacy.get_team_season_stats(team_id, season)
+    try:
+        stats = legacy.get_team_season_stats(team_id, season)
+        if stats:
+            return stats
+    except Exception:
+        pass
+
+    games = _latest_completed_team_games(team_id, season=season, enrich_scores=True)
+    return _derive_team_stats_from_games(team_id, games)
 
 
 def _as_int(value: Any) -> int | None:
@@ -363,10 +371,204 @@ def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
     return events
 
 
+def _completed_team_games_for_season(team_id: str, season: int) -> list[dict]:
+    finished = [game for game in _team_schedule(team_id, season=season) if game["status"]["state"] == "post"]
+    finished.sort(key=lambda game: game["date"]["start"], reverse=True)
+    return finished
+
+
+def _extract_summary_scores(summary: dict[str, Any], event_id: str) -> dict[str, Any] | None:
+    competitions = ((summary.get("header") or {}).get("competitions") or [])
+    if not competitions:
+        return None
+    competitors = competitions[0].get("competitors") or []
+    home = next((entry for entry in competitors if entry.get("homeAway") == "home"), None)
+    away = next((entry for entry in competitors if entry.get("homeAway") == "away"), None)
+    if not home or not away:
+        return None
+
+    return {
+        "scores": {
+            "home": {
+                "points": _as_int(home.get("score")),
+                "linescore": [line.get("displayValue") or str(line.get("value")) for line in (home.get("linescores") or [])],
+            },
+            "visitors": {
+                "points": _as_int(away.get("score")),
+                "linescore": [line.get("displayValue") or str(line.get("value")) for line in (away.get("linescores") or [])],
+            },
+        },
+        "records": {
+            "home": home.get("record") or [],
+            "visitors": away.get("record") or [],
+        },
+        "event_id": str(event_id),
+    }
+
+
+def _enrich_game_scores(game: dict[str, Any]) -> dict[str, Any]:
+    if game["scores"]["home"].get("points") is not None and game["scores"]["visitors"].get("points") is not None:
+        return game
+
+    event_id = str(game.get("id") or "")
+    if not event_id:
+        return game
+
+    try:
+        summary = get_game_summary(event_id)
+    except Exception:
+        return game
+
+    enriched = _extract_summary_scores(summary, event_id)
+    if not enriched:
+        return game
+
+    game["scores"] = enriched["scores"]
+    game["records"] = enriched["records"]
+    return game
+
+
+def _latest_completed_team_games(
+    team_id: str,
+    season: int = NBA_SEASON,
+    lookback_seasons: int = 2,
+    enrich_scores: bool = False,
+) -> list[dict]:
+    team_id = str(team_id)
+    for candidate_season in range(season, season - lookback_seasons - 1, -1):
+        games = _completed_team_games_for_season(team_id, candidate_season)
+        if games:
+            if enrich_scores:
+                return [_enrich_game_scores(dict(game)) for game in games]
+            return games
+    return []
+
+
+def _points_for_team(game: dict[str, Any], team_id: str) -> tuple[int | None, int | None, bool | None]:
+    team_id = str(team_id)
+    home = game["teams"]["home"]
+    away = game["teams"]["visitors"]
+    home_points = _as_int(game["scores"]["home"].get("points"))
+    away_points = _as_int(game["scores"]["visitors"].get("points"))
+
+    if str(home.get("id") or "") == team_id:
+        return home_points, away_points, True
+    if str(away.get("id") or "") == team_id:
+        return away_points, home_points, False
+    return None, None, None
+
+
+def _record_string(wins: int, losses: int) -> str:
+    return f"{wins}-{losses}"
+
+
+def _parse_record_value(value: str) -> tuple[int, int]:
+    text = str(value or "").strip()
+    if "-" not in text:
+        return 0, 0
+    left, right = text.split("-", 1)
+    return _as_int(left) or 0, _as_int(right) or 0
+
+
+def _team_record_map(game: dict[str, Any], team_id: str) -> dict[str, str]:
+    team_id = str(team_id)
+    side = "home" if str(game["teams"]["home"].get("id") or "") == team_id else "visitors"
+    entries = game.get("records", {}).get(side) or []
+    records: dict[str, str] = {}
+    for entry in entries:
+        record_type = str(entry.get("type") or "").strip().lower()
+        summary = entry.get("summary") or entry.get("displayValue") or ""
+        if record_type:
+            records[record_type] = summary
+    return records
+
+
+def _derive_team_stats_from_games(team_id: str, games: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not games:
+        return None
+
+    team_id = str(team_id)
+    totals = {
+        "wins": 0,
+        "losses": 0,
+        "points_for": 0,
+        "points_against": 0,
+        "home_w": 0,
+        "home_l": 0,
+        "away_w": 0,
+        "away_l": 0,
+    }
+    recent_results: list[str] = []
+    scored_games = 0
+
+    for game in games:
+        our_points, their_points, is_home = _points_for_team(game, team_id)
+        if our_points is None or their_points is None or is_home is None:
+            continue
+
+        scored_games += 1
+        won = our_points > their_points
+        recent_results.append("W" if won else "L")
+        totals["wins" if won else "losses"] += 1
+        totals["points_for"] += our_points
+        totals["points_against"] += their_points
+        if is_home:
+            totals["home_w" if won else "home_l"] += 1
+        else:
+            totals["away_w" if won else "away_l"] += 1
+
+    latest_records = _team_record_map(games[0], team_id)
+    total_record = latest_records.get("total", "")
+    home_record = latest_records.get("home", "")
+    away_record = latest_records.get("road", latest_records.get("away", ""))
+    record_wins, record_losses = _parse_record_value(total_record)
+
+    total_games = totals["wins"] + totals["losses"]
+    if record_wins or record_losses:
+        totals["wins"] = record_wins
+        totals["losses"] = record_losses
+        total_games = record_wins + record_losses
+    if total_games == 0:
+        return None
+
+    last10_results = recent_results[:10]
+    last10_wins = sum(1 for result in last10_results if result == "W")
+    last10_losses = len(last10_results) - last10_wins
+
+    streak_value = ""
+    if recent_results:
+        streak_result = recent_results[0]
+        streak_count = 0
+        for result in recent_results:
+            if result != streak_result:
+                break
+            streak_count += 1
+        streak_value = f"{streak_result}{streak_count}"
+
+    return {
+        "games": total_games,
+        "wins": totals["wins"],
+        "losses": totals["losses"],
+        "win_pct": round(totals["wins"] / total_games, 3),
+        "ppg": round(totals["points_for"] / max(scored_games, 1), 1),
+        "opp_ppg": round(totals["points_against"] / max(scored_games, 1), 1),
+        "net_rtg": round((totals["points_for"] - totals["points_against"]) / max(scored_games, 1), 1),
+        "home_record": home_record or _record_string(totals["home_w"], totals["home_l"]),
+        "away_record": away_record or _record_string(totals["away_w"], totals["away_l"]),
+        "home_w": totals["home_w"],
+        "home_l": totals["home_l"],
+        "away_w": totals["away_w"],
+        "away_l": totals["away_l"],
+        "last10": _record_string(last10_wins, last10_losses),
+        "last10_w": last10_wins,
+        "last10_l": last10_losses,
+        "streak": streak_value,
+    }
+
+
 def get_team_recent_form(team_id, season: int = NBA_SEASON, n: int = 10) -> list[dict]:
     team_id = str(team_id)
-    finished = [game for game in _team_schedule(team_id) if game["status"]["state"] == "post"]
-    finished.sort(key=lambda game: game["date"]["start"], reverse=True)
+    finished = _latest_completed_team_games(team_id, season=season, enrich_scores=True)
     return finished[:n]
 
 
@@ -388,7 +590,7 @@ def get_h2h(team_a_id, team_b_id, season: int = NBA_SEASON) -> list[dict]:
                 gid = game["id"]
                 if gid not in seen_ids:
                     seen_ids.add(gid)
-                    games.append(game)
+                    games.append(_enrich_game_scores(dict(game)))
         except Exception:
             continue
     games.sort(key=lambda game: game["date"]["start"], reverse=True)

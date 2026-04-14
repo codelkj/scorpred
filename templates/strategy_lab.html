@@ -10,6 +10,43 @@
   </p>
 </section>
 
+{% set live_accuracy = metrics.overall_accuracy if metrics.overall_accuracy is not none else 0 %}
+{% set ml_leader_accuracy = ml_comparison.random_forest_accuracy if ml_comparison.available else None %}
+{% set best_strategy_label = backtest_summary.best_sport.label if backtest_summary.best_sport else 'Awaiting sample' %}
+
+<section class="strategy-lab-kpi-grid">
+  <article class="card glow-card strategy-kpi-card">
+    <div class="strategy-kpi-label">Best Strategy</div>
+    <div class="strategy-kpi-value">{{ best_strategy_label }}</div>
+    <p class="strategy-kpi-meta">Top tracked segment right now</p>
+  </article>
+  <article class="card glow-card strategy-kpi-card">
+    <div class="strategy-kpi-label">Tracked Predictions</div>
+    <div class="strategy-kpi-value">{{ metrics.total_predictions or 0 }}</div>
+    <p class="strategy-kpi-meta">All saved winner calls</p>
+  </article>
+  <article class="card glow-card strategy-kpi-card">
+    <div class="strategy-kpi-label">Finalized Backtests</div>
+    <div class="strategy-kpi-value">{{ metrics.finalized_predictions or 0 }}</div>
+    <p class="strategy-kpi-meta">Resolved outcomes in sample</p>
+  </article>
+  <article class="card glow-card strategy-kpi-card">
+    <div class="strategy-kpi-label">Live Hit Rate</div>
+    <div class="strategy-kpi-value strategy-tone-{{ 'positive' if metrics.overall_accuracy and metrics.overall_accuracy >= 55 else 'warning' if metrics.overall_accuracy else 'muted' }}">{{ backtest_summary.overall_accuracy_display }}</div>
+    <p class="strategy-kpi-meta">Tracked performance window</p>
+  </article>
+  <article class="card glow-card strategy-kpi-card">
+    <div class="strategy-kpi-label">Recent Record</div>
+    <div class="strategy-kpi-value">{{ hero_cards[3].value if hero_cards|length > 3 else 'No finalized run yet' }}</div>
+    <p class="strategy-kpi-meta">Rolling last graded outcomes</p>
+  </article>
+  <article class="card glow-card strategy-kpi-card gradient-border">
+    <div class="strategy-kpi-label">ML Leader</div>
+    <div class="strategy-kpi-value">{{ ml_comparison.best_model_label if ml_comparison.available else 'Generating...' }}</div>
+    <p class="strategy-kpi-meta">Offline leakage-safe comparison</p>
+  </article>
+</section>
+
 <section class="strategy-lab-stat-grid">
   {% for card in hero_cards %}
   <article class="card glow-card strategy-lab-stat-card">
@@ -49,6 +86,27 @@
               Awaiting sample
             {% endif %}
           </strong>
+        </div>
+      </div>
+
+      <div class="strategy-comparison-bars">
+        <div class="strategy-comparison-row">
+          <div class="strategy-comparison-head">
+            <span>Live tracked strategy</span>
+            <strong>{{ backtest_summary.overall_accuracy_display }}</strong>
+          </div>
+          <div class="strategy-comparison-track">
+            <span class="strategy-comparison-fill is-live" style="width: {{ live_accuracy if live_accuracy <= 100 else 100 }}%;"></span>
+          </div>
+        </div>
+        <div class="strategy-comparison-row">
+          <div class="strategy-comparison-head">
+            <span>ML leader</span>
+            <strong>{% if ml_leader_accuracy is not none %}{{ ml_leader_accuracy }}%{% else %}Awaiting sample{% endif %}</strong>
+          </div>
+          <div class="strategy-comparison-track">
+            <span class="strategy-comparison-fill is-ml" style="width: {{ ml_leader_accuracy if ml_leader_accuracy is not none and ml_leader_accuracy <= 100 else 0 }}%;"></span>
+          </div>
         </div>
       </div>
     </article>

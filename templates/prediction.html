@@ -4,6 +4,9 @@
 {% block content %}
 {% set quality = scorpred.data_quality or 'Moderate' %}
 {% set confidence = scorpred.best_pick.confidence %}
+{% set prob_a = '%.1f'|format((scorpred.win_probabilities.a or 0)|float) %}
+{% set prob_draw = '%.1f'|format((scorpred.win_probabilities.draw or 0)|float) %}
+{% set prob_b = '%.1f'|format((scorpred.win_probabilities.b or 0)|float) %}
 {% set risk_label = 'Risk: Elevated' %}
 {% set risk_class = 'is-danger' %}
 {% if confidence == 'High' and scorpred.score_gap >= 1.5 %}
@@ -45,19 +48,19 @@
   <div class="analysis-hero-metrics">
     <div class="hero-metric-card">
       <span class="hero-metric-label">{{ team_a.name }}</span>
-      <strong class="hero-metric-value is-accent">{{ scorpred.win_probabilities.a }}%</strong>
+      <strong class="hero-metric-value is-accent">{{ prob_a }}%</strong>
       <span class="hero-metric-meta">Win probability</span>
     </div>
     {% if 'draw' in scorpred.win_probabilities %}
     <div class="hero-metric-card">
       <span class="hero-metric-label">Draw</span>
-      <strong class="hero-metric-value">{{ scorpred.win_probabilities.draw }}%</strong>
+      <strong class="hero-metric-value">{{ prob_draw }}%</strong>
       <span class="hero-metric-meta">Neutral outcome risk</span>
     </div>
     {% endif %}
     <div class="hero-metric-card">
       <span class="hero-metric-label">{{ team_b.name }}</span>
-      <strong class="hero-metric-value is-info">{{ scorpred.win_probabilities.b }}%</strong>
+      <strong class="hero-metric-value is-info">{{ prob_b }}%</strong>
       <span class="hero-metric-meta">Win probability</span>
     </div>
     <div class="hero-metric-card">
@@ -65,6 +68,24 @@
       <strong class="hero-metric-value">{{ scorpred.score_gap }}/10</strong>
       <span class="hero-metric-meta">Separation between both teams</span>
     </div>
+  </div>
+
+  <div class="analysis-signal-grid">
+    <article class="analysis-signal-card">
+      <span class="analysis-signal-label">Confidence</span>
+      <strong class="analysis-signal-value">{{ confidence }}</strong>
+      <span class="analysis-signal-meta">Model confidence tier</span>
+    </article>
+    <article class="analysis-signal-card">
+      <span class="analysis-signal-label">Risk Status</span>
+      <strong class="analysis-signal-value">{{ risk_label }}</strong>
+      <span class="analysis-signal-meta">Volatility overlay</span>
+    </article>
+    <article class="analysis-signal-card">
+      <span class="analysis-signal-label">Data Quality</span>
+      <strong class="analysis-signal-value">{{ quality }}</strong>
+      <span class="analysis-signal-meta">Feed integrity and context</span>
+    </article>
   </div>
 </section>
 
@@ -93,19 +114,19 @@
     <div class="probability-grid">
       <div class="probability-card">
         <span class="probability-label">{{ team_a.name }}</span>
-        <strong class="probability-value is-accent">{{ scorpred.win_probabilities.a }}%</strong>
+        <strong class="probability-value is-accent">{{ prob_a }}%</strong>
         <div class="probability-bar"><span style="width: {{ scorpred.win_probabilities.a }}%; background: var(--signal);"></span></div>
       </div>
       {% if 'draw' in scorpred.win_probabilities %}
       <div class="probability-card">
         <span class="probability-label">Draw</span>
-        <strong class="probability-value is-warning">{{ scorpred.win_probabilities.draw }}%</strong>
+        <strong class="probability-value is-warning">{{ prob_draw }}%</strong>
         <div class="probability-bar"><span style="width: {{ scorpred.win_probabilities.draw }}%; background: var(--warning);"></span></div>
       </div>
       {% endif %}
       <div class="probability-card">
         <span class="probability-label">{{ team_b.name }}</span>
-        <strong class="probability-value is-info">{{ scorpred.win_probabilities.b }}%</strong>
+        <strong class="probability-value is-info">{{ prob_b }}%</strong>
         <div class="probability-bar"><span style="width: {{ scorpred.win_probabilities.b }}%; background: var(--info);"></span></div>
       </div>
     </div>
@@ -251,6 +272,23 @@
   </div>
   {% endif %}
 </section>
+
+<details class="analysis-advanced-drawer card glow-card">
+  <summary>
+    <span class="eyebrow">Advanced Details</span>
+    <span class="analysis-advanced-copy">Open deeper model context, score components, and operational notes</span>
+  </summary>
+  <div class="analysis-advanced-body">
+    <div class="model-note">
+      Use this drawer for deeper verification only. Keep the final recommendation and risk tiles as your primary decision anchor.
+    </div>
+    <div class="warning-flags">
+      <span class="warning-flag is-info">Decision support only</span>
+      <span class="warning-flag is-warning">Validate late lineup news</span>
+      <span class="warning-flag is-warning">Confirm market movement</span>
+    </div>
+  </div>
+</details>
 
 <section class="slip-section">
   <div class="section-heading">

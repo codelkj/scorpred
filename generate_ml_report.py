@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,11 @@ import ml_pipeline as mlp
 
 
 def _load_rows(path: Path) -> list[dict[str, Any]]:
+    if path.suffix.lower() == ".csv":
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            return [dict(row) for row in reader]
+
     payload = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(payload, list):
         return payload
@@ -33,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate a saved logistic regression vs Random Forest comparison report.",
     )
-    parser.add_argument("--input", required=True, help="Path to the JSON dataset.")
+    parser.add_argument("--input", required=True, help="Path to the dataset (.csv or .json).")
     parser.add_argument(
         "--features",
         required=True,
@@ -51,19 +57,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
-    args = build_parser().parse_args()
-    input_path = Path(args.input)
+def generate_report(
+    input_path: Path,
+    features: str,
+    label: str = "label",
+    date_key: str = "date",
+    test_ratio: float = 0.25,
+    random_state: int = 42,
+    output: str | Path = mlp.DEFAULT_REPORT_PATH,
+) -> Path:
     rows = _load_rows(input_path)
     report = mlp.compare_binary_models(
         rows,
-        feature_keys=_feature_keys(args.features),
-        label_key=args.label,
+        feature_keys=_feature_keys(features),
+        label_key=label,
+        date_key=date_key,
+        test_ratio=test_ratio,
+        random_state=random_state,
+    )
+    return mlp.save_comparison_report(report, output)
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    output_path = generate_report(
+        input_path=Path(args.input),
+        features=args.features,
+        label=args.label,
         date_key=args.date_key,
         test_ratio=args.test_ratio,
         random_state=args.random_state,
+        output=args.output,
     )
-    output_path = mlp.save_comparison_report(report, args.output)
     print(f"Saved ML comparison report to {output_path}")
     return 0
 

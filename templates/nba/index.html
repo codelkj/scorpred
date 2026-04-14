@@ -40,6 +40,16 @@
   <div class="alert alert-error">Could not load teams: {{ load_error }}</div>
   {% endif %}
 
+  {% if selection_notice %}
+  <div class="system-notice is-warning">
+    <div class="system-notice-icon">!</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">{{ selection_notice }}</div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if selected_game %}
   <article class="nba-card glow-card">
     <div class="split-header">
@@ -55,9 +65,9 @@
         </div>
       </div>
       <div class="page-actions">
-        <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary">Matchup</a>
+        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary">Match Analysis</a>
+        <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary">Advanced Matchup</a>
         <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary">Rosters</a>
-        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary">Prediction</a>
       </div>
     </div>
   </article>
@@ -162,66 +172,6 @@
       {% endif %}
     </article>
 
-    <article class="nba-card glow-card">
-      <div class="split-header">
-        <div>
-          <span class="page-kicker">Manual Matchup</span>
-          <h2 class="section-title">Choose any two teams.</h2>
-          <p class="page-sub">Use manual team selection when you want a direct comparison outside the listed schedule.</p>
-        </div>
-      </div>
-
-      <form method="post" action="{{ url_for('nba.select') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <div class="nba-select-grid">
-          <div>
-            <label class="nba-select-label" for="team_a">Team A (Home)</label>
-            <select name="team_a" id="team_a" class="nba-select" required>
-              <option value="" disabled selected>Choose a team...</option>
-              {% for t in teams %}
-              <option value="{{ t.id }}">{{ t.city }} {{ t.nickname }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div>
-            <label class="nba-select-label" for="team_b">Team B (Away)</label>
-            <select name="team_b" id="team_b" class="nba-select" required>
-              <option value="" disabled selected>Choose a team...</option>
-              {% for t in teams %}
-              <option value="{{ t.id }}">{{ t.city }} {{ t.nickname }}</option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-
-        <div id="teamPreview" class="nba-matchup-header" style="display:none;">
-          <div class="nba-team-block" id="previewA">
-            <img id="logoA" src="" alt="" class="nba-team-logo team-badge" onerror="this.style.display='none'" />
-            <span class="nba-team-name" id="nameA">Team A</span>
-          </div>
-          <div class="nba-vs-badge">VS</div>
-          <div class="nba-team-block" id="previewB">
-            <img id="logoB" src="" alt="" class="nba-team-logo team-badge" onerror="this.style.display='none'" />
-            <span class="nba-team-name" id="nameB">Team B</span>
-          </div>
-        </div>
-
-        <div class="page-actions" style="margin-top: 1rem;">
-          <button type="submit" class="nba-btn nba-btn-primary">Analyze Matchup</button>
-        </div>
-      </form>
-
-      {% if session.get('nba_team_a_id') and not selected_game %}
-      <div class="surface-note" style="margin-top: 1rem;">
-        Last selection: <strong>{{ session.nba_team_a_name }}</strong> vs <strong>{{ session.nba_team_b_name }}</strong>
-      </div>
-      <div class="page-actions" style="margin-top: 1rem;">
-        <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary">Matchup</a>
-        <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary">Rosters</a>
-        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary">Prediction</a>
-      </div>
-      {% endif %}
-    </article>
   </section>
 
   <article class="nba-card glow-card">
@@ -239,7 +189,19 @@
       {% set sc = g.scores %}
       {% set h_pts = sc.home.points %}
       {% set v_pts = sc.visitors.points %}
-      <div class="nba-game-tile {% if g.status.state == 'in' %}live{% endif %}">
+      <form method="post" action="{{ url_for('nba.select_game') }}" class="nba-game-tile {% if g.status.state == 'in' %}live{% endif %}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="team_a" value="{{ home.id }}" />
+        <input type="hidden" name="team_b" value="{{ visit.id }}" />
+        <input type="hidden" name="team_a_name" value="{{ home.name }}" />
+        <input type="hidden" name="team_a_logo" value="{{ home.logo }}" />
+        <input type="hidden" name="team_b_name" value="{{ visit.name }}" />
+        <input type="hidden" name="team_b_logo" value="{{ visit.logo }}" />
+        <input type="hidden" name="event_id" value="{{ g.id }}" />
+        <input type="hidden" name="event_date" value="{{ g.date.start }}" />
+        <input type="hidden" name="event_status" value="{{ g.status.long }}" />
+        <input type="hidden" name="venue_name" value="{{ g.venue.name if g.venue else '' }}" />
+        <input type="hidden" name="short_name" value="{{ g.short_name }}" />
         <div class="nba-game-tile-time">
           {% if g.date.start %}{{ g.date.start[:16].replace('T', ' ') }} UTC{% endif %}
         </div>
@@ -252,7 +214,8 @@
         <div class="nba-game-tile-score">{{ h_pts }} - {{ v_pts }}</div>
         {% endif %}
         <div class="nba-game-tile-status">{{ g.status.long }}</div>
-      </div>
+        <button type="submit" class="btn btn-secondary btn-sm">Open Match Analysis</button>
+      </form>
       {% endfor %}
     </div>
     {% else %}
@@ -262,33 +225,3 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
-<script>
-const teams = {
-  {% for t in teams %}
-  {{ t.id }}: { name: "{{ t.city }} {{ t.nickname }}", logo: "{{ t.logo or '' }}" },
-  {% endfor %}
-};
-
-function updatePreview() {
-  const aId = document.getElementById('team_a').value;
-  const bId = document.getElementById('team_b').value;
-  const preview = document.getElementById('teamPreview');
-
-  if (aId && bId && aId !== bId) {
-    const a = teams[aId];
-    const b = teams[bId];
-    document.getElementById('logoA').src = a.logo;
-    document.getElementById('nameA').textContent = a.name;
-    document.getElementById('logoB').src = b.logo;
-    document.getElementById('nameB').textContent = b.name;
-    preview.style.display = 'flex';
-  } else {
-    preview.style.display = 'none';
-  }
-}
-
-document.getElementById('team_a').addEventListener('change', updatePreview);
-document.getElementById('team_b').addEventListener('change', updatePreview);
-</script>
-{% endblock %}

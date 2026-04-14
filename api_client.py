@@ -925,19 +925,19 @@ def get_upcoming_fixtures(
     except Exception:
         pass
 
-    # ESPN fallback: scan today + next 2 days (UTC) so we find upcoming fixtures
-    # even on days where the configured league has no matches.
-    # ESPN's soccer scoreboard only returns events for the requested date, so a
-    # single-day query silently returns empty on rest days.
+    # ESPN fallback: scan ahead across the next few weeks (UTC) because many
+    # leagues have multi-day gaps between matchdays. A short 2-3 day window can
+    # look empty even when valid upcoming fixtures exist.
     slug = _espn_slug(league_id)
     now_utc = datetime.utcnow()
     all_fixtures: list = []
     seen_ids: set[str] = set()
+    max_days_ahead = max(7, min(28, next_n * 2))
 
     _FINISHED = {"FT", "AET", "PEN", "SUSP", "ABD", "WO"}
     _LIVE     = {"LIVE", "1H", "2H", "HT", "ET", "BT", "P", "INT"}
 
-    for day_offset in range(3):  # today, tomorrow, day after (UTC)
+    for day_offset in range(max_days_ahead + 1):
         target = now_utc + timedelta(days=day_offset)
         date_str = target.strftime("%Y%m%d")
         try:

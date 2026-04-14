@@ -2,6 +2,9 @@
 {% block title %}{{ team_a.name }} vs {{ team_b.name }} — Full Analysis{% endblock %}
 
 {% block content %}
+{% set prob_a = '%.1f'|format((scorpred.win_probabilities.a or 0)|float) %}
+{% set prob_draw = '%.1f'|format((scorpred.win_probabilities.draw or 0)|float) %}
+{% set prob_b = '%.1f'|format((scorpred.win_probabilities.b or 0)|float) %}
 
 {# ─────────────────────────────────────────────────────────────────────────────
    MATCH HEADER
@@ -18,7 +21,7 @@
       <span class="draw-badge" title="Draws">{{ h2h_rec.draws }}</span>
       <span class="lose-badge" title="{{ team_b.name }} wins">{{ h2h_rec.b_wins }}</span>
     </div>
-    <span style="font-size:.72rem; color:#8b949e;">H2H record</span>
+    <span class="matchup-h2h-note">H2H record</span>
   </div>
   <div class="match-team">
     <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="team-logo-lg team-badge" />
@@ -27,8 +30,8 @@
 </div>
 
 {% if selected_fixture %}
-<div class="card glow-card" style="padding:.9rem 1.25rem; margin-bottom:1.25rem;">
-  <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center;">
+<div class="card glow-card matchup-fixture-meta-card">
+  <div class="matchup-fixture-meta-row">
     <span class="source-badge {{ 'source-espn' if selected_fixture.data_source == 'espn' else 'source-api' }}">
       {{ 'ESPN' if selected_fixture.data_source == 'espn' else 'Configured' }}
     </span>
@@ -45,44 +48,43 @@
 
 {# ── Data Quality + Best Pick Banner ─────────────────────────────────────── #}
 {% set dq = scorpred.data_quality or 'Moderate' %}
-<div style="display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; margin-bottom:1.25rem;">
-  <span style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e;">Data Quality:</span>
+<div class="matchup-quality-row">
+  <span class="matchup-quality-label">Data Quality:</span>
   {% if dq == 'Strong' %}
-    <span style="background:rgba(0,255,135,.15); color:#00ff87; border:1px solid rgba(0,255,135,.3); border-radius:20px; padding:.2rem .75rem; font-size:.78rem; font-weight:700;">Strong</span>
-    <span style="font-size:.75rem; color:#8b949e;">Form · H2H · Opponent quality · Injuries all available</span>
+    <span class="matchup-quality-badge is-strong">Strong</span>
+    <span class="matchup-quality-copy">Form · H2H · Opponent quality · Injuries all available</span>
   {% elif dq == 'Moderate' %}
-    <span style="background:rgba(245,158,11,.12); color:#f59e0b; border:1px solid rgba(245,158,11,.3); border-radius:20px; padding:.2rem .75rem; font-size:.78rem; font-weight:700;">Moderate</span>
-    <span style="font-size:.75rem; color:#8b949e;">Some data sources missing — prediction still reliable</span>
+    <span class="matchup-quality-badge is-moderate">Moderate</span>
+    <span class="matchup-quality-copy">Some data sources missing — prediction still reliable</span>
   {% else %}
-    <span style="background:rgba(239,68,68,.12); color:#ef4444; border:1px solid rgba(239,68,68,.3); border-radius:20px; padding:.2rem .75rem; font-size:.78rem; font-weight:700;">Limited</span>
-    <span style="font-size:.75rem; color:#8b949e;">Minimal data — treat prediction with caution</span>
+    <span class="matchup-quality-badge is-limited">Limited</span>
+    <span class="matchup-quality-copy">Minimal data — treat prediction with caution</span>
   {% endif %}
 </div>
 
 {# ── Unmissable Best Pick card ────────────────────────────────────────────── #}
-<div style="background:rgba(0,255,135,.06); border:1px solid rgba(0,255,135,.25); border-radius:12px;
-            padding:1.25rem 1.5rem; margin-bottom:1.5rem;">
-  <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.6px; color:#8b949e; margin-bottom:.5rem;">
+<div class="matchup-best-pick-card">
+  <div class="matchup-best-pick-kicker">
     Best Pick
   </div>
-  <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
-    <span style="font-size:1.5rem; font-weight:800; color:#00ff87; letter-spacing:-.5px;">
+  <div class="matchup-best-pick-row">
+    <span class="matchup-best-pick-value">
       {{ scorpred.best_pick.prediction }}
     </span>
-    <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}" style="font-size:.82rem; padding:.3rem .75rem;">
+    <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }} matchup-best-pick-badge">
       {{ scorpred.best_pick.confidence }} Confidence
     </span>
-    <span style="font-size:.8rem; color:#8b949e; font-style:italic;">
+    <span class="matchup-best-pick-gap">
       Gap: {{ scorpred.score_gap }}/10
     </span>
-    <span style="margin-left:auto; font-size:1.1rem; color:#8b949e;">
+    <span class="matchup-best-pick-stars">
       {% if scorpred.best_pick.confidence == 'High' %}★★★★★
       {% elif scorpred.best_pick.confidence == 'Medium' %}★★★★☆
       {% else %}★★★☆☆{% endif %}
     </span>
   </div>
   {% if scorpred.best_pick.reasoning %}
-  <div style="font-size:.83rem; color:#8b949e; margin-top:.6rem; line-height:1.55;">
+  <div class="matchup-best-pick-reason">
     Why: {{ scorpred.best_pick.reasoning }}
   </div>
   {% endif %}
@@ -92,46 +94,45 @@
    SECTION 1 — FINAL PREDICTION
 ───────────────────────────────────────────────────────────────────────────── #}
 <div class="section-title">Final Prediction</div>
-<div class="card glow-card gradient-border" style="padding:1.5rem 1.25rem; margin-bottom:1.25rem;">
+<div class="card glow-card gradient-border matchup-final-card">
 
-  <div class="model-note" style="margin-bottom:1.25rem;">
+  <div class="model-note matchup-model-note">
     Scorpred Engine — Form 39% · Attack 14% · Defense 14% · H2H 9% · Venue 8% · Opp. Quality 7% · Squad 4% · Context 5%
   </div>
 
   {# ── Best Pick banner ── #}
-  <div style="background:rgba(0,255,135,.07); border:1px solid rgba(0,255,135,.2); border-radius:8px;
-              padding:1rem 1.25rem; margin-bottom:1.5rem;">
-    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">
+  <div class="matchup-pick-banner">
+    <div class="matchup-pick-banner-kicker">
       Scorpred Pick
     </div>
-    <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
-      <span style="font-size:1.3rem; font-weight:800; color:#00ff87;">
+    <div class="matchup-pick-banner-row">
+      <span class="matchup-pick-banner-value">
         {{ scorpred.best_pick.prediction }}
       </span>
       <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">
         {{ scorpred.best_pick.confidence }} Confidence
       </span>
-      <span style="font-size:.82rem; color:#8b949e; font-style:italic;">
+      <span class="matchup-pick-banner-gap">
         Gap: {{ scorpred.score_gap }}/10
       </span>
-      <span class="star-rating" style="margin-left:auto;">
+      <span class="star-rating matchup-pick-banner-stars">
         {% if scorpred.best_pick.confidence == 'High' %}★★★★★
         {% elif scorpred.best_pick.confidence == 'Medium' %}★★★★☆
         {% else %}★★★☆☆{% endif %}
       </span>
     </div>
     {% if scorpred.best_pick.reasoning %}
-    <div style="font-size:.82rem; color:#8b949e; margin-top:.4rem;">
+    <div class="matchup-pick-banner-reason">
       {{ scorpred.best_pick.reasoning }}
     </div>
     {% endif %}
   </div>
 
   {# ── Win probabilities ── #}
-  <div class="win-probs" style="margin-bottom:1.25rem;">
+  <div class="win-probs matchup-win-probs">
     <div class="win-block">
       <div class="win-pct accent stat-number" data-target="{{ scorpred.win_probabilities.a }}">
-        {{ scorpred.win_probabilities.a }}
+        {{ prob_a }}
       </div>
       <div class="win-label">{{ team_a.name }}</div>
       <div class="prob-bar">
@@ -142,7 +143,7 @@
     {% if 'draw' in scorpred.win_probabilities %}
     <div class="win-block">
       <div class="win-pct stat-number" data-target="{{ scorpred.win_probabilities.draw }}">
-        {{ scorpred.win_probabilities.draw }}
+        {{ prob_draw }}
       </div>
       <div class="win-label">Draw</div>
       <div class="prob-bar">
@@ -153,7 +154,7 @@
     {% endif %}
     <div class="win-block">
       <div class="win-pct stat-number" data-target="{{ scorpred.win_probabilities.b }}">
-        {{ scorpred.win_probabilities.b }}
+        {{ prob_b }}
       </div>
       <div class="win-label">{{ team_b.name }}</div>
       <div class="prob-bar">
@@ -166,39 +167,36 @@
   {# ── Score scores bar ── #}
   {% set total_s = scorpred.team_a_score + scorpred.team_b_score %}
   {% set pct_a = (scorpred.team_a_score / total_s * 100) | round(1) if total_s > 0 else 50 %}
-  <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:.75rem; margin-bottom:.6rem;">
-    <div style="text-align:right;">
-      <span class="stat-number accent" data-target="{{ scorpred.team_a_score }}"
-            style="font-size:2rem; font-weight:800;">{{ scorpred.team_a_score }}</span>
-      <span style="font-size:.75rem; color:#8b949e; margin-left:.35rem;">{{ team_a.name }}</span>
+  <div class="matchup-score-grid">
+    <div class="matchup-score-home">
+      <span class="stat-number accent matchup-score-number" data-target="{{ scorpred.team_a_score }}">{{ scorpred.team_a_score }}</span>
+      <span class="matchup-score-team">{{ team_a.name }}</span>
     </div>
-    <span style="font-size:.75rem; color:#8b949e; white-space:nowrap;">/10</span>
-    <div style="text-align:left;">
-      <span style="font-size:.75rem; color:#8b949e; margin-right:.35rem;">{{ team_b.name }}</span>
-      <span class="stat-number" data-target="{{ scorpred.team_b_score }}"
-            style="font-size:2rem; font-weight:800;
-                   color:{% if scorpred.team_b_score > scorpred.team_a_score %}#3b82f6{% else %}#e6edf3{% endif %};">
+    <span class="matchup-score-divider">/10</span>
+    <div class="matchup-score-away">
+      <span class="matchup-score-team">{{ team_b.name }}</span>
+      <span class="stat-number matchup-score-number" data-target="{{ scorpred.team_b_score }}"
+        style="color:{% if scorpred.team_b_score > scorpred.team_a_score %}#3b82f6{% else %}#e6edf3{% endif %};">
         {{ scorpred.team_b_score }}
       </span>
     </div>
   </div>
-  <div style="display:flex; height:7px; border-radius:4px; overflow:hidden; margin-bottom:1.25rem;">
-    <div style="width:{{ pct_a }}%; background:#00ff87; transition:width .6s ease;"></div>
-    <div style="flex:1; background:#3b82f6;"></div>
+  <div class="matchup-score-bar">
+    <div class="matchup-score-bar-home" style="width:{{ pct_a }}%;"></div>
+    <div class="matchup-score-bar-away"></div>
   </div>
 
   {# ── Optional picks (O/U, BTTS) ── #}
   {% if scorpred.optional_picks %}
-  <div style="display:flex; gap:.6rem; flex-wrap:wrap;">
+  <div class="matchup-optional-picks">
     {% for pick in scorpred.optional_picks %}
-    <div style="background:rgba(255,255,255,.03); border:1px solid #30363d; border-radius:6px;
-                padding:.45rem .75rem; font-size:.82rem;">
-      <span style="color:#8b949e;">{{ pick.market }}:</span>
-      <span style="font-weight:700; margin:0 .3rem;
-        color:{% if pick.lean in ('Over','Yes') %}#00ff87{% else %}#f59e0b{% endif %};">
+    <div class="matchup-optional-pick-chip">
+      <span class="matchup-optional-market">{{ pick.market }}:</span>
+      <span class="matchup-optional-lean"
+        style="color:{% if pick.lean in ('Over','Yes') %}#00ff87{% else %}#f59e0b{% endif %};">
         {{ pick.lean }}
       </span>
-      <span style="color:#8b949e;">— {{ pick.reasoning }}</span>
+      <span class="matchup-optional-reason">— {{ pick.reasoning }}</span>
     </div>
     {% endfor %}
   </div>
@@ -211,10 +209,10 @@
    SECTION 2 — SCORPRED ENGINE BREAKDOWN
 ───────────────────────────────────────────────────────────────────────────── #}
 <div class="section-title">Scorpred Engine Breakdown</div>
-<div class="card glow-card" style="padding:1.25rem; margin-bottom:1.25rem;">
+<div class="card glow-card matchup-engine-card">
 
   {# Component bars #}
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-bottom:1.25rem;">
+  <div class="matchup-component-grid">
     {% set components = [
       ("Form (39%)",         scorpred.components_a.form,          scorpred.components_b.form),
       ("Attack (14%)",       scorpred.components_a.offense,       scorpred.components_b.offense),
@@ -226,21 +224,21 @@
       ("Context (5%)",       scorpred.components_a.match_context, scorpred.components_b.match_context),
     ] %}
     {% for label, a_val, b_val in components %}
-    <div style="background:rgba(255,255,255,.03); border-radius:6px; padding:.5rem .75rem;">
-      <div style="font-size:.73rem; color:#8b949e; margin-bottom:.3rem;">{{ label }}</div>
-      <div style="display:flex; align-items:center; gap:.5rem;">
-        <span style="font-size:.82rem; font-weight:600; min-width:2.5rem;
-          color:{% if a_val > b_val %}#00ff87{% elif a_val < b_val %}#8b949e{% else %}#e6edf3{% endif %};">
+    <div class="matchup-component-item">
+      <div class="matchup-component-label">{{ label }}</div>
+      <div class="matchup-component-row">
+        <span class="matchup-component-value home"
+          style="color:{% if a_val > b_val %}#00ff87{% elif a_val < b_val %}#8b949e{% else %}#e6edf3{% endif %};">
           {{ a_val }}
         </span>
-        <div style="flex:1; display:flex; height:4px; border-radius:2px; overflow:hidden; background:#21262d;">
+        <div class="matchup-component-bar">
           {% set row_tot = a_val + b_val %}
           {% set row_pct = (a_val / row_tot * 100) | round(1) if row_tot > 0 else 50 %}
-          <div style="width:{{ row_pct }}%; background:#00ff87;"></div>
-          <div style="flex:1; background:#3b82f6;"></div>
+          <div class="matchup-component-bar-home" style="width:{{ row_pct }}%;"></div>
+          <div class="matchup-component-bar-away"></div>
         </div>
-        <span style="font-size:.82rem; font-weight:600; min-width:2.5rem; text-align:right;
-          color:{% if b_val > a_val %}#3b82f6{% elif b_val < a_val %}#8b949e{% else %}#e6edf3{% endif %};">
+        <span class="matchup-component-value away"
+          style="color:{% if b_val > a_val %}#3b82f6{% elif b_val < a_val %}#8b949e{% else %}#e6edf3{% endif %};">
           {{ b_val }}
         </span>
       </div>
@@ -250,19 +248,19 @@
 
   {# Key edges #}
   {% if scorpred.key_edges %}
-  <div style="margin-bottom:1rem;">
-    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.45rem;">
+  <div class="matchup-key-edges">
+    <div class="matchup-key-edges-title">
       Key Edges
     </div>
     {% for edge in scorpred.key_edges %}
-    <div style="display:flex; align-items:center; gap:.6rem; padding:.32rem 0; border-bottom:1px solid #21262d;">
-      <span style="font-size:.8rem; padding:.1rem .45rem; border-radius:3px; font-weight:700;
-        {% if edge.team == 'A' %}background:rgba(0,255,135,.12); color:#00ff87;
+    <div class="matchup-key-edge-row">
+      <span class="matchup-key-edge-team"
+        style="{% if edge.team == 'A' %}background:rgba(0,255,135,.12); color:#00ff87;
         {% else %}background:rgba(59,130,246,.12); color:#3b82f6;{% endif %}">
         {{ edge.team_name }}
       </span>
-      <span style="font-size:.8rem; color:#e6edf3;">{{ edge.category }}</span>
-      <span style="margin-left:auto; font-size:.76rem; color:#8b949e;">+{{ edge.margin }}</span>
+      <span class="matchup-key-edge-category">{{ edge.category }}</span>
+      <span class="matchup-key-edge-margin">+{{ edge.margin }}</span>
     </div>
     {% endfor %}
   </div>
@@ -270,8 +268,7 @@
 
   {# Matchup reading #}
   {% if scorpred.matchup_reading %}
-  <div style="background:rgba(255,255,255,.02); border-left:3px solid #30363d; border-radius:0 6px 6px 0;
-              padding:.75rem 1rem; font-size:.84rem; color:#8b949e; line-height:1.65;">
+  <div class="matchup-reading-box">
     {{ scorpred.matchup_reading }}
   </div>
   {% endif %}
@@ -647,15 +644,12 @@
 {# ─────────────────────────────────────────────────────────────────────────────
    HOW THE MODEL WORKS
 ───────────────────────────────────────────────────────────────────────────── #}
-<details style="margin-bottom:1.25rem;">
-  <summary style="cursor:pointer; font-size:.85rem; font-weight:600; color:#e6edf3; padding:.7rem 1rem;
-    background:rgba(0,255,135,.08); border:1px solid rgba(0,255,135,.2); border-radius:8px;
-    list-style:none; display:flex; align-items:center; gap:.6rem; user-select:none;">
-    <span style="font-size:1rem;">ℹ️</span> <span>How Scorpred Generates This Prediction</span>
-    <span style="margin-left:auto; font-size:.7rem; color:#8b949e;">Click to expand</span>
+<details class="matchup-model-details">
+  <summary class="matchup-model-summary">
+    <span class="matchup-model-summary-icon">ℹ️</span> <span>How Scorpred Generates This Prediction</span>
+    <span class="matchup-model-summary-hint">Click to expand</span>
   </summary>
-  <div style="background:rgba(0,255,135,.03); border:1px solid rgba(0,255,135,.15); border-top:none;
-    border-radius:0 0 8px 8px; padding:1.25rem 1.5rem; margin-top:.5rem;">
+  <div class="matchup-model-body">
     
     <div style="margin-bottom:1.25rem;">
       <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.6px; color:#8b949e; margin-bottom:.6rem;">

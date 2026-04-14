@@ -11,6 +11,7 @@
     {% set overall_tone = 'risk' %}
   {% endif %}
 {% endif %}
+{% set active_tab = request.args.get('tab', 'overview').lower() %}
 
 <section class="landing-hero performance-hero">
   <div class="performance-layout">
@@ -18,8 +19,7 @@
       <span class="page-kicker">Performance Dashboard</span>
       <h1 class="landing-title">Track what the model said against what really happened.</h1>
       <p class="landing-subtitle">
-        Review finalized outcomes, pending predictions, sport splits, and confidence performance without
-        losing the bigger picture.
+        Review tracked predictions, finalized outcomes, and performance splits without losing the bigger picture.
       </p>
       <div class="performance-actions">
         <a href="{{ url_for('update_prediction_results') }}" class="btn btn-primary">Refresh Results</a>
@@ -29,23 +29,23 @@
 
     <div class="landing-panel">
       <article class="trust-card">
-        <span class="table-kicker">Current Snapshot</span>
+        <span class="table-kicker">Live Metrics</span>
         <div class="panel-list">
           <div class="panel-list-item">
-            <strong>Finalized predictions</strong>
-            <div class="flow-copy">{{ metrics.finalized_predictions or 0 }} tracked picks have been graded.</div>
+            <strong>Tracked Predictions</strong>
+            <div class="flow-copy">{{ metrics.total_predictions or 0 }} total predictions saved.</div>
           </div>
           <div class="panel-list-item">
-            <strong>Pending predictions</strong>
-            <div class="flow-copy">{{ pending_predictions | length }} predictions are still waiting for final result reconciliation.</div>
+            <strong>Finalized Outcomes</strong>
+            <div class="flow-copy">{{ metrics.finalized_predictions or 0 }} predictions have been graded.</div>
           </div>
           <div class="panel-list-item">
-            <strong>Overall accuracy</strong>
+            <strong>Overall Accuracy</strong>
             <div class="flow-copy">
               {% if overall_accuracy is not none %}
-                {{ overall_accuracy }}% across resolved predictions.
+                <strong class="performance-tone-{{ overall_tone }}">{{ overall_accuracy }}%</strong> across finalized outcomes.
               {% else %}
-                Waiting for enough resolved outcomes to grade the dashboard.
+                Awaiting resolved outcomes for grading.
               {% endif %}
             </div>
           </div>
@@ -61,8 +61,8 @@
     <span class="page-kicker">No History Yet</span>
     <h2 class="section-title">No predictions have been tracked yet.</h2>
     <p>
-      Predictions are stored automatically when you generate them. Start from the soccer workspace,
-      the NBA workspace, or a saved match analysis route.
+      Predictions are stored automatically when you gener ate them. Start from the soccer workspace,
+      the NBA workspace, or match analysis.
     </p>
     <div class="page-actions" style="margin-top: 1rem;">
       <a href="/soccer" class="btn btn-primary">Open Soccer</a>
@@ -72,6 +72,20 @@
 </section>
 {% else %}
 
+<!-- Tab Navigation -->
+<section class="section-stack">
+  <div class="tab-bar performance-tab-bar">
+    <a href="{{ url_for('model_performance', tab='overview', sport=sport_filter|default('')) }}" class="tab-btn {% if active_tab == 'overview' %}active{% endif %}">
+      Overview
+    </a>
+    <a href="{{ url_for('model_performance', tab='results', sport=sport_filter|default('')) }}" class="tab-btn {% if active_tab == 'results' %}active{% endif %}">
+      Results{% if completed_predictions %} ({{ completed_predictions | length }}){% endif %}
+    </a>
+  </div>
+</section>
+
+<!-- ─── Overview Tab ─────────────────────────────────────────────────────── -->
+{% if active_tab == 'overview' %}
 <section class="section-stack">
   <div class="performance-summary-grid">
     <article class="performance-stat-card">
@@ -101,72 +115,6 @@
     </article>
   </div>
 </section>
-
-<section class="section-stack">
-  <div class="section-heading">
-    <div>
-      <span class="page-kicker">Filters</span>
-      <h2 class="section-title">Focus the completed sample.</h2>
-    </div>
-    <div class="performance-toolbar">
-      <a href="{{ url_for('model_performance') }}" class="filter-chip {% if not sport_filter %}source-api{% endif %}">All Sports</a>
-      <a href="{{ url_for('model_performance', sport='soccer') }}" class="filter-chip {% if sport_filter == 'soccer' %}source-api{% endif %}">Soccer</a>
-      <a href="{{ url_for('model_performance', sport='nba') }}" class="filter-chip {% if sport_filter == 'nba' %}source-api{% endif %}">NBA</a>
-    </div>
-  </div>
-</section>
-
-{% if completed_predictions %}
-<section class="section-stack">
-  <div class="section-heading">
-    <div>
-      <span class="page-kicker">Completed Results</span>
-      <h2 class="section-title">
-        Finalized prediction outcomes{% if sport_filter %} for {{ 'Soccer' if sport_filter == 'soccer' else 'NBA' }}{% endif %}.
-      </h2>
-    </div>
-  </div>
-
-  <div class="results-grid">
-    {% for pred in completed_predictions %}
-    <article class="result-card">
-      <div class="result-row">
-        <div>
-          <div class="route-title">{{ pred.team_a }} vs {{ pred.team_b }}</div>
-          <div class="route-meta">{{ pred.date or pred.game_date or 'Date pending' }}</div>
-        </div>
-        <span class="result-badge {% if pred.winner_hit %}source-api{% else %}source-espn{% endif %}">
-          {{ pred.overall_game_result or ('Win' if pred.winner_hit else 'Loss') }}
-        </span>
-      </div>
-
-      <div class="panel-list" style="margin-top: 1rem;">
-        <div class="panel-list-item">
-          <strong>Final Score</strong>
-          <div class="flow-copy">{{ pred.final_score_display or 'Pending final score' }}</div>
-        </div>
-        <div class="panel-list-item">
-          <strong>Winner Pick</strong>
-          <div class="flow-copy">{{ pred.winner_display or ('Correct winner call' if pred.winner_hit else 'Missed winner call') }}</div>
-        </div>
-        {% if pred.ou_display %}
-        <div class="panel-list-item">
-          <strong>Total Pick</strong>
-          <div class="flow-copy">{{ pred.ou_display }}</div>
-        </div>
-        {% endif %}
-      </div>
-
-      {% if pred.confidence %}
-      <div class="performance-toolbar" style="margin-top: 1rem;">
-        <span class="confidence-badge conf-{{ pred.confidence | lower }}">{{ pred.confidence }}</span>
-      </div>
-      {% endif %}
-    </article>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
 
 {% if metrics.by_sport %}
 <section class="section-stack">
@@ -239,11 +187,12 @@
 
 {% if pending_predictions %}
 <section class="section-stack">
-  <div class="table-header">
+  <div class="section-heading">
     <div>
       <span class="page-kicker">Pending Queue</span>
       <h2 class="section-title">Predictions waiting for reconciliation.</h2>
     </div>
+    <span class="filter-chip">Pending Sample</span>
   </div>
 
   <div class="performance-table-wrap">
@@ -273,6 +222,87 @@
     </table>
   </div>
 </section>
+{% endif %}
+
+<!-- ─── Results Tab ─────────────────────────────────────────────────────── -->
+{% elif active_tab == 'results' %}
+<section class="section-stack">
+  <div class="section-heading">
+    <div>
+      <span class="page-kicker">Filters</span>
+      <h2 class="section-title">Focus the results sample.</h2>
+    </div>
+    <div class="performance-toolbar">
+      <a href="{{ url_for('model_performance', tab='results') }}" class="filter-chip {% if not sport_filter %}source-api{% endif %}">All Sports</a>
+      <a href="{{ url_for('model_performance', tab='results', sport='soccer') }}" class="filter-chip {% if sport_filter == 'soccer' %}source-api{% endif %}">Soccer</a>
+      <a href="{{ url_for('model_performance', tab='results', sport='nba') }}" class="filter-chip {% if sport_filter == 'nba' %}source-api{% endif %}">NBA</a>
+    </div>
+  </div>
+</section>
+
+{% if completed_predictions %}
+<section class="section-stack">
+  <div class="section-heading">
+    <div>
+      <span class="page-kicker">Completed Results</span>
+      <h2 class="section-title">
+        Finalized prediction outcomes{% if sport_filter %} for {{ 'Soccer' if sport_filter == 'soccer' else 'NBA' }}{% endif %}.
+      </h2>
+    </div>
+  </div>
+
+  <div class="results-grid">
+    {% for pred in completed_predictions %}
+    <article class="result-card">
+      <div class="result-row">
+        <div>
+          <div class="route-title">{{ pred.team_a }} vs {{ pred.team_b }}</div>
+          <div class="route-meta">{{ pred.date or pred.game_date or 'Date pending' }}</div>
+        </div>
+        <span class="result-badge {% if pred.winner_hit %}source-api{% else %}source-espn{% endif %}">
+          {{ pred.overall_game_result or ('Win' if pred.winner_hit else 'Loss') }}
+        </span>
+      </div>
+
+      <div class="panel-list" style="margin-top: 1rem;">
+        <div class="panel-list-item">
+          <strong>Final Score</strong>
+          <div class="flow-copy">{{ pred.final_score_display or 'Pending final score' }}</div>
+        </div>
+        <div class="panel-list-item">
+          <strong>Winner Pick</strong>
+          <div class="flow-copy">{{ pred.winner_display or ('Correct winner call' if pred.winner_hit else 'Missed winner call') }}</div>
+        </div>
+        {% if pred.ou_display %}
+        <div class="panel-list-item">
+          <strong>Total Pick</strong>
+          <div class="flow-copy">{{ pred.ou_display }}</div>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if pred.confidence %}
+      <div class="performance-toolbar" style="margin-top: 1rem;">
+        <span class="confidence-badge conf-{{ pred.confidence | lower }}">{{ pred.confidence }}</span>
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<section class="section-stack">
+  <article class="performance-empty">
+    <span class="page-kicker">No Results Yet</span>
+    <h2 class="section-title">No completed predictions to show.</h2>
+    <p>
+      Once game results are available and reconciled against your predictions, they will appear here.
+      Visit the fixture pages to generate more predictions.
+    </p>
+  </article>
+</section>
+{% endif %}
+
 {% endif %}
 
 {% endif %}

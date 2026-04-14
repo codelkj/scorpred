@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+import generate_ml_report as report_generator
 import ml_pipeline as mlp
 import model_tracker as mt
 
@@ -22,6 +24,32 @@ _SPORT_LABELS = {
     "soccer": "Soccer",
     "nba": "NBA",
 }
+
+_DEFAULT_DATASET = Path(__file__).resolve().parent.parent / "data" / "historical_matches.csv"
+_DEFAULT_FEATURES = "form,goals_scored,goals_conceded,goal_diff"
+_DEFAULT_LABEL = "result"
+_DEFAULT_DATE_KEY = "date"
+
+
+def _ensure_ml_report_exists(ml_module: Any) -> bool:
+    report_path = Path(ml_module.DEFAULT_REPORT_PATH)
+    if report_path.exists():
+        return True
+    if not _DEFAULT_DATASET.exists():
+        return False
+
+    try:
+        report_generator.generate_report(
+            input_path=_DEFAULT_DATASET,
+            features=_DEFAULT_FEATURES,
+            label=_DEFAULT_LABEL,
+            date_key=_DEFAULT_DATE_KEY,
+            output=report_path,
+        )
+    except Exception:
+        return False
+
+    return report_path.exists()
 
 
 def _tone_for_accuracy(value: float | None) -> str:
@@ -208,6 +236,7 @@ def build_strategy_lab_context(
         metrics.get("by_confidence") or {},
         ["High", "Medium", "Low"],
     )
+    _ensure_ml_report_exists(ml_module)
     ml_summary = ml_module.build_strategy_lab_summary()
 
     pending_count = max(

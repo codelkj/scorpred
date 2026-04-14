@@ -40,8 +40,27 @@ def _encode_binary_label(value: Any, label_key: str) -> int:
         return int(value)
 
     text = str(value or "").strip().lower()
-    positive = {"1", "true", "win", "won", "home", "a", "yes"}
-    negative = {"0", "false", "loss", "lost", "away", "b", "no"}
+    positive = {
+        "1",
+        "true",
+        "win",
+        "won",
+        "home",
+        "homewin",
+        "a",
+        "yes",
+    }
+    negative = {
+        "0",
+        "false",
+        "loss",
+        "lost",
+        "away",
+        "awaywin",
+        "draw",
+        "b",
+        "no",
+    }
     if text in positive:
         return 1
     if text in negative:
@@ -155,12 +174,21 @@ def _model_label(name: str) -> str:
 def _top_signal_names(entries: Any, limit: int = 5) -> list[str]:
     signals: list[str] = []
     for entry in entries or []:
+        detail = ""
         if isinstance(entry, dict):
             name = str(entry.get("feature") or entry.get("name") or "").strip()
+            if "importance" in entry:
+                numeric = safe_float(entry.get("importance"), math.nan)
+                if not math.isnan(numeric):
+                    detail = f" (importance {numeric:.3f})"
+            elif "weight" in entry:
+                numeric = safe_float(entry.get("weight"), math.nan)
+                if not math.isnan(numeric):
+                    detail = f" (weight {numeric:+.3f})"
         else:
             name = str(entry or "").strip()
         if name and name not in signals:
-            signals.append(name)
+            signals.append(f"{name}{detail}")
         if len(signals) >= limit:
             break
     return signals
@@ -201,12 +229,6 @@ def build_strategy_lab_summary(
     """
     report_path = _report_path(path)
     payload = report if isinstance(report, dict) else load_comparison_report(report_path)
-    fallback_command = (
-        f'python generate_ml_report.py --input path\\to\\matches.json '
-        f'--features feature_a,feature_b,feature_c --label label --date-key date '
-        f'--output "{report_path}"'
-    )
-
     fallback = {
         "available": False,
         "best_model": None,
@@ -216,12 +238,9 @@ def build_strategy_lab_summary(
         "accuracy_gap": None,
         "accuracy_gap_display": None,
         "evaluation_matches": None,
-        "summary": "ML comparison is not available yet.",
-        "message": (
-            "Generate the saved ML comparison report to surface the logistic "
-            "baseline, Random Forest challenger, and top feature signals here."
-        ),
-        "command": fallback_command,
+        "summary": "Generating ML insights...",
+        "message": "Generating ML insights...",
+        "command": "",
         "report_path": str(report_path),
         "top_signals": [],
         "generated_at": None,
@@ -281,7 +300,7 @@ def build_strategy_lab_summary(
         "evaluation_matches": evaluation_matches,
         "summary": summary,
         "message": None,
-        "command": fallback_command,
+        "command": "",
         "report_path": str(report_path),
         "top_signals": top_signals,
         "generated_at": payload.get("generated_at"),

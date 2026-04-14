@@ -35,7 +35,7 @@
         <small>Data Intelligence</small>
       </span>
     </a>
-    <div class="nav-links">
+    <div class="nav-links" role="navigation" aria-label="Primary">
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
       <a href="/soccer" class="{% if request.path == '/soccer' or request.path in ['/today-soccer-predictions', '/fixtures', '/worldcup'] %}active{% endif %}">Soccer</a>
       <a href="/nba/" class="{% if request.path.startswith('/nba') %}active{% endif %}">NBA</a>

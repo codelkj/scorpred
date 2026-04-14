@@ -6,6 +6,7 @@ Run with:
 """
 
 import json
+import logging
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -113,6 +114,36 @@ def _mock_nba_game(
         "is_pre": False,
         "is_post": True,
     }
+
+
+def _mock_nba_teams() -> list[dict]:
+    return [
+        {
+            "id": "1610612747",
+            "name": "Los Angeles Lakers",
+            "nickname": "Lakers",
+            "city": "Los Angeles",
+            "logo": "https://example.com/lakers.png",
+        },
+        {
+            "id": "1610612738",
+            "name": "Boston Celtics",
+            "nickname": "Celtics",
+            "city": "Boston",
+            "logo": "https://example.com/celtics.png",
+        },
+    ]
+
+
+def _mock_nba_variant_teams() -> list[dict]:
+    return [
+        {"id": "200", "name": "Hornets", "nickname": "Hornets", "city": "Charlotte", "abbrev": "CHA", "logo": "https://example.com/hornets.png"},
+        {"id": "201", "name": "Heat", "nickname": "Heat", "city": "Miami", "abbrev": "MIA", "logo": "https://example.com/heat.png"},
+        {"id": "202", "name": "Clippers", "nickname": "Clippers", "city": "Los Angeles", "abbrev": "LAC", "logo": "https://example.com/clippers.png"},
+        {"id": "203", "name": "Warriors", "nickname": "Warriors", "city": "Golden State", "abbrev": "GSW", "logo": "https://example.com/warriors.png"},
+        {"id": "204", "name": "Knicks", "nickname": "Knicks", "city": "New York", "abbrev": "NYK", "logo": "https://example.com/knicks.png"},
+        {"id": "205", "name": "Lakers", "nickname": "Lakers", "city": "Los Angeles", "abbrev": "LAL", "logo": "https://example.com/lakers.png"},
+    ]
 
 
 def _mock_nba_scorpred():
@@ -235,26 +266,61 @@ class TestFixturesRoute:
             rv = client.get("/fixtures")
         assert rv.status_code == 200
 
+    def test_fixtures_analysis_form_includes_csrf_token(self, client):
+        with patch("api_client.get_upcoming_fixtures", return_value=[_mock_fixture()]), \
+             patch("api_client.get_standings", return_value=[]):
+            rv = client.get("/fixtures")
+        assert rv.status_code == 200
+        assert b'name="csrf_token"' in rv.data
+
 
 # ── Select / team selection ───────────────────────────────────────────────────
 
 class TestSelectRoute:
-    def test_select_redirects_to_matchup(self, client):
+    def test_select_redirects_to_prediction(self, client):
         with patch("api_client.get_teams", return_value=_mock_teams()):
             rv = client.post("/select", data={"team_a": "33", "team_b": "40"})
         assert rv.status_code in (302, 303)
-        assert "/matchup" in rv.headers.get("Location", "")
+        assert "/prediction" in rv.headers.get("Location", "")
 
-    def test_select_same_team_redirects_home(self, client):
+    def test_select_fixture_stores_selected_context(self, client):
+        fixture_payload = {
+            "team_a": "33",
+            "team_b": "40",
+            "team_a_name": "Manchester United",
+            "team_a_logo": "https://example.com/manu.png",
+            "team_b_name": "Liverpool",
+            "team_b_logo": "https://example.com/lfc.png",
+            "fixture_id": "9001",
+            "fixture_date": "2026-04-21T19:45:00+00:00",
+            "league_name": "Premier League",
+            "round": "Matchday 33",
+            "venue_name": "Old Trafford",
+            "data_source": "configured",
+        }
+
+        with patch("api_client.get_teams", return_value=_mock_teams()):
+            rv = client.post("/select", data=fixture_payload)
+
+        assert rv.status_code in (302, 303)
+        assert "/prediction" in rv.headers.get("Location", "")
+        with client.session_transaction() as sess:
+            assert sess["team_a_id"] == 33
+            assert sess["team_b_id"] == 40
+            assert sess["selected_fixture"]["id"] == "9001"
+            assert sess["selected_fixture"]["venue_name"] == "Old Trafford"
+
+    def test_select_same_team_redirects_to_soccer_with_notice(self, client):
         with patch("api_client.get_teams", return_value=_mock_teams()):
             rv = client.post("/select", data={"team_a": "33", "team_b": "33"})
         assert rv.status_code in (302, 303)
-        assert rv.headers.get("Location", "").endswith("/")
+        assert "/soccer?selection_error=" in rv.headers.get("Location", "")
 
-    def test_select_missing_team_redirects_home(self, client):
+    def test_select_missing_team_redirects_to_soccer_with_notice(self, client):
         with patch("api_client.get_teams", return_value=_mock_teams()):
             rv = client.post("/select", data={"team_a": "33", "team_b": ""})
         assert rv.status_code in (302, 303)
+        assert "/soccer?selection_error=" in rv.headers.get("Location", "")
 
     def test_select_no_teams_available_returns_error(self, client):
         with patch("api_client.get_teams", return_value=[]):
@@ -290,9 +356,10 @@ class TestMatchupRoute:
 # ── Prediction page ───────────────────────────────────────────────────────────
 
 class TestPredictionRoute:
-    def test_prediction_without_session_redirects(self, client):
+    def test_prediction_without_session_redirects_to_soccer(self, client):
         rv = client.get("/prediction")
         assert rv.status_code in (302, 303)
+        assert "/soccer?selection_error=" in rv.headers.get("Location", "")
 
     def test_prediction_with_session_returns_200(self, client):
         with client.session_transaction() as sess:
@@ -338,9 +405,142 @@ class TestPredictionRoute:
 
 
 class TestNbaPredictionRoute:
-    def test_nba_prediction_without_session_redirects(self, client):
+    def test_nba_prediction_without_session_redirects_to_nba_index(self, client):
         rv = client.get("/nba/prediction")
         assert rv.status_code in (302, 303)
+        assert "/nba/?selection_error=" in rv.headers.get("Location", "")
+
+    def test_nba_select_game_redirects_to_prediction_and_stores_context(self, client):
+        live_game = _mock_nba_game(date="2026-04-21")
+        home = live_game["teams"]["home"]
+        away = live_game["teams"]["visitors"]
+
+        with patch("nba_live_client.get_teams", return_value=_mock_nba_teams()):
+            rv = client.post(
+                "/nba/select-game",
+                data={
+                    "team_a": home["id"],
+                    "team_b": away["id"],
+                    "team_a_name": home["name"],
+                    "team_a_logo": home["logo"],
+                    "team_b_name": away["name"],
+                    "team_b_logo": away["logo"],
+                    "event_id": live_game["id"],
+                    "event_date": live_game["date"]["start"],
+                    "event_status": live_game["status"]["long"],
+                    "venue_name": live_game["venue"]["name"],
+                    "short_name": live_game["short_name"],
+                },
+            )
+
+        assert rv.status_code in (302, 303)
+        assert "/nba/prediction" in rv.headers.get("Location", "")
+        with client.session_transaction() as sess:
+            assert sess["nba_team_a_id"] == home["id"]
+            assert sess["nba_team_b_id"] == away["id"]
+            assert sess["nba_selected_game"]["event_id"] == live_game["id"]
+            assert sess["nba_selected_game"]["venue_name"] == "Test Arena"
+
+    def test_nba_select_game_missing_context_redirects_with_notice(self, client):
+        with patch("nba_live_client.get_teams", return_value=_mock_nba_teams()):
+            rv = client.post("/nba/select-game", data={"team_a": "1610612747", "team_b": ""})
+
+        assert rv.status_code in (302, 303)
+        assert "/nba/?selection_error=" in rv.headers.get("Location", "")
+
+    def test_nba_select_game_uses_payload_fallback_when_team_directory_is_empty(self, client):
+        with patch("nba_live_client.get_teams", return_value=[]):
+            rv = client.post(
+                "/nba/select-game",
+                data={
+                    "team_a": "30",
+                    "team_b": "14",
+                    "team_a_name": "Charlotte Hornets",
+                    "team_a_logo": "https://example.com/hornets.png",
+                    "team_b_name": "Miami Heat",
+                    "team_b_logo": "https://example.com/heat.png",
+                    "event_id": "401866755",
+                    "event_date": "2026-04-14T23:30:00Z",
+                    "event_status": "Scheduled",
+                    "venue_name": "Spectrum Center",
+                    "short_name": "MIA @ CHA",
+                },
+            )
+
+        assert rv.status_code in (302, 303)
+        assert "/nba/prediction" in rv.headers.get("Location", "")
+        with client.session_transaction() as sess:
+            assert sess["nba_team_a_id"] == "30"
+            assert sess["nba_team_a_name"] == "Charlotte Hornets"
+            assert sess["nba_team_a_nickname"] == "Hornets"
+            assert sess["nba_team_a_city"] == "Charlotte"
+            assert sess["nba_team_b_id"] == "14"
+            assert sess["nba_team_b_name"] == "Miami Heat"
+            assert sess["nba_team_b_nickname"] == "Heat"
+            assert sess["nba_team_b_city"] == "Miami"
+            assert sess["nba_selected_game"]["event_id"] == "401866755"
+
+    @pytest.mark.parametrize(
+        ("home_name", "away_name", "expected_home", "expected_away"),
+        [
+            ("Charlotte Hornets", "Miami Heat", "Hornets", "Heat"),
+            ("LA Clippers", "Golden State Warriors", "Clippers", "Warriors"),
+            ("New York Knicks", "Los Angeles Lakers", "Knicks", "Lakers"),
+        ],
+    )
+    def test_nba_select_game_matches_canonical_names_when_ids_do_not_align(
+        self,
+        client,
+        home_name,
+        away_name,
+        expected_home,
+        expected_away,
+    ):
+        with patch("nba_live_client.get_teams", return_value=_mock_nba_variant_teams()):
+            rv = client.post(
+                "/nba/select-game",
+                data={
+                    "team_a": "espn-home-id",
+                    "team_b": "espn-away-id",
+                    "team_a_name": home_name,
+                    "team_b_name": away_name,
+                    "event_id": "401866755",
+                    "event_date": "2026-04-14T23:30:00Z",
+                    "event_status": "Scheduled",
+                    "venue_name": "Test Arena",
+                    "short_name": "TEST @ TEST",
+                },
+            )
+
+        assert rv.status_code in (302, 303)
+        assert "/nba/prediction" in rv.headers.get("Location", "")
+        with client.session_transaction() as sess:
+            assert sess["nba_team_a_name"] == expected_home
+            assert sess["nba_team_b_name"] == expected_away
+            assert sess["nba_selected_game"]["event_id"] == "401866755"
+
+    def test_nba_select_game_logs_exact_mismatch_details(self, client, caplog):
+        caplog.set_level(logging.INFO)
+
+        with patch("nba_live_client.get_teams", return_value=_mock_nba_variant_teams()):
+            rv = client.post(
+                "/nba/select-game",
+                data={
+                    "team_a": "espn-home-id",
+                    "team_b": "espn-away-id",
+                    "team_a_name": "Seattle Supersonics",
+                    "team_b_name": "Miami Heat",
+                    "event_id": "401866756",
+                },
+            )
+
+        assert rv.status_code in (302, 303)
+        assert "/nba/?selection_error=" in rv.headers.get("Location", "")
+        assert "selected_home='Seattle Supersonics'" in caplog.text
+        assert "selected_away='Miami Heat'" in caplog.text
+        assert "normalized_selected={'home': 'seattle supersonics', 'away': 'heat'}" in caplog.text
+        assert "available_team_names=['Hornets', 'Heat', 'Clippers', 'Warriors', 'Knicks', 'Lakers']" in caplog.text
+        assert "failure_reason=home=no canonical match for seattle supersonics; away=matched by canonical name heat" in caplog.text
 
     def test_nba_prediction_renders_current_payload(self, client):
         with client.session_transaction() as sess:
@@ -481,6 +681,7 @@ class TestStrategyLabRoute:
 
     def test_strategy_lab_renders_clean_fallback_without_report(self, client, tmp_path, monkeypatch):
         missing_path = tmp_path / "missing_model_comparison.json"
+        missing_dataset = tmp_path / "missing_historical_matches.csv"
 
         monkeypatch.setattr(flask_app_module.strategy_lab_services.mt, "get_summary_metrics", lambda: _mock_strategy_metrics())
         monkeypatch.setattr(
@@ -489,13 +690,55 @@ class TestStrategyLabRoute:
             lambda limit=6: [_mock_completed_prediction(winner_hit=False, overall_result="Loss")] * limit,
         )
         monkeypatch.setattr(flask_app_module.strategy_lab_services.mlp, "DEFAULT_REPORT_PATH", missing_path)
+        monkeypatch.setattr(flask_app_module.strategy_lab_services, "_DEFAULT_DATASET", missing_dataset)
 
         rv = client.get("/strategy-lab")
 
         assert rv.status_code == 200
         assert b"ML comparison is not available yet" in rv.data
-        assert b"generate_ml_report.py" in rv.data
+        assert b"Generating ML insights..." in rv.data
         assert str(missing_path).encode("utf-8") in rv.data
+
+    def test_strategy_lab_auto_generates_ml_report_from_dataset(self, client, tmp_path, monkeypatch):
+        report_path = tmp_path / "model_comparison.json"
+        dataset_path = tmp_path / "historical_matches.csv"
+        dataset_path.write_text(
+            "\n".join(
+                [
+                    "date,home_team,away_team,form,goals_scored,goals_conceded,goal_diff,result",
+                    "2024-01-01,Arsenal,Chelsea,7.2,2,1,1,HomeWin",
+                    "2024-01-02,Liverpool,Everton,6.9,1,1,0,Draw",
+                    "2024-01-03,Newcastle,Tottenham,4.8,0,2,-2,AwayWin",
+                    "2024-01-04,West Ham,Brighton,5.4,2,1,1,HomeWin",
+                    "2024-01-05,Fulham,Brentford,4.9,1,1,0,Draw",
+                    "2024-01-06,Leicester,Wolves,6.1,3,2,1,HomeWin",
+                    "2024-01-07,Crystal Palace,Aston Villa,3.7,0,1,-1,AwayWin",
+                    "2024-01-08,Southampton,Leeds,5.0,2,2,0,Draw",
+                    "2024-01-09,Manchester United,Bournemouth,7.5,3,0,3,HomeWin",
+                    "2024-01-10,Nottingham Forest,Manchester City,3.2,0,2,-2,AwayWin",
+                    "2024-01-11,Arsenal,Everton,7.4,2,0,2,HomeWin",
+                    "2024-01-12,Chelsea,Liverpool,5.8,1,2,-1,AwayWin",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(flask_app_module.strategy_lab_services.mt, "get_summary_metrics", lambda: _mock_strategy_metrics())
+        monkeypatch.setattr(
+            flask_app_module.strategy_lab_services.mt,
+            "get_completed_predictions",
+            lambda limit=6: [_mock_completed_prediction()] * limit,
+        )
+        monkeypatch.setattr(flask_app_module.strategy_lab_services.mlp, "DEFAULT_REPORT_PATH", report_path)
+        monkeypatch.setattr(flask_app_module.strategy_lab_services, "_DEFAULT_DATASET", dataset_path)
+
+        rv = client.get("/strategy-lab")
+
+        assert rv.status_code == 200
+        assert report_path.exists()
+        assert b"Best ML Model" in rv.data
+        assert b"Baseline Logistic Regression" in rv.data
+        assert b"Random Forest" in rv.data
 
 
 # ── Chat API ──────────────────────────────────────────────────────────────────
@@ -562,7 +805,7 @@ class TestSecurityHardening:
             )
 
         assert rv.status_code in (302, 303)
-        assert "/matchup" in rv.headers.get("Location", "")
+        assert "/prediction" in rv.headers.get("Location", "")
 
     def test_chat_rate_limit_returns_429(self, secure_client):
         with secure_client.session_transaction() as sess:
