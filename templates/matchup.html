@@ -1,719 +1,235 @@
 {% extends "base.html" %}
-{% block title %}{{ team_a.name }} vs {{ team_b.name }} — Full Analysis{% endblock %}
+{% block title %}{{ team_a.name }} vs {{ team_b.name }} - Match Analysis{% endblock %}
 
 {% block content %}
-{% set prob_a = '%.1f'|format((scorpred.win_probabilities.a or 0)|float) %}
-{% set prob_draw = '%.1f'|format((scorpred.win_probabilities.draw or 0)|float) %}
-{% set prob_b = '%.1f'|format((scorpred.win_probabilities.b or 0)|float) %}
+{% set probs = scorpred.win_probabilities or {} %}
+{% set prob_a = (probs.a or 0) | float %}
+{% set prob_draw = (probs.draw or 0) | float %}
+{% set prob_b = (probs.b or 0) | float %}
+{% set top_prob = prob_a %}
+{% if prob_b > top_prob %}{% set top_prob = prob_b %}{% endif %}
+{% if prob_draw > top_prob %}{% set top_prob = prob_draw %}{% endif %}
 
-{# ─────────────────────────────────────────────────────────────────────────────
-   MATCH HEADER
-───────────────────────────────────────────────────────────────────────────── #}
-<div class="match-header card glow-card gradient-border">
-  <div class="match-team">
-    <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="team-logo-lg team-badge" />
-    <span class="match-team-name">{{ team_a.name }}</span>
-  </div>
-  <div class="match-vs">
-    <span class="vs-label">Full Analysis</span>
-    <div class="h2h-mini">
-      <span class="win-badge"  title="{{ team_a.name }} wins">{{ h2h_rec.a_wins }}</span>
-      <span class="draw-badge" title="Draws">{{ h2h_rec.draws }}</span>
-      <span class="lose-badge" title="{{ team_b.name }} wins">{{ h2h_rec.b_wins }}</span>
-    </div>
-    <span class="matchup-h2h-note">H2H record</span>
-  </div>
-  <div class="match-team">
-    <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="team-logo-lg team-badge" />
-    <span class="match-team-name">{{ team_b.name }}</span>
-  </div>
-</div>
-
-{% if selected_fixture %}
-<div class="card glow-card matchup-fixture-meta-card">
-  <div class="matchup-fixture-meta-row">
-    <span class="source-badge {{ 'source-espn' if selected_fixture.data_source == 'espn' else 'source-api' }}">
-      {{ 'ESPN' if selected_fixture.data_source == 'espn' else 'Configured' }}
-    </span>
-    {% if selected_fixture.date %}
-    <span>{{ selected_fixture.date[:10] }}{% if selected_fixture.date|length > 10 %} · {{ selected_fixture.date[11:16] }} UTC{% endif %}</span>
-    {% endif %}
-    {% if selected_fixture.league_name %}<span>{{ selected_fixture.league_name }}</span>{% endif %}
-    {% if selected_fixture.round %}<span>{{ selected_fixture.round }}</span>{% endif %}
-    {% if selected_fixture.venue_name %}<span>{{ selected_fixture.venue_name }}</span>{% endif %}
-  </div>
-</div>
+{% set play_type = 'LEAN' %}
+{% if (scorpred.recommended_play or '') == 'Avoid' %}
+  {% set play_type = 'AVOID' %}
+{% elif (scorpred.best_pick.confidence or '') == 'High' and (scorpred.score_gap or 0) >= 1.1 %}
+  {% set play_type = 'BET' %}
 {% endif %}
 
-
-{# ── Data Quality + Best Pick Banner ─────────────────────────────────────── #}
-{% set dq = scorpred.data_quality or 'Moderate' %}
-<div class="matchup-quality-row">
-  <span class="matchup-quality-label">Data Quality:</span>
-  {% if dq == 'Strong' %}
-    <span class="matchup-quality-badge is-strong">Strong</span>
-    <span class="matchup-quality-copy">Form · H2H · Opponent quality · Injuries all available</span>
-  {% elif dq == 'Moderate' %}
-    <span class="matchup-quality-badge is-moderate">Moderate</span>
-    <span class="matchup-quality-copy">Some data sources missing — prediction still reliable</span>
-  {% else %}
-    <span class="matchup-quality-badge is-limited">Limited</span>
-    <span class="matchup-quality-copy">Minimal data — treat prediction with caution</span>
-  {% endif %}
-</div>
-
-{# ── Unmissable Best Pick card ────────────────────────────────────────────── #}
-<div class="matchup-best-pick-card">
-  <div class="matchup-best-pick-kicker">
-    Best Pick
-  </div>
-  <div class="matchup-best-pick-row">
-    <span class="matchup-best-pick-value">
-      {{ scorpred.best_pick.prediction }}
-    </span>
-    <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }} matchup-best-pick-badge">
-      {{ scorpred.best_pick.confidence }} Confidence
-    </span>
-    <span class="matchup-best-pick-gap">
-      Gap: {{ scorpred.score_gap }}/10
-    </span>
-    <span class="matchup-best-pick-stars">
-      {% if scorpred.best_pick.confidence == 'High' %}★★★★★
-      {% elif scorpred.best_pick.confidence == 'Medium' %}★★★★☆
-      {% else %}★★★☆☆{% endif %}
-    </span>
-  </div>
-  {% if scorpred.best_pick.reasoning %}
-  <div class="matchup-best-pick-reason">
-    Why: {{ scorpred.best_pick.reasoning }}
-  </div>
-  {% endif %}
-</div>
-
-{# ─────────────────────────────────────────────────────────────────────────────
-   SECTION 1 — FINAL PREDICTION
-───────────────────────────────────────────────────────────────────────────── #}
-<div class="section-title">Final Prediction</div>
-<div class="card glow-card gradient-border matchup-final-card">
-
-  <div class="model-note matchup-model-note">
-    Scorpred Engine — Form 39% · Attack 14% · Defense 14% · H2H 9% · Venue 8% · Opp. Quality 7% · Squad 4% · Context 5%
-  </div>
-
-  {# ── Best Pick banner ── #}
-  <div class="matchup-pick-banner">
-    <div class="matchup-pick-banner-kicker">
-      Scorpred Pick
-    </div>
-    <div class="matchup-pick-banner-row">
-      <span class="matchup-pick-banner-value">
-        {{ scorpred.best_pick.prediction }}
-      </span>
-      <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">
-        {{ scorpred.best_pick.confidence }} Confidence
-      </span>
-      <span class="matchup-pick-banner-gap">
-        Gap: {{ scorpred.score_gap }}/10
-      </span>
-      <span class="star-rating matchup-pick-banner-stars">
-        {% if scorpred.best_pick.confidence == 'High' %}★★★★★
-        {% elif scorpred.best_pick.confidence == 'Medium' %}★★★★☆
-        {% else %}★★★☆☆{% endif %}
-      </span>
-    </div>
-    {% if scorpred.best_pick.reasoning %}
-    <div class="matchup-pick-banner-reason">
-      {{ scorpred.best_pick.reasoning }}
-    </div>
-    {% endif %}
-  </div>
-
-  {# ── Win probabilities ── #}
-  <div class="win-probs matchup-win-probs">
-    <div class="win-block">
-      <div class="win-pct accent stat-number" data-target="{{ scorpred.win_probabilities.a }}">
-        {{ prob_a }}
-      </div>
-      <div class="win-label">{{ team_a.name }}</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.a }}"
-             style="background:#00ff87"></div>
-      </div>
-    </div>
-    {% if 'draw' in scorpred.win_probabilities %}
-    <div class="win-block">
-      <div class="win-pct stat-number" data-target="{{ scorpred.win_probabilities.draw }}">
-        {{ prob_draw }}
-      </div>
-      <div class="win-label">Draw</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.draw }}"
-             style="background:#f59e0b"></div>
-      </div>
-    </div>
-    {% endif %}
-    <div class="win-block">
-      <div class="win-pct stat-number" data-target="{{ scorpred.win_probabilities.b }}">
-        {{ prob_b }}
-      </div>
-      <div class="win-label">{{ team_b.name }}</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ scorpred.win_probabilities.b }}"
-             style="background:#3b82f6"></div>
-      </div>
-    </div>
-  </div>
-
-  {# ── Score scores bar ── #}
-  {% set total_s = scorpred.team_a_score + scorpred.team_b_score %}
-  {% set pct_a = (scorpred.team_a_score / total_s * 100) | round(1) if total_s > 0 else 50 %}
-  <div class="matchup-score-grid">
-    <div class="matchup-score-home">
-      <span class="stat-number accent matchup-score-number" data-target="{{ scorpred.team_a_score }}">{{ scorpred.team_a_score }}</span>
-      <span class="matchup-score-team">{{ team_a.name }}</span>
-    </div>
-    <span class="matchup-score-divider">/10</span>
-    <div class="matchup-score-away">
-      <span class="matchup-score-team">{{ team_b.name }}</span>
-      <span class="stat-number matchup-score-number" data-target="{{ scorpred.team_b_score }}"
-        style="color:{% if scorpred.team_b_score > scorpred.team_a_score %}#3b82f6{% else %}#e6edf3{% endif %};">
-        {{ scorpred.team_b_score }}
-      </span>
-    </div>
-  </div>
-  <div class="matchup-score-bar">
-    <div class="matchup-score-bar-home" style="width:{{ pct_a }}%;"></div>
-    <div class="matchup-score-bar-away"></div>
-  </div>
-
-  {# ── Optional picks (O/U, BTTS) ── #}
-  {% if scorpred.optional_picks %}
-  <div class="matchup-optional-picks">
-    {% for pick in scorpred.optional_picks %}
-    <div class="matchup-optional-pick-chip">
-      <span class="matchup-optional-market">{{ pick.market }}:</span>
-      <span class="matchup-optional-lean"
-        style="color:{% if pick.lean in ('Over','Yes') %}#00ff87{% else %}#f59e0b{% endif %};">
-        {{ pick.lean }}
-      </span>
-      <span class="matchup-optional-reason">— {{ pick.reasoning }}</span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-</div>
-
-
-{# ─────────────────────────────────────────────────────────────────────────────
-   SECTION 2 — SCORPRED ENGINE BREAKDOWN
-───────────────────────────────────────────────────────────────────────────── #}
-<div class="section-title">Scorpred Engine Breakdown</div>
-<div class="card glow-card matchup-engine-card">
-
-  {# Component bars #}
-  <div class="matchup-component-grid">
-    {% set components = [
-      ("Form (39%)",         scorpred.components_a.form,          scorpred.components_b.form),
-      ("Attack (14%)",       scorpred.components_a.offense,       scorpred.components_b.offense),
-      ("Defense (14%)",      scorpred.components_a.defense,       scorpred.components_b.defense),
-      ("H2H (9%)",           scorpred.components_a.h2h,           scorpred.components_b.h2h),
-      ("Venue (8%)",         scorpred.components_a.home_away,     scorpred.components_b.home_away),
-      ("Opp. Quality (7%)",  scorpred.components_a.opp_strength,  scorpred.components_b.opp_strength),
-      ("Squad (4%)",         scorpred.components_a.squad,         scorpred.components_b.squad),
-      ("Context (5%)",       scorpred.components_a.match_context, scorpred.components_b.match_context),
-    ] %}
-    {% for label, a_val, b_val in components %}
-    <div class="matchup-component-item">
-      <div class="matchup-component-label">{{ label }}</div>
-      <div class="matchup-component-row">
-        <span class="matchup-component-value home"
-          style="color:{% if a_val > b_val %}#00ff87{% elif a_val < b_val %}#8b949e{% else %}#e6edf3{% endif %};">
-          {{ a_val }}
-        </span>
-        <div class="matchup-component-bar">
-          {% set row_tot = a_val + b_val %}
-          {% set row_pct = (a_val / row_tot * 100) | round(1) if row_tot > 0 else 50 %}
-          <div class="matchup-component-bar-home" style="width:{{ row_pct }}%;"></div>
-          <div class="matchup-component-bar-away"></div>
-        </div>
-        <span class="matchup-component-value away"
-          style="color:{% if b_val > a_val %}#3b82f6{% elif b_val < a_val %}#8b949e{% else %}#e6edf3{% endif %};">
-          {{ b_val }}
-        </span>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-
-  {# Key edges #}
-  {% if scorpred.key_edges %}
-  <div class="matchup-key-edges">
-    <div class="matchup-key-edges-title">
-      Key Edges
-    </div>
-    {% for edge in scorpred.key_edges %}
-    <div class="matchup-key-edge-row">
-      <span class="matchup-key-edge-team"
-        style="{% if edge.team == 'A' %}background:rgba(0,255,135,.12); color:#00ff87;
-        {% else %}background:rgba(59,130,246,.12); color:#3b82f6;{% endif %}">
-        {{ edge.team_name }}
-      </span>
-      <span class="matchup-key-edge-category">{{ edge.category }}</span>
-      <span class="matchup-key-edge-margin">+{{ edge.margin }}</span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {# Matchup reading #}
-  {% if scorpred.matchup_reading %}
-  <div class="matchup-reading-box">
-    {{ scorpred.matchup_reading }}
-  </div>
-  {% endif %}
-
-</div>
-
-
-{# ─────────────────────────────────────────────────────────────────────────────
-   SECTION 3 — DANGER MEN
-───────────────────────────────────────────────────────────────────────────── #}
-{% if threats_a or threats_b %}
-<div class="section-title">Danger Men</div>
-<div class="fgs-columns" style="margin-bottom:1.25rem;">
-
-  <div class="fgs-col card glow-card">
-    <h3 style="margin-bottom:.85rem;">
-      <img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }}
-    </h3>
-    {% if threats_a %}
-    {% for p in threats_a %}
-    <div class="fgs-row {{ 'injured' if p.injured else '' }}"
-         style="display:flex; align-items:center; gap:.6rem; padding:.4rem 0; border-bottom:1px solid #21262d;">
-      {% if p.photo %}
-      <img src="{{ p.photo }}" alt="{{ p.name }}"
-           style="width:28px; height:28px; border-radius:50%; object-fit:cover;" />
-      {% endif %}
-      <div style="flex:1; min-width:0;">
-        <div style="font-size:.85rem; font-weight:600; color:{% if p.injured %}#8b949e{% else %}#e6edf3{% endif %};">
-          {{ p.name }}{% if p.injured %} <span style="color:#ef4444;">🩹</span>{% endif %}
-        </div>
-        <div style="font-size:.72rem; color:#8b949e;">{{ p.threat_label }}</div>
-      </div>
-      <span style="font-size:.72rem; padding:.1rem .4rem; border-radius:3px;
-                   background:rgba(0,255,135,.1); color:#00ff87; white-space:nowrap;">
-        {{ p.position }}
-      </span>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="empty-state">Squad data unavailable.</div>
-    {% endif %}
-  </div>
-
-  <div class="fgs-col card glow-card">
-    <h3 style="margin-bottom:.85rem;">
-      <img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }}
-    </h3>
-    {% if threats_b %}
-    {% for p in threats_b %}
-    <div class="fgs-row {{ 'injured' if p.injured else '' }}"
-         style="display:flex; align-items:center; gap:.6rem; padding:.4rem 0; border-bottom:1px solid #21262d;">
-      {% if p.photo %}
-      <img src="{{ p.photo }}" alt="{{ p.name }}"
-           style="width:28px; height:28px; border-radius:50%; object-fit:cover;" />
-      {% endif %}
-      <div style="flex:1; min-width:0;">
-        <div style="font-size:.85rem; font-weight:600; color:{% if p.injured %}#8b949e{% else %}#e6edf3{% endif %};">
-          {{ p.name }}{% if p.injured %} <span style="color:#ef4444;">🩹</span>{% endif %}
-        </div>
-        <div style="font-size:.72rem; color:#8b949e;">{{ p.threat_label }}</div>
-      </div>
-      <span style="font-size:.72rem; padding:.1rem .4rem; border-radius:3px;
-                   background:rgba(59,130,246,.1); color:#3b82f6; white-space:nowrap;">
-        {{ p.position }}
-      </span>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="empty-state">Squad data unavailable.</div>
-    {% endif %}
-  </div>
-
-</div>
+{% set risk_label = scorpred.risk_label or ('Elevated' if scorpred.best_pick.confidence == 'Low' else 'Moderate' if scorpred.best_pick.confidence == 'Medium' else 'Controlled') %}
+{% set model_agreement = 'Low' %}
+{% if scorpred.best_pick.confidence == 'High' and (scorpred.score_gap or 0) >= 1.4 %}
+  {% set model_agreement = 'High' %}
+{% elif scorpred.best_pick.confidence in ['High', 'Medium'] %}
+  {% set model_agreement = 'Medium' %}
 {% endif %}
 
+{% set form_a_avg_scored = (form_a | sum(attribute='gf') / (form_a|length)) if form_a else 0 %}
+{% set form_a_avg_allowed = (form_a | sum(attribute='ga') / (form_a|length)) if form_a else 0 %}
+{% set form_b_avg_scored = (form_b | sum(attribute='gf') / (form_b|length)) if form_b else 0 %}
+{% set form_b_avg_allowed = (form_b | sum(attribute='ga') / (form_b|length)) if form_b else 0 %}
+{% set trend_a = 'up' if form_a_avg_scored >= form_a_avg_allowed else 'down' %}
+{% set trend_b = 'up' if form_b_avg_scored >= form_b_avg_allowed else 'down' %}
 
-{# ─────────────────────────────────────────────────────────────────────────────
-   SECTION 4 — RECENT FORM
-───────────────────────────────────────────────────────────────────────────── #}
-<div class="section-title">Recent Form</div>
-<div class="form-columns" style="margin-bottom:1.25rem;">
-
-  <div class="form-col glow-card">
-    <h3 class="col-title">
-      <img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }}
-    </h3>
-    <div class="form-string">
-      {% for r in form_a %}
-      <span class="form-badge form-{{ r.result }}">{{ r.result }}</span>
-      {% else %}
-      <span style="color:#8b949e; font-size:.82rem;">No data</span>
-      {% endfor %}
-    </div>
-    <div class="form-averages">
-      <span>Avg scored: <strong class="accent stat-number"
-        data-target="{{ (form_a | sum(attribute='gf') / form_a|length) | round(2) if form_a else 0 }}">
-        {{ (form_a | sum(attribute='gf') / form_a|length) | round(2) if form_a else 0 }}</strong></span>
-      <span>Avg conceded: <strong class="stat-number"
-        data-target="{{ (form_a | sum(attribute='ga') / form_a|length) | round(2) if form_a else 0 }}">
-        {{ (form_a | sum(attribute='ga') / form_a|length) | round(2) if form_a else 0 }}</strong></span>
-      <span>Clean sheets: <strong class="accent stat-number"
-        data-target="{{ form_a | selectattr('cs') | list | length }}">
-        {{ form_a | selectattr('cs') | list | length }}</strong></span>
-    </div>
-    {% for r in form_a %}
-    <div class="form-row">
-      <span class="form-badge form-{{ r.result }}">{{ r.result }}</span>
-      <img src="{{ r.opponent_logo }}" class="team-logo-xs team-badge" alt="" />
-      <span class="form-opp">vs {{ r.opponent }}</span>
-      <span class="form-score">{{ r.score }}</span>
-      <span class="form-date">{{ r.date }}</span>
-    </div>
-    {% endfor %}
-  </div>
-
-  <div class="form-col glow-card">
-    <h3 class="col-title">
-      <img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }}
-    </h3>
-    <div class="form-string">
-      {% for r in form_b %}
-      <span class="form-badge form-{{ r.result }}">{{ r.result }}</span>
-      {% else %}
-      <span style="color:#8b949e; font-size:.82rem;">No data</span>
-      {% endfor %}
-    </div>
-    <div class="form-averages">
-      <span>Avg scored: <strong class="accent stat-number"
-        data-target="{{ (form_b | sum(attribute='gf') / form_b|length) | round(2) if form_b else 0 }}">
-        {{ (form_b | sum(attribute='gf') / form_b|length) | round(2) if form_b else 0 }}</strong></span>
-      <span>Avg conceded: <strong class="stat-number"
-        data-target="{{ (form_b | sum(attribute='ga') / form_b|length) | round(2) if form_b else 0 }}">
-        {{ (form_b | sum(attribute='ga') / form_b|length) | round(2) if form_b else 0 }}</strong></span>
-      <span>Clean sheets: <strong class="accent stat-number"
-        data-target="{{ form_b | selectattr('cs') | list | length }}">
-        {{ form_b | selectattr('cs') | list | length }}</strong></span>
-    </div>
-    {% for r in form_b %}
-    <div class="form-row">
-      <span class="form-badge form-{{ r.result }}">{{ r.result }}</span>
-      <img src="{{ r.opponent_logo }}" class="team-logo-xs team-badge" alt="" />
-      <span class="form-opp">vs {{ r.opponent }}</span>
-      <span class="form-score">{{ r.score }}</span>
-      <span class="form-date">{{ r.date }}</span>
-    </div>
-    {% endfor %}
-  </div>
-
-</div>
-
-
-{# ─────────────────────────────────────────────────────────────────────────────
-   SECTION 5 — HEAD-TO-HEAD
-───────────────────────────────────────────────────────────────────────────── #}
-<div class="section-title">Head-to-Head</div>
-{% if h2h %}
-{% for f in h2h %}
-{% set home_id = f.teams.home.id %}
-{% set away_id = f.teams.away.id %}
-{% set hg = f.goals.home %}
-{% set ag = f.goals.away %}
-<div class="fixture-card glow-card">
-  <div class="fixture-meta">
-    <span class="fixture-date">{{ f.fixture.date[:10] }}</span>
-    <span class="fixture-comp">{{ f.league.name }}</span>
-    <span class="fixture-venue">{{ f.fixture.venue.name if f.fixture.venue else '' }}</span>
-  </div>
-
-  <div class="fixture-score-row">
-    <div class="fixture-team">
-      <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="" />
-      <span>{{ f.teams.home.name }}</span>
-    </div>
-    <div class="fixture-score">
-      <span class="score-num">{{ hg }}</span>
-      <span class="score-sep">—</span>
-      <span class="score-num">{{ ag }}</span>
-    </div>
-    <div class="fixture-team right">
-      <span>{{ f.teams.away.name }}</span>
-      <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="" />
-    </div>
-  </div>
-
-  {% if f.score and f.score.halftime %}
-  <div class="fixture-ht">HT: {{ f.score.halftime.home }} – {{ f.score.halftime.away }}</div>
-  {% endif %}
-
-  {% if f.events %}
-  <div class="fixture-events">
-    {% for ev in f.events %}
-    {% if ev.type == 'Goal' %}
-    <span class="event-chip goal-chip">
-      ⚽ {{ ev.player.name }} {{ ev.time.elapsed }}'{% if ev.team.id == away_id %} (A){% endif %}
-    </span>
-    {% endif %}
-    {% if ev.type == 'Card' %}
-    <span class="event-chip card-chip {{ 'red-card' if ev.detail == 'Red Card' else 'yellow-card' }}">
-      {% if ev.detail == 'Red Card' %}🟥{% else %}🟨{% endif %}
-      {{ ev.player.name }} {{ ev.time.elapsed }}'
-    </span>
-    {% endif %}
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if f.stats %}
-  {% set home_stats = f.stats[0] if f.stats|length > 0 else {} %}
-  {% set away_stats = f.stats[1] if f.stats|length > 1 else {} %}
-  <div class="fixture-stats-grid">
-    {% set stat_types = [
-      ('Shots on Goal',  '🎯'),
-      ('Total Shots',    '👟'),
-      ('Corner Kicks',   '🚩'),
-      ('Yellow Cards',   '🟨'),
-      ('Ball Possession','⚡'),
-    ] %}
-    {% for stat_name, icon in stat_types %}
-    {% set h_val = namespace(v='-') %}
-    {% set a_val = namespace(v='-') %}
-    {% if home_stats.statistics is defined %}
-      {% for s in home_stats.statistics %}{% if s.type == stat_name %}{% set h_val.v = s.value %}{% endif %}{% endfor %}
-    {% endif %}
-    {% if away_stats.statistics is defined %}
-      {% for s in away_stats.statistics %}{% if s.type == stat_name %}{% set a_val.v = s.value %}{% endif %}{% endfor %}
-    {% endif %}
-    <div class="stat-row">
-      <span class="stat-val">{{ h_val.v if h_val.v is not none else '0' }}</span>
-      <span class="stat-label">{{ icon }} {{ stat_name }}</span>
-      <span class="stat-val">{{ a_val.v if a_val.v is not none else '0' }}</span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-</div>
-{% endfor %}
-{% else %}
-<div class="card glow-card" style="margin-bottom:1.25rem;">
-  <div class="empty-state">No H2H fixtures found in API data.</div>
-</div>
-{% endif %}
-
-
-{# ─────────────────────────────────────────────────────────────────────────────
-   SECTION 6 — TEAM STATS
-───────────────────────────────────────────────────────────────────────────── #}
-<div class="section-title">Team Stats</div>
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.25rem;">
-
-  {# Stats comparison table #}
-  <div class="card glow-card" style="padding:1.1rem 1.25rem;">
-    <h4 style="margin-bottom:.85rem; font-size:.85rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px;">
-      Last 5 Averages
-    </h4>
-    {% if stats_compare %}
-    {% for row in stats_compare %}
-    <div style="display:flex; align-items:center; gap:.5rem; padding:.3rem 0; border-bottom:1px solid #21262d;">
-      <span style="font-size:.82rem; font-weight:600; min-width:2.5rem; text-align:right;
-        color:{% if row.a > row.b %}#00ff87{% elif row.a < row.b %}#8b949e{% else %}#e6edf3{% endif %};">
-        {{ row.a }}
-      </span>
-      <div style="flex:1; display:flex; height:4px; border-radius:2px; overflow:hidden; background:#21262d;">
-        {% set t = row.a + row.b %}
-        {% set pa = (row.a / t * 100) | round(1) if t > 0 else 50 %}
-        <div style="width:{{ pa }}%; background:#00ff87;"></div>
-        <div style="flex:1; background:#3b82f6;"></div>
-      </div>
-      <span style="font-size:.82rem; font-weight:600; min-width:2.5rem;
-        color:{% if row.b > row.a %}#3b82f6{% elif row.b < row.a %}#8b949e{% else %}#e6edf3{% endif %};">
-        {{ row.b }}
-      </span>
-      <span style="font-size:.73rem; color:#8b949e; min-width:7rem;">{{ row.label }}</span>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="empty-state">Insufficient data.</div>
-    {% endif %}
-  </div>
-
-  {# Home / Away splits #}
-  <div class="card glow-card" style="padding:1.1rem 1.25rem;">
-    <h4 style="margin-bottom:.85rem; font-size:.85rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px;">
-      Venue Record
-    </h4>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:.75rem;">
+<div class="faang-shell">
+  <section class="card glow-card faang-hero">
+    <div class="faang-hero-head">
       <div>
-        <div style="font-size:.75rem; color:#8b949e; margin-bottom:.4rem;">
-          <img src="{{ team_a.logo }}" style="height:14px;" alt="" /> Home
-        </div>
-        {% set h = split_a.home %}
-        <table class="stats-table" style="width:100%;">
-          <tr><td>P</td><td class="val stat-number" data-target="{{ h.p }}">{{ h.p }}</td></tr>
-          <tr><td>W</td><td class="val accent stat-number" data-target="{{ h.w }}">{{ h.w }}</td></tr>
-          <tr><td>D</td><td class="val stat-number" data-target="{{ h.d }}">{{ h.d }}</td></tr>
-          <tr><td>L</td><td class="val stat-number" data-target="{{ h.l }}">{{ h.l }}</td></tr>
-          <tr><td>GF</td><td class="val">{{ h.gf }}</td></tr>
-          <tr><td>GA</td><td class="val">{{ h.ga }}</td></tr>
-        </table>
+        <span class="page-kicker">Match Analysis</span>
+        <h1 class="faang-title">{{ team_a.name }} vs {{ team_b.name }}</h1>
+      </div>
+      {% if selected_fixture and selected_fixture.date %}
+      <div class="faang-meta-chip">{{ selected_fixture.date[:10] }}{% if selected_fixture.date|length > 10 %} · {{ selected_fixture.date[11:16] }} UTC{% endif %}</div>
+      {% endif %}
+    </div>
+
+    <div class="faang-decision-grid">
+      <article class="faang-decision-card is-primary">
+        <span class="faang-label">Recommended Play</span>
+        <div class="faang-value">{{ play_type }} · {{ scorpred.best_pick.prediction }}</div>
+        <p class="faang-copy">{{ scorpred.best_pick.reasoning or 'Model edge from form, matchup context, and weighted signals.' }}</p>
+      </article>
+      <article class="faang-decision-card">
+        <span class="faang-label">Confidence</span>
+        <div class="faang-value">{{ '%.1f'|format(top_prob) }}% · {{ scorpred.best_pick.confidence }} </div>
+        <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }} Confidence</span>
+      </article>
+      <article class="faang-decision-card">
+        <span class="faang-label">Risk Level</span>
+        <div class="faang-value">{{ risk_label }}</div>
+        <span class="risk-badge {% if risk_label == 'Elevated' %}is-danger{% elif risk_label == 'Moderate' %}is-warning{% else %}is-info{% endif %}">{{ risk_label }}</span>
+      </article>
+      <article class="faang-decision-card">
+        <span class="faang-label">Top Lean</span>
+        <div class="faang-value">{{ (scorpred.top_lean.prediction if scorpred.top_lean else scorpred.best_pick.prediction) }}</div>
+        <p class="faang-copy">{{ (scorpred.top_lean.display if scorpred.top_lean else 'Primary edge remains narrow; treat as directional lean.') }}</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="faang-text-grid">
+    <article class="card glow-card faang-copy-card">
+      <h2 class="faang-section-title">Why This Pick</h2>
+      <ul class="faang-bullet-list">
+        <li>{{ scorpred.best_pick.reasoning or 'Weighted model edge favors this side.' }}</li>
+        <li>{{ scorpred.matchup_reading or 'Recent form and contextual factors support the lean.' }}</li>
+        <li>Score gap: {{ scorpred.score_gap }}/10 indicates {% if (scorpred.score_gap or 0) >= 1.3 %}clear{% elif (scorpred.score_gap or 0) >= 0.8 %}moderate{% else %}thin{% endif %} separation.</li>
+      </ul>
+    </article>
+    <article class="card glow-card faang-copy-card">
+      <h2 class="faang-section-title">Risk Factors</h2>
+      <ul class="faang-bullet-list">
+        {% if scorpred.avoid_reasons %}
+          {% for reason in scorpred.avoid_reasons[:3] %}
+          <li>{{ reason }}</li>
+          {% endfor %}
+        {% else %}
+          <li>Data quality: {{ scorpred.data_quality or 'Moderate' }}.</li>
+          <li>Result volatility increases when win probabilities stay close.</li>
+          <li>Late team news can change edge quality near kickoff.</li>
+        {% endif %}
+      </ul>
+    </article>
+  </section>
+
+  <section class="card glow-card faang-probability-block">
+    <div class="faang-section-head">
+      <h2 class="faang-section-title">Outcome Probabilities</h2>
+      <span class="faang-meta-chip">Highest: {{ '%.1f'|format(top_prob) }}%</span>
+    </div>
+    <div class="faang-prob-list">
+      <div class="faang-prob-item {% if prob_a == top_prob %}is-top{% endif %}">
+        <div class="faang-prob-head"><span>{{ team_a.name }} Win</span><strong>{{ '%.1f'|format(prob_a) }}%</strong></div>
+        <div class="prob-bar"><div class="prob-bar-fill" data-width="{{ prob_a }}" style="background:#00f5a0"></div></div>
+      </div>
+      <div class="faang-prob-item {% if prob_draw == top_prob %}is-top{% endif %}">
+        <div class="faang-prob-head"><span>Draw</span><strong>{{ '%.1f'|format(prob_draw) }}%</strong></div>
+        <div class="prob-bar"><div class="prob-bar-fill" data-width="{{ prob_draw }}" style="background:#f59e0b"></div></div>
+      </div>
+      <div class="faang-prob-item {% if prob_b == top_prob %}is-top{% endif %}">
+        <div class="faang-prob-head"><span>{{ team_b.name }} Win</span><strong>{{ '%.1f'|format(prob_b) }}%</strong></div>
+        <div class="prob-bar"><div class="prob-bar-fill" data-width="{{ prob_b }}" style="background:#3b82f6"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faang-team-grid">
+    <article class="card glow-card faang-team-card">
+      <div class="faang-team-head">
+        <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="team-logo-sm team-badge" />
+        <h3>{{ team_a.name }}</h3>
+        <span class="faang-trend {{ 'is-up' if trend_a == 'up' else 'is-down' }}">{{ 'UP' if trend_a == 'up' else 'DOWN' }}</span>
+      </div>
+      <div class="faang-form-row">
+        {% for row in form_a[:5] %}
+        <span class="form-badge form-{{ row.result }}">{{ row.result }}</span>
+        {% else %}
+        <span class="filter-chip">No recent form</span>
+        {% endfor %}
+      </div>
+      <div class="faang-mini-metrics">
+        <div><span>Scoring Avg</span><strong>{{ '%.2f'|format(form_a_avg_scored) }} {{ '↑' if trend_a == 'up' else '↓' }}</strong></div>
+        <div><span>Defensive Indicator</span><strong>{{ '%.2f'|format(form_a_avg_allowed) }} {{ '↑' if form_a_avg_allowed <= 1 else '↓' }}</strong></div>
+        <div><span>Last 5 Wins</span><strong>{{ form_a | selectattr('result', 'equalto', 'W') | list | length }}</strong></div>
+      </div>
+    </article>
+
+    <article class="card glow-card faang-team-card">
+      <div class="faang-team-head">
+        <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="team-logo-sm team-badge" />
+        <h3>{{ team_b.name }}</h3>
+        <span class="faang-trend {{ 'is-up' if trend_b == 'up' else 'is-down' }}">{{ 'UP' if trend_b == 'up' else 'DOWN' }}</span>
+      </div>
+      <div class="faang-form-row">
+        {% for row in form_b[:5] %}
+        <span class="form-badge form-{{ row.result }}">{{ row.result }}</span>
+        {% else %}
+        <span class="filter-chip">No recent form</span>
+        {% endfor %}
+      </div>
+      <div class="faang-mini-metrics">
+        <div><span>Scoring Avg</span><strong>{{ '%.2f'|format(form_b_avg_scored) }} {{ '↑' if trend_b == 'up' else '↓' }}</strong></div>
+        <div><span>Defensive Indicator</span><strong>{{ '%.2f'|format(form_b_avg_allowed) }} {{ '↑' if form_b_avg_allowed <= 1 else '↓' }}</strong></div>
+        <div><span>Last 5 Wins</span><strong>{{ form_b | selectattr('result', 'equalto', 'W') | list | length }}</strong></div>
+      </div>
+    </article>
+  </section>
+
+  <section class="card glow-card faang-system-block">
+    <div class="faang-section-head">
+      <h2 class="faang-section-title">System Intelligence</h2>
+    </div>
+    <div class="faang-system-grid">
+      <div>
+        <span>Model Agreement</span>
+        <strong>{{ model_agreement }}</strong>
       </div>
       <div>
-        <div style="font-size:.75rem; color:#8b949e; margin-bottom:.4rem;">
-          <img src="{{ team_b.logo }}" style="height:14px;" alt="" /> Away
-        </div>
-        {% set a = split_b.away %}
-        <table class="stats-table" style="width:100%;">
-          <tr><td>P</td><td class="val stat-number" data-target="{{ a.p }}">{{ a.p }}</td></tr>
-          <tr><td>W</td><td class="val accent stat-number" data-target="{{ a.w }}">{{ a.w }}</td></tr>
-          <tr><td>D</td><td class="val stat-number" data-target="{{ a.d }}">{{ a.d }}</td></tr>
-          <tr><td>L</td><td class="val stat-number" data-target="{{ a.l }}">{{ a.l }}</td></tr>
-          <tr><td>GF</td><td class="val">{{ a.gf }}</td></tr>
-          <tr><td>GA</td><td class="val">{{ a.ga }}</td></tr>
-        </table>
+        <span>Data Quality</span>
+        <strong>{{ scorpred.data_quality or 'Moderate' }}</strong>
+      </div>
+      <div>
+        <span>Confidence Adjustment</span>
+        <strong>{% if scorpred.avoid_reasons %}Downshifted for uncertainty{% else %}No adjustment{% endif %}</strong>
       </div>
     </div>
-  </div>
+  </section>
 
+  <section class="card glow-card faang-final-call">
+    <h2 class="faang-section-title">Final Recommendation</h2>
+    <div class="faang-final-line">
+      {% if play_type == 'BET' %}
+      BET {{ scorpred.best_pick.prediction }}
+      {% elif play_type == 'AVOID' %}
+      AVOID - no strong edge
+      {% else %}
+      LEAN {{ scorpred.best_pick.prediction }}
+      {% endif %}
+    </div>
+    <p class="faang-copy">{{ scorpred.best_pick.reasoning or 'Decision leans on weighted model separation and current context quality.' }}</p>
+  </section>
+
+  <details class="card glow-card faang-advanced">
+    <summary>Advanced Details</summary>
+    <div class="faang-advanced-grid">
+      <article>
+        <h3>ML vs Rule Comparison</h3>
+        <p class="faang-copy">Best pick confidence: {{ scorpred.best_pick.confidence }} | Score gap: {{ scorpred.score_gap }}/10.</p>
+      </article>
+      <article>
+        <h3>Feature Importance (Weighted)</h3>
+        <ul class="faang-bullet-list">
+          <li>Form 39%, Attack 14%, Defense 14%, H2H 9%.</li>
+          <li>Venue 8%, Opponent Quality 7%, Squad 4%, Context 5%.</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Raw Team Snapshot</h3>
+        <div class="faang-raw-grid">
+          {% for row in stats_compare %}
+          <div><span>{{ row.label }}</span><strong>{{ row.a }} - {{ row.b }}</strong></div>
+          {% endfor %}
+        </div>
+      </article>
+    </div>
+  </details>
+
+  <div class="nav-cta">
+    <a href="/prediction" class="btn btn-secondary">Open Full Prediction</a>
+    <a href="/strategy-lab" class="btn btn-secondary">Open Strategy Lab</a>
+    <a href="/soccer" class="btn btn-primary">Analyze Another Match</a>
+  </div>
 </div>
-
-
-{# ─────────────────────────────────────────────────────────────────────────────
-   SECTION 7 — INJURY REPORT
-───────────────────────────────────────────────────────────────────────────── #}
-<div class="section-title">Injury Report</div>
-<div class="injury-columns" style="margin-bottom:1.25rem;">
-
-  <div class="injury-col glow-card">
-    <h3>
-      <img src="{{ team_a.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_a.name }}
-    </h3>
-    {% if injuries_a %}
-    {% for inj in injuries_a %}
-    <div class="injury-card">
-      <span class="injury-type {{ 'suspension' if inj.player.reason and 'Suspension' in inj.player.reason else 'injury' }}">
-        {{ '🚫' if inj.player.reason and 'Suspension' in inj.player.reason else '🩹' }}
-      </span>
-      <div class="injury-info">
-        <strong>{{ inj.player.name }}</strong>
-        <span class="injury-pos">{{ inj.player.position }}</span>
-        <span class="injury-reason">{{ inj.player.reason }}</span>
-      </div>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="empty-state">No injuries reported.</div>
-    {% endif %}
-  </div>
-
-  <div class="injury-col glow-card">
-    <h3>
-      <img src="{{ team_b.logo }}" class="team-logo-sm team-badge" alt="" /> {{ team_b.name }}
-    </h3>
-    {% if injuries_b %}
-    {% for inj in injuries_b %}
-    <div class="injury-card">
-      <span class="injury-type {{ 'suspension' if inj.player.reason and 'Suspension' in inj.player.reason else 'injury' }}">
-        {{ '🚫' if inj.player.reason and 'Suspension' in inj.player.reason else '🩹' }}
-      </span>
-      <div class="injury-info">
-        <strong>{{ inj.player.name }}</strong>
-        <span class="injury-pos">{{ inj.player.position }}</span>
-        <span class="injury-reason">{{ inj.player.reason }}</span>
-      </div>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="empty-state">No injuries reported.</div>
-    {% endif %}
-  </div>
-
-</div>
-
-
-{# ─────────────────────────────────────────────────────────────────────────────
-   HOW THE MODEL WORKS
-───────────────────────────────────────────────────────────────────────────── #}
-<details class="matchup-model-details">
-  <summary class="matchup-model-summary">
-    <span class="matchup-model-summary-icon">ℹ️</span> <span>How Scorpred Generates This Prediction</span>
-    <span class="matchup-model-summary-hint">Click to expand</span>
-  </summary>
-  <div class="matchup-model-body">
-    
-    <div style="margin-bottom:1.25rem;">
-      <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.6px; color:#8b949e; margin-bottom:.6rem;">
-        The Model Combines 8 Weighted Factors
-      </div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:.8rem;">
-        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
-          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Form (39%)</div>
-          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Last 5 matches recency-weighted. Recent results matter most.</div>
-        </div>
-        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
-          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Attack (14%)</div>
-          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Offensive output over last 5 games with trend adjustment.</div>
-        </div>
-        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
-          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Defense (14%)</div>
-          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Goals/points conceded. Lower = stronger defensive rating.</div>
-        </div>
-        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
-          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">H2H (9%)</div>
-          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Recent meetings. Does not override current form.</div>
-        </div>
-        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
-          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Venue (8%)</div>
-          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Home advantage + actual venue-specific performance.</div>
-        </div>
-        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
-          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Opponent Quality (7%)</div>
-          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Adjusts form based on opponent strength (quality of wins).</div>
-        </div>
-        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
-          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Squad (4%)</div>
-          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Key player absences, role-weighted by position.</div>
-        </div>
-        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
-          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Context (5%)</div>
-          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Rest days and match congestion. Affects fatigue.</div>
-        </div>
-      </div>
-    </div>
-
-    <div style="padding:.75rem; background:rgba(0,255,135,.08); border-left:3px solid rgba(0,255,135,.3); border-radius:0 4px 4px 0; font-size:.8rem; color:#8b949e; line-height:1.6;">
-      <strong style="color:#e6edf3;">For Soccer:</strong> The model calculates three outcome probabilities (Home Win · Draw · Away Win). Draw probability increases when the predicted score gap is small. The <strong style="color:#e6edf3;">Best Pick</strong> is always the outcome with highest probability.
-    </div>
-  </div>
-</details>
-
-{# ─────────────────────────────────────────────────────────────────────────────
-   NAVIGATION
-───────────────────────────────────────────────────────────────────────────── #}
-<div class="nav-cta">
-  <a href="/" class="btn btn-secondary btn-glow">New Matchup</a>
-  <a href="/player" class="btn btn-secondary btn-glow">Compare Players</a>
-  <a href="/props" class="btn btn-secondary btn-glow">Player Props</a>
-</div>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-  // Animate probability bar fills on page load
-  document.querySelectorAll('.prob-bar-fill').forEach(el => {
-    const w = el.dataset.width || 0;
-    requestAnimationFrame(() => { el.style.width = w + '%'; });
+  document.querySelectorAll('.prob-bar-fill').forEach((el) => {
+    const width = el.dataset.width || 0;
+    requestAnimationFrame(() => {
+      el.style.width = width + '%';
+    });
   });
 </script>
 {% endblock %}
