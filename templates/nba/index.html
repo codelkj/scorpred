@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}NBA Predictor — {% endblock %}
+{% block title %}NBA Predictor | ScorPred{% endblock %}
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='nba/nba.css') }}" />
@@ -8,264 +8,235 @@
 
 {% block content %}
 <div class="nba-page">
+  <section class="nba-hero">
+    <div class="nba-hero-icon">NBA</div>
+    <h1>NBA analysis with a sharper intelligence workspace.</h1>
+    <p>
+      Move from live game selection to matchup analysis, prop context, and final prediction review in one
+      consistent dark workflow.
+    </p>
+  </section>
 
-  <div class="nba-hero">
-    <div class="nba-hero-icon">🏀</div>
-    <h1>NBA Predictor</h1>
-    <p>Select two teams to analyse the matchup, explore player props, and get AI-driven predictions.</p>
-  </div>
-
-  {# Data-source banner #}
   {% if route_support %}
-  <div class="nba-card glow-card" style="padding:.9rem 1.25rem; margin-bottom:1rem;">
-    <div style="font-size:.78rem; font-weight:600; color:var(--nba-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:.5rem;">Data Sources</div>
-    <div style="display:flex; flex-wrap:wrap; gap:.4rem;">
+  <article class="nba-card glow-card">
+    <div class="table-header">
+      <div>
+        <span class="page-kicker">Data Sources</span>
+        <h2 class="section-title">Current provider status.</h2>
+      </div>
+    </div>
+    <div class="performance-toolbar">
       {% for key, info in route_support.items() %}
-      <span style="font-size:.75rem; padding:.18rem .6rem; border-radius:4px; font-weight:600;
-        {% if info.state == 'live' %}background:rgba(34,197,94,.15);color:#22c55e;
-        {% elif info.state in ('fallback', 'mock') %}background:rgba(245,158,11,.15);color:#f59e0b;
-        {% else %}background:rgba(107,114,128,.15);color:#9ca3af;{% endif %}">
+      <span class="source-badge
+        {% if info.state == 'live' %}source-api{% elif info.state in ('fallback', 'mock') %}source-espn{% endif %}">
         {{ info.title }}
       </span>
       {% endfor %}
     </div>
-    <div style="font-size:.73rem; color:var(--nba-muted); margin-top:.4rem;">
-      🟢 live &nbsp; 🟡 fallback/limited &nbsp; ⚫ unavailable
-    </div>
-  </div>
+  </article>
   {% endif %}
 
   {% if load_error %}
-  <div class="nba-card glow-card" style="border-color: #ef4444;">
-    <p style="color:#ef4444;">⚠ Could not load teams: {{ load_error }}</p>
-  </div>
+  <div class="alert alert-error">Could not load teams: {{ load_error }}</div>
   {% endif %}
 
   {% if selected_game %}
-  <div class="nba-card glow-card" style="padding:1rem 1.5rem;">
-    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem;">
-      <div style="color:var(--nba-muted); font-size:.9rem;">
-        Selected game:
-        {% if selected_game.short_name %}
-        <strong style="color:var(--nba-text);">{{ selected_game.short_name }}</strong>
-        {% else %}
-        <strong style="color:var(--nba-text);">{{ selected_game.home_name }}</strong>
-        vs
-        <strong style="color:var(--nba-text);">{{ selected_game.away_name }}</strong>
-        {% endif %}
+  <article class="nba-card glow-card">
+    <div class="split-header">
+      <div>
+        <span class="page-kicker">Selected Game</span>
+        <h2 class="section-title">
+          {{ selected_game.short_name if selected_game.short_name else selected_game.home_name ~ ' vs ' ~ selected_game.away_name }}
+        </h2>
+        <div class="page-sub">
+          {% if selected_game.status %}{{ selected_game.status }}{% endif %}
+          {% if selected_game.date %} | {{ selected_game.date[:10] }}{% if selected_game.date|length > 10 %} {{ selected_game.date[11:16] }} UTC{% endif %}{% endif %}
+          {% if selected_game.venue_name %} | {{ selected_game.venue_name }}{% endif %}
+        </div>
       </div>
-      <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
-        <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Matchup</a>
-        <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Rosters</a>
-        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem; padding:.45rem 1rem;">Prediction</a>
+      <div class="page-actions">
+        <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary">Matchup</a>
+        <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary">Rosters</a>
+        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary">Prediction</a>
       </div>
     </div>
-    <div style="display:flex; flex-wrap:wrap; gap:.6rem 1rem; align-items:center; margin-top:.8rem; font-size:.82rem; color:var(--nba-muted);">
-      {% if selected_game.status %}<span>{{ selected_game.status }}</span>{% endif %}
-      {% if selected_game.date %}<span>{{ selected_game.date[:10] }}{% if selected_game.date|length > 10 %} {{ selected_game.date[11:16] }} UTC{% endif %}</span>{% endif %}
-      {% if selected_game.venue_name %}<span>{{ selected_game.venue_name }}</span>{% endif %}
-    </div>
-  </div>
+  </article>
   {% endif %}
 
-  <div class="nba-card glow-card">
-    <div class="nba-card-title">🏀 Upcoming NBA Games</div>
-    <p style="color:var(--nba-muted); font-size:.9rem; margin:-.3rem 0 1rem;">
-      Pick a game to dive into full analysis, player props, and AI-driven predictions.
-    </p>
-    {% if upcoming_games %}
-    
-    {% for g in upcoming_games %}
-    {% set home = g.teams.home %}
-    {% set visit = g.teams.visitors %}
-    {% set sc = g.scores %}
-    {% set h_pts = sc.home.points %}
-    {% set v_pts = sc.visitors.points %}
-    
-    <div class="fpred-card" style="margin-bottom: 1.5rem;">
-      <!-- Meta row with confidence badge -->
-      <div class="fpred-meta" style="margin-bottom: 0.8rem;">
-        <span>📅 {{ g.date.start[:10] }}</span>
-        {% if g.date.start|length > 10 %}
-        <span>🕐 {{ g.date.start[11:16] }} UTC</span>
-        {% endif %}
-        {% if g.venue and g.venue.name %}
-        <span>🏟 {{ g.venue.name }}</span>
-        {% endif %}
-        {% if g.prediction and g.prediction.best_pick %}
-        <span class="confidence-badge {% if g.prediction.best_pick.confidence == 'High' %}conf-high{% elif g.prediction.best_pick.confidence == 'Medium' %}conf-medium{% else %}conf-low{% endif %}" style="margin-left: auto;">
-          {{ g.prediction.best_pick.confidence or "Unknown" }}
-        </span>
-        {% else %}
-        <span class="confidence-badge conf-low" style="margin-left: auto;">No confidence</span>
-        {% endif %}
-      </div>
-
-      <!-- Teams row -->
-      <div class="fpred-teams-row" style="margin-bottom: 1rem;">
-        <!-- Home Team -->
-        <div class="fpred-team">
-          {% if home.logo %}
-          <img src="{{ home.logo }}" class="team-logo-sm team-badge" alt="{{ home.name }}" style="height: 28px; margin-right: 8px;" />
-          {% endif %}
-          <span class="fpred-team-name">{{ home.nickname or home.name }}</span>
-        </div>
-
-        <!-- VS Badge -->
-        <div class="fpred-centre">
-          <span class="fpred-vs">vs</span>
-        </div>
-
-        <!-- Away Team -->
-        <div class="fpred-team right">
-          <span class="fpred-team-name">{{ visit.nickname or visit.name }}</span>
-          {% if visit.logo %}
-          <img src="{{ visit.logo }}" class="team-logo-sm team-badge" alt="{{ visit.name }}" style="height: 28px; margin-left: 8px;" />
-          {% endif %}
+  <section class="split-layout">
+    <article class="nba-card glow-card">
+      <div class="split-header">
+        <div>
+          <span class="page-kicker">Upcoming Games</span>
+          <h2 class="section-title">Jump into the next NBA slate.</h2>
+          <p class="page-sub">Pick a real scheduled game to carry the fixture date and venue into the prediction tracker.</p>
         </div>
       </div>
 
-      <!-- Score/Prediction display -->
-      {% if h_pts is not none and v_pts is not none %}
-      <div class="fpred-score" style="text-align: center; margin-bottom: 0.8rem; padding: 0.6rem; background: rgba(255,255,255,0.05); border-radius: 6px;">
-        <div style="font-size: 1.1rem; font-weight: 600;">{{ h_pts }} – {{ v_pts }}</div>
-        <div style="font-size: 0.8rem; color: var(--nba-muted);">{{ g.status.long }}</div>
-      </div>
-      {% elif g.prediction and g.prediction.best_pick %}
-      <div class="fpred-score" style="text-align: center; margin-bottom: 0.8rem; padding: 0.6rem; background: rgba(255,255,255,0.05); border-radius: 6px;">
-        <div style="font-size: 0.95rem; font-weight: 600; color: #39ff88;">
-          🎯 {{ g.prediction.best_pick.prediction or "Prediction unavailable" }}
-        </div>
-        {% if g.prediction.win_probabilities %}
-        <div style="font-size: 0.8rem; color: var(--nba-muted); margin-top: 0.3rem;">
-          {{ g.prediction.prob_home or (g.prediction.win_probabilities.get('a', 0)|round(1)) }}% vs {{ g.prediction.prob_away or (g.prediction.win_probabilities.get('b', 0)|round(1)) }}%
-        </div>
-        {% endif %}
+      {% if upcoming_games %}
+      <div class="fixture-stack">
+        {% for g in upcoming_games %}
+        {% set home = g.teams.home %}
+        {% set visit = g.teams.visitors %}
+        {% set sc = g.scores %}
+        {% set h_pts = sc.home.points %}
+        {% set v_pts = sc.visitors.points %}
+        <article class="fpred-card glow-card">
+          <div class="fpred-meta">
+            <span>{{ g.date.start[:10] }}</span>
+            {% if g.date.start|length > 10 %}
+            <span>{{ g.date.start[11:16] }} UTC</span>
+            {% endif %}
+            {% if g.venue and g.venue.name %}
+            <span>{{ g.venue.name }}</span>
+            {% endif %}
+            {% if g.prediction and g.prediction.best_pick %}
+            <span class="confidence-badge {% if g.prediction.best_pick.confidence == 'High' %}conf-high{% elif g.prediction.best_pick.confidence == 'Medium' %}conf-medium{% else %}conf-low{% endif %}">
+              {{ g.prediction.best_pick.confidence or 'Unknown' }}
+            </span>
+            {% else %}
+            <span class="filter-chip">No confidence</span>
+            {% endif %}
+          </div>
+
+          <div class="fpred-teams-row">
+            <div class="fpred-team">
+              {% if home.logo %}
+              <img src="{{ home.logo }}" class="team-logo-sm team-badge" alt="{{ home.name }}" />
+              {% endif %}
+              <span class="fpred-team-name">{{ home.nickname or home.name }}</span>
+            </div>
+            <div class="fpred-centre">
+              <span class="fpred-vs">vs</span>
+            </div>
+            <div class="fpred-team right">
+              <span class="fpred-team-name">{{ visit.nickname or visit.name }}</span>
+              {% if visit.logo %}
+              <img src="{{ visit.logo }}" class="team-logo-sm team-badge" alt="{{ visit.name }}" />
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="surface-note">
+            {% if h_pts is not none and v_pts is not none %}
+            Final score: {{ h_pts }} - {{ v_pts }} | {{ g.status.long }}
+            {% elif g.prediction and g.prediction.best_pick %}
+            Predicted: <strong class="accent">{{ g.prediction.best_pick.prediction or 'Prediction unavailable' }}</strong>
+            {% if g.prediction.win_probabilities %}
+            | {{ g.prediction.prob_home or (g.prediction.win_probabilities.get('a', 0)|round(1)) }}% vs {{ g.prediction.prob_away or (g.prediction.win_probabilities.get('b', 0)|round(1)) }}%
+            {% endif %}
+            {% else %}
+            {{ g.status.long }}
+            {% endif %}
+          </div>
+
+          <div class="fpred-footer">
+            <span class="fpred-winner-label">
+              {% if g.prediction and g.prediction.best_pick %}
+              Pick: <strong class="accent">{{ g.prediction.best_pick.prediction or '--' }}</strong>
+              {% else %}
+              {{ home.nickname or home.name }} vs {{ visit.nickname or visit.name }}
+              {% endif %}
+            </span>
+            <form method="post" action="{{ url_for('nba.select_game') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="team_a" value="{{ home.id }}" />
+              <input type="hidden" name="team_b" value="{{ visit.id }}" />
+              <input type="hidden" name="team_a_name" value="{{ home.name }}" />
+              <input type="hidden" name="team_a_logo" value="{{ home.logo }}" />
+              <input type="hidden" name="team_b_name" value="{{ visit.name }}" />
+              <input type="hidden" name="team_b_logo" value="{{ visit.logo }}" />
+              <input type="hidden" name="event_id" value="{{ g.id }}" />
+              <input type="hidden" name="event_date" value="{{ g.date.start }}" />
+              <input type="hidden" name="event_status" value="{{ g.status.long }}" />
+              <input type="hidden" name="venue_name" value="{{ g.venue.name if g.venue else '' }}" />
+              <input type="hidden" name="short_name" value="{{ g.short_name }}" />
+              <button type="submit" class="btn btn-primary btn-sm">Analyze Game</button>
+            </form>
+          </div>
+        </article>
+        {% endfor %}
       </div>
       {% else %}
-      <div style="text-align: center; margin-bottom: 0.8rem; color: var(--nba-muted); font-size: 0.9rem;">
-        {{ g.status.long }}
+      <div class="empty-state">No upcoming NBA games found.</div>
+      {% endif %}
+    </article>
+
+    <article class="nba-card glow-card">
+      <div class="split-header">
+        <div>
+          <span class="page-kicker">Manual Matchup</span>
+          <h2 class="section-title">Choose any two teams.</h2>
+          <p class="page-sub">Use manual team selection when you want a direct comparison outside the listed schedule.</p>
+        </div>
+      </div>
+
+      <form method="post" action="{{ url_for('nba.select') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <div class="nba-select-grid">
+          <div>
+            <label class="nba-select-label" for="team_a">Team A (Home)</label>
+            <select name="team_a" id="team_a" class="nba-select" required>
+              <option value="" disabled selected>Choose a team...</option>
+              {% for t in teams %}
+              <option value="{{ t.id }}">{{ t.city }} {{ t.nickname }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="nba-select-label" for="team_b">Team B (Away)</label>
+            <select name="team_b" id="team_b" class="nba-select" required>
+              <option value="" disabled selected>Choose a team...</option>
+              {% for t in teams %}
+              <option value="{{ t.id }}">{{ t.city }} {{ t.nickname }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div id="teamPreview" class="nba-matchup-header" style="display:none;">
+          <div class="nba-team-block" id="previewA">
+            <img id="logoA" src="" alt="" class="nba-team-logo team-badge" onerror="this.style.display='none'" />
+            <span class="nba-team-name" id="nameA">Team A</span>
+          </div>
+          <div class="nba-vs-badge">VS</div>
+          <div class="nba-team-block" id="previewB">
+            <img id="logoB" src="" alt="" class="nba-team-logo team-badge" onerror="this.style.display='none'" />
+            <span class="nba-team-name" id="nameB">Team B</span>
+          </div>
+        </div>
+
+        <div class="page-actions" style="margin-top: 1rem;">
+          <button type="submit" class="nba-btn nba-btn-primary">Analyze Matchup</button>
+        </div>
+      </form>
+
+      {% if session.get('nba_team_a_id') and not selected_game %}
+      <div class="surface-note" style="margin-top: 1rem;">
+        Last selection: <strong>{{ session.nba_team_a_name }}</strong> vs <strong>{{ session.nba_team_b_name }}</strong>
+      </div>
+      <div class="page-actions" style="margin-top: 1rem;">
+        <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary">Matchup</a>
+        <a href="{{ url_for('nba.player') }}" class="nba-btn nba-btn-secondary">Rosters</a>
+        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary">Prediction</a>
       </div>
       {% endif %}
+    </article>
+  </section>
 
-      <!-- Footer with action button -->
-      <div class="fpred-footer" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid var(--border); padding-top: 0.8rem;">
-        <div style="flex: 1; font-size: 0.82rem;">
-          {% if g.prediction and g.prediction.best_pick %}
-          <div style="color: var(--nba-text); font-weight: 600; margin-bottom: 0.2rem;">
-            Pick: {{ g.prediction.best_pick.prediction or "—" }}
-          </div>
-          <div style="color: var(--nba-muted); font-size: 0.78rem;">
-            {{ home.nickname or home.name }} vs {{ visit.nickname or visit.name }}
-          </div>
-          {% else %}
-          <span class="fpred-winner-label" style="font-size: 0.85rem; color: var(--nba-muted);">
-            <strong style="color: var(--nba-text);">{{ home.nickname or home.name }}</strong>
-            vs
-            <strong style="color: var(--nba-text);">{{ visit.nickname or visit.name }}</strong>
-          </span>
-          {% endif %}
-        </div>
-        <form method="post" action="{{ url_for('nba.select_game') }}" style="display: inline;">
-          <input type="hidden" name="team_a" value="{{ home.id }}" />
-          <input type="hidden" name="team_b" value="{{ visit.id }}" />
-          <input type="hidden" name="team_a_name" value="{{ home.name }}" />
-          <input type="hidden" name="team_a_logo" value="{{ home.logo }}" />
-          <input type="hidden" name="team_b_name" value="{{ visit.name }}" />
-          <input type="hidden" name="team_b_logo" value="{{ visit.logo }}" />
-          <input type="hidden" name="event_id" value="{{ g.id }}" />
-          <input type="hidden" name="event_date" value="{{ g.date.start }}" />
-          <input type="hidden" name="event_status" value="{{ g.status.long }}" />
-          <input type="hidden" name="venue_name" value="{{ g.venue.name if g.venue else '' }}" />
-          <input type="hidden" name="short_name" value="{{ g.short_name }}" />
-          <button type="submit" class="btn btn-primary btn-sm btn-glow" style="font-size: 0.85rem;">
-            Analyze Game →
-          </button>
-        </form>
+  <article class="nba-card glow-card">
+    <div class="split-header">
+      <div>
+        <span class="page-kicker">Today's Games</span>
+        <h2 class="section-title">League pulse at a glance.</h2>
       </div>
     </div>
-    {% endfor %}
-    
-    {% else %}
-    <p style="color:var(--nba-muted); font-size:.9rem; margin:0;">No upcoming NBA games found.</p>
-    {% endif %}
-  </div>
-
-  <!-- ── Team Selection ─────────────────────────────────────────────────── -->
-  <div class="nba-card glow-card">
-    <div class="nba-card-title">🏀 Select Teams</div>
-    <form method="post" action="{{ url_for('nba.select') }}">
-      <div class="nba-select-grid">
-        <div>
-          <label class="nba-select-label" for="team_a">Team A (Home)</label>
-          <select name="team_a" id="team_a" class="nba-select" required>
-            <option value="" disabled selected>Choose a team…</option>
-            {% for t in teams %}
-            <option value="{{ t.id }}">{{ t.city }} {{ t.nickname }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label class="nba-select-label" for="team_b">Team B (Away)</label>
-          <select name="team_b" id="team_b" class="nba-select" required>
-            <option value="" disabled selected>Choose a team…</option>
-            {% for t in teams %}
-            <option value="{{ t.id }}">{{ t.city }} {{ t.nickname }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-
-      <!-- Logo preview -->
-      <div id="teamPreview" style="display:none;" class="nba-matchup-header" style="margin-bottom:1.5rem;">
-        <div class="nba-team-block" id="previewA">
-          <img id="logoA" src="" alt="" class="nba-team-logo team-badge" onerror="this.style.display='none'" />
-          <span class="nba-team-name" id="nameA">Team A</span>
-        </div>
-        <div class="nba-vs-badge">VS</div>
-        <div class="nba-team-block" id="previewB">
-          <img id="logoB" src="" alt="" class="nba-team-logo team-badge" onerror="this.style.display='none'" />
-          <span class="nba-team-name" id="nameB">Team B</span>
-        </div>
-      </div>
-
-      <div style="text-align:center; margin-top:1rem;">
-        <button type="submit" class="nba-btn nba-btn-primary btn-glow">
-          🔍 Analyse Matchup
-        </button>
-      </div>
-    </form>
-  </div>
-
-  <!-- ── Quick links if teams already selected ──────────────────────────── -->
-  {% if session.get('nba_team_a_id') and not selected_game %}
-  <div class="nba-card glow-card" style="padding:1rem 1.5rem;">
-    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem;">
-      <div style="color:var(--nba-muted); font-size:.9rem;">
-        Last selection:
-        <strong style="color:var(--nba-text);">{{ session.nba_team_a_name }}</strong>
-        vs
-        <strong style="color:var(--nba-text);">{{ session.nba_team_b_name }}</strong>
-      </div>
-      <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
-        <a href="{{ url_for('nba.matchup') }}" class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Matchup</a>
-        <a href="{{ url_for('nba.player') }}"  class="nba-btn nba-btn-secondary" style="font-size:.85rem; padding:.45rem 1rem;">Rosters</a>
-        <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem; padding:.45rem 1rem;">Prediction</a>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- ── Today's Games ───────────────────────────────────────────────────── -->
-  <div class="nba-card glow-card">
-    <div class="nba-card-title">📅 Today's NBA Games</div>
     {% if today_games %}
     <div class="nba-games-strip">
       {% for g in today_games %}
-      {% set home  = g.teams.home %}
+      {% set home = g.teams.home %}
       {% set visit = g.teams.visitors %}
-      {% set sc    = g.scores %}
-      {% set status = g.status.long %}
+      {% set sc = g.scores %}
       {% set h_pts = sc.home.points %}
       {% set v_pts = sc.visitors.points %}
       <div class="nba-game-tile {% if g.status.state == 'in' %}live{% endif %}">
@@ -273,28 +244,26 @@
           {% if g.date.start %}{{ g.date.start[:16].replace('T', ' ') }} UTC{% endif %}
         </div>
         <div class="nba-game-tile-teams">
-          {{ home.nickname or home.name }}<br/>
-          <span style="color:var(--nba-muted); font-size:.78rem;">vs</span><br/>
+          {{ home.nickname or home.name }}<br />
+          <span class="route-meta">vs</span><br />
           {{ visit.nickname or visit.name }}
         </div>
         {% if h_pts is not none and v_pts is not none %}
-        <div class="nba-game-tile-score stat-number" data-target="{{ h_pts }}">{{ h_pts }} – {{ v_pts }}</div>
+        <div class="nba-game-tile-score">{{ h_pts }} - {{ v_pts }}</div>
         {% endif %}
-        <div class="nba-game-tile-status">{{ status }}</div>
+        <div class="nba-game-tile-status">{{ g.status.long }}</div>
       </div>
       {% endfor %}
     </div>
     {% else %}
-    <p style="color:var(--nba-muted); font-size:.9rem;">No NBA games scheduled today.</p>
+    <div class="empty-state">No NBA games scheduled today.</div>
     {% endif %}
-  </div>
-
+  </article>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Build team lookup for preview
 const teams = {
   {% for t in teams %}
   {{ t.id }}: { name: "{{ t.city }} {{ t.nickname }}", logo: "{{ t.logo or '' }}" },
@@ -307,7 +276,8 @@ function updatePreview() {
   const preview = document.getElementById('teamPreview');
 
   if (aId && bId && aId !== bId) {
-    const a = teams[aId], b = teams[bId];
+    const a = teams[aId];
+    const b = teams[bId];
     document.getElementById('logoA').src = a.logo;
     document.getElementById('nameA').textContent = a.name;
     document.getElementById('logoB').src = b.logo;
@@ -320,21 +290,5 @@ function updatePreview() {
 
 document.getElementById('team_a').addEventListener('change', updatePreview);
 document.getElementById('team_b').addEventListener('change', updatePreview);
-</script>
-
-<!-- Particles background -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/particles.js/2.0.0/particles.min.js"></script>
-<div id="particles-js"></div>
-<script>
-particlesJS('particles-js', {
-  particles: {
-    number: { value: 40 },
-    color: { value: '#f59e0b' },
-    opacity: { value: 0.12 },
-    size: { value: 2 },
-    line_linked: { enable: true, color: '#f59e0b', opacity: 0.04 },
-    move: { enable: true, speed: 0.8 }
-  }
-});
 </script>
 {% endblock %}

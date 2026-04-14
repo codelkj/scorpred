@@ -529,3 +529,233 @@
   .nba-hero h1  { font-size: 1.5rem; }
   .nba-props-grid { grid-template-columns: 1fr; }
 }
+
+/* ==========================================================================
+   NBA data-intelligence theme override
+   ========================================================================== */
+
+:root {
+  --nba-navy: #0b0f14;
+  --nba-navy2: #0f1723;
+  --nba-card: #111827;
+  --nba-border: #1f2937;
+  --nba-gold: #00f5a0;
+  --nba-gold2: #46f7d0;
+  --nba-red: #ef4444;
+  --nba-green: #00f5a0;
+  --nba-blue: #3b82f6;
+  --nba-muted: #9ca3af;
+  --nba-text: #e5e7eb;
+  --nba-radius: 18px;
+  --nba-shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+}
+
+.nba-page {
+  background: transparent;
+  gap: 1.35rem;
+}
+
+.nba-hero,
+.nba-card,
+.nba-matchup-header,
+.nba-player-panel,
+.nba-prop-card,
+.nba-factor-card,
+.nba-game-tile,
+.nba-bets-slip {
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.96));
+  border-color: rgba(31, 41, 55, 0.92);
+  box-shadow: var(--nba-shadow);
+}
+
+.nba-hero {
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.18), transparent 30%),
+    radial-gradient(circle at left center, rgba(0, 245, 160, 0.12), transparent 26%),
+    linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.98));
+}
+
+.nba-hero h1,
+.nba-card-title,
+.nba-bets-slip-title,
+.nba-player-name,
+.nba-team-name {
+  color: var(--nba-text);
+  font-family: 'Space Grotesk', sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.nba-card-title,
+.nba-bets-slip-title {
+  font-size: 1.08rem;
+}
+
+.nba-hero p,
+.nba-player-meta,
+.nba-prop-breakdown,
+.nba-prop-conf,
+.nba-stat-label,
+.nba-game-tile-time,
+.nba-game-tile-status,
+.nba-select-label {
+  color: var(--nba-muted);
+}
+
+.nba-hero-icon {
+  color: var(--nba-text);
+}
+
+.nba-matchup-header {
+  border-radius: 22px;
+}
+
+.nba-vs-badge {
+  color: var(--nba-text);
+  border-color: rgba(59, 130, 246, 0.32);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.nba-select-label {
+  color: var(--nba-muted);
+}
+
+.nba-select {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(31, 41, 55, 0.95);
+  color: var(--nba-text);
+}
+
+.nba-select:focus {
+  border-color: rgba(0, 245, 160, 0.35);
+  box-shadow: 0 0 0 3px rgba(0, 245, 160, 0.08);
+}
+
+.nba-btn-primary {
+  background: linear-gradient(135deg, var(--nba-gold), var(--nba-gold2));
+  color: #04110c;
+  box-shadow: 0 16px 34px rgba(0, 245, 160, 0.2);
+}
+
+.nba-btn-primary:hover {
+  background: linear-gradient(135deg, var(--nba-gold), var(--nba-gold2));
+}
+
+.nba-btn-secondary {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(31, 41, 55, 0.95);
+  color: var(--nba-text);
+}
+
+.nba-btn-secondary:hover {
+  border-color: rgba(59, 130, 246, 0.24);
+  color: var(--nba-text);
+}
+
+.nba-tab.active {
+  color: var(--nba-gold);
+  border-bottom-color: var(--nba-gold);
+}
+
+.nba-table th {
+  color: var(--nba-muted);
+  border-bottom-color: rgba(31, 41, 55, 0.9);
+}
+
+.nba-table td {
+  color: var(--nba-text);
+  border-bottom-color: rgba(31, 41, 55, 0.55);
+}
+
+.nba-table tr:hover td {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.nba-badge-w,
+.nba-badge-over,
+.nba-badge-high {
+  background: rgba(0, 245, 160, 0.12);
+  color: var(--nba-gold);
+}
+
+.nba-badge-l,
+.nba-badge-under {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--nba-red);
+}
+
+.nba-badge-med,
+.nba-badge-push {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--nba-blue);
+}
+
+.nba-game-tile-score,
+.nba-prop-line {
+  color: var(--nba-gold);
+}
+
+.nba-game-tile.live {
+  border-color: rgba(0, 245, 160, 0.28);
+}
+
+.nba-game-tile.live .nba-game-tile-status {
+  color: var(--nba-gold);
+}
+
+.nba-prob-a {
+  background: linear-gradient(90deg, var(--nba-gold), var(--nba-gold2));
+  color: #04110c;
+}
+
+.nba-prob-b {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.8), var(--nba-blue));
+  color: var(--nba-text);
+}
+
+.nba-prop-card.over-lean {
+  border-left-color: var(--nba-gold);
+}
+
+.nba-prop-card.under-lean {
+  border-left-color: var(--nba-red);
+}
+
+.nba-prop-card.push-lean {
+  border-left-color: var(--nba-blue);
+}
+
+.nba-prop-lean.over {
+  background: rgba(0, 245, 160, 0.12);
+  color: var(--nba-gold);
+}
+
+.nba-prop-lean.under {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--nba-red);
+}
+
+.nba-prop-lean.push {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--nba-blue);
+}
+
+.nba-stat-val.better,
+.conf-high {
+  color: var(--nba-gold);
+}
+
+.conf-medium {
+  color: var(--nba-blue);
+}
+
+.conf-low {
+  color: var(--nba-red);
+}
+
+.nba-disclaimer {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.24);
+  color: #f6c9c9;
+}

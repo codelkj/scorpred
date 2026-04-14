@@ -3,213 +3,148 @@
 {% block title %}Update Prediction Results | ScorPred{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <h1>🔄 Update Prediction Results</h1>
-            <p class="text-muted">Fetch game results and update pending predictions automatically</p>
-        </div>
+<section class="page-hero">
+  <div class="page-hero-copy">
+    <span class="page-kicker">Result Reconciliation</span>
+    <h1 class="page-title">Refresh pending predictions against real outcomes.</h1>
+    <p class="page-sub">
+      Use this workflow to pull completed results into the tracker and keep the dashboard aligned with reality.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('model_performance') }}" class="btn btn-secondary">Back to Performance</a>
+    <a href="/" class="btn btn-secondary">Home</a>
+  </div>
+</section>
+
+<section class="section-stack">
+  <div class="performance-summary-grid">
+    <article class="performance-stat-card">
+      <span class="metric-label">Total Predictions</span>
+      <strong class="performance-stat-value">{{ summary.total }}</strong>
+      <div class="performance-stat-meta">Stored in the tracker</div>
+    </article>
+    <article class="performance-stat-card">
+      <span class="metric-label">Completed</span>
+      <strong class="performance-stat-value performance-tone-good">{{ summary.completed }}</strong>
+      <div class="performance-stat-meta">Already reconciled</div>
+    </article>
+    <article class="performance-stat-card">
+      <span class="metric-label">Pending</span>
+      <strong class="performance-stat-value performance-tone-mid">{{ summary.pending }}</strong>
+      <div class="performance-stat-meta">Waiting for result lookup</div>
+    </article>
+    <article class="performance-stat-card gradient-border">
+      <span class="metric-label">Completion Rate</span>
+      <strong class="performance-stat-value">{{ summary.completion_rate }}%</strong>
+      <div class="performance-stat-meta">Share of predictions already graded</div>
+    </article>
+  </div>
+</section>
+
+{% if summary.pending > 0 %}
+<section class="section-stack">
+  <article class="card glow-card">
+    <div class="section-heading">
+      <div>
+        <span class="page-kicker">Run Update</span>
+        <h2 class="section-title">Fetch the latest game results.</h2>
+        <p class="page-sub">
+          This will check {{ summary.pending }} pending predictions and mark them correct or incorrect when a matching final result is found.
+        </p>
+      </div>
+    </div>
+    <form method="POST">
+      <button type="submit" class="btn btn-primary btn-lg">Update Now</button>
+    </form>
+  </article>
+</section>
+{% endif %}
+
+{% if update_stats %}
+<section class="section-stack">
+  <article class="card glow-card">
+    <div class="section-heading">
+      <div>
+        <span class="page-kicker">Update Complete</span>
+        <h2 class="section-title">Result refresh summary.</h2>
+      </div>
     </div>
 
-    <!-- Summary Stats -->
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Prediction Status</h5>
-                    <div class="row">
-                        <div class="col-md-4">
-                            <p>
-                                <strong>Total Predictions:</strong> 
-                                <span class="badge bg-info">{{ summary.total }}</span>
-                            </p>
-                        </div>
-                        <div class="col-md-4">
-                            <p>
-                                <strong>Completed:</strong> 
-                                <span class="badge bg-success">{{ summary.completed }}</span>
-                            </p>
-                        </div>
-                        <div class="col-md-4">
-                            <p>
-                                <strong>Pending:</strong> 
-                                <span class="badge bg-warning text-dark">{{ summary.pending }}</span>
-                            </p>
-                        </div>
-                    </div>
-                    <div class="progress" style="height: 25px;">
-                        {% set width = summary.completion_rate %}
-                        <div class="progress-bar bg-success" 
-                             role="progressbar" 
-                             style="width: {{ width }}%;"
-                             aria-valuenow="{{ width }}" 
-                             aria-valuemin="0" 
-                             aria-valuemax="100">
-                            {{ width }}% Complete
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="performance-grid">
+      <div class="performance-card">
+        <span class="metric-label">Checked</span>
+        <strong class="metric-value">{{ update_stats.checked }}</strong>
+      </div>
+      <div class="performance-card">
+        <span class="metric-label">Results Found</span>
+        <strong class="metric-value performance-tone-good">{{ update_stats.found }}</strong>
+      </div>
+      <div class="performance-card">
+        <span class="metric-label">Updated</span>
+        <strong class="metric-value performance-tone-good">{{ update_stats.updated }}</strong>
+      </div>
+      <div class="performance-card">
+        <span class="metric-label">Failed</span>
+        <strong class="metric-value performance-tone-risk">{{ update_stats.failed }}</strong>
+      </div>
     </div>
 
-    <!-- Update Form -->
-    {% if summary.pending > 0 %}
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <div class="card border-info">
-                <div class="card-body">
-                    <h5 class="card-title">Run Automatic Update</h5>
-                    <p class="card-text">
-                        This will fetch game results for the {{ summary.pending }} pending predictions 
-                        and automatically mark them correct or incorrect.
-                    </p>
-                    <form method="POST" class="mt-3">
-                        <button type="submit" class="btn btn-primary btn-lg">
-                            🔄 Update Now
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
+    {% if update_stats.errors %}
+    <div class="surface-note" style="margin-top: 1rem;">
+      <strong>Errors / Notes</strong>
+      <ul style="margin: .5rem 0 0 1.1rem;">
+        {% for error in update_stats.errors %}
+        <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
     </div>
     {% endif %}
+  </article>
 
-    <!-- Update Results -->
-    {% if update_stats %}
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <div class="card 
-                {% if update_stats.updated > 0 %}border-success{% elif update_stats.found > 0 %}border-warning{% else %}border-info{% endif %}">
-                <div class="card-body">
-                    <h5 class="card-title">✅ Update Complete</h5>
-                    
-                    <div class="row mt-3">
-                        <div class="col-md-3">
-                            <p>
-                                <strong>Checked:</strong> 
-                                <span class="badge bg-info">{{ update_stats.checked }}</span>
-                            </p>
-                        </div>
-                        <div class="col-md-3">
-                            <p>
-                                <strong>Results Found:</strong> 
-                                <span class="badge bg-success">{{ update_stats.found }}</span>
-                            </p>
-                        </div>
-                        <div class="col-md-3">
-                            <p>
-                                <strong>Updated:</strong> 
-                                <span class="badge bg-success">{{ update_stats.updated }}</span>
-                            </p>
-                        </div>
-                        <div class="col-md-3">
-                            <p>
-                                <strong>Failed:</strong> 
-                                <span class="badge bg-danger">{{ update_stats.failed }}</span>
-                            </p>
-                        </div>
-                    </div>
-
-                    {% if update_stats.errors %}
-                    <div class="mt-3">
-                        <p class="text-muted"><strong>Errors/Notes:</strong></p>
-                        <ul class="small text-muted">
-                            {% for error in update_stats.errors %}
-                            <li>{{ error }}</li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
+  <article class="card glow-card">
+    <div class="section-heading">
+      <div>
+        <span class="page-kicker">Updated Metrics</span>
+        <h2 class="section-title">Tracker accuracy after reconciliation.</h2>
+      </div>
     </div>
 
-    <!-- Updated Metrics -->
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <h5>Updated Accuracy Metrics</h5>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card text-center">
-                <div class="card-body">
-                    <h5 class="card-title">Total Predictions</h5>
-                    <h2 class="text-primary">{{ metrics.total_predictions }}</h2>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card text-center">
-                <div class="card-body">
-                    <h5 class="card-title">Finalized</h5>
-                    <h2 class="text-info">{{ metrics.finalized_predictions }}</h2>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="card text-center 
-                {% if metrics.overall_accuracy >= 55 %}bg-success text-white{% elif metrics.overall_accuracy >= 45 %}bg-warning text-white{% else %}bg-danger text-white{% endif %}">
-                <div class="card-body">
-                    <h5 class="card-title">Overall Accuracy</h5>
-                    {% if metrics.overall_accuracy is not none %}
-                    <h2>{{ metrics.overall_accuracy }}%</h2>
-                    {% else %}
-                    <p class="text-muted">Waiting for results...</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
+    <div class="performance-summary-grid">
+      <div class="performance-stat-card">
+        <span class="metric-label">Total Predictions</span>
+        <strong class="performance-stat-value">{{ metrics.total_predictions }}</strong>
+      </div>
+      <div class="performance-stat-card">
+        <span class="metric-label">Finalized</span>
+        <strong class="performance-stat-value">{{ metrics.finalized_predictions }}</strong>
+      </div>
+      <div class="performance-stat-card gradient-border">
+        <span class="metric-label">Overall Accuracy</span>
+        <strong class="performance-stat-value">
+          {% if metrics.overall_accuracy is not none %}
+          {{ metrics.overall_accuracy }}%
+          {% else %}
+          Waiting for results
+          {% endif %}
+        </strong>
+      </div>
     </div>
 
     {% if metrics.by_confidence %}
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <h5>Accuracy by Confidence Level</h5>
+    <div class="performance-grid" style="margin-top: 1rem;">
+      {% for conf_level in ['High', 'Medium', 'Low'] %}
+        {% if metrics.by_confidence.get(conf_level) %}
+        <div class="performance-card">
+          <span class="confidence-badge conf-{{ conf_level | lower }}">{{ conf_level }}</span>
+          <strong class="metric-value">{{ metrics.by_confidence[conf_level].accuracy }}%</strong>
+          <div class="metric-meta">{{ metrics.by_confidence[conf_level].count }} predictions</div>
         </div>
-    </div>
-
-    <div class="row mb-4">
-        {% for conf_level in ['High', 'Medium', 'Low'] %}
-            {% if metrics.by_confidence.get(conf_level) %}
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h5 class="card-title">{{ conf_level }} Confidence</h5>
-                        <h3 class="{% if metrics.by_confidence[conf_level].accuracy >= 55 %}text-success{% elif metrics.by_confidence[conf_level].accuracy >= 45 %}text-warning{% else %}text-danger{% endif %}">
-                            {{ metrics.by_confidence[conf_level].accuracy }}%
-                        </h3>
-                        <p class="text-muted">{{ metrics.by_confidence[conf_level].count }} predictions</p>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-        {% endfor %}
+        {% endif %}
+      {% endfor %}
     </div>
     {% endif %}
-
-    {% endif %}
-
-    <!-- Navigation -->
-    <div class="row">
-        <div class="col-md-12">
-            <a href="{{ url_for('model_performance') }}" class="btn btn-secondary">← Back to Performance</a>
-            <a href="/" class="btn btn-outline-secondary">Home</a>
-        </div>
-    </div>
-</div>
-
-<style>
-    .card {
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .badge {
-        font-size: 0.85rem;
-        padding: 0.4rem 0.6rem;
-    }
-</style>
+  </article>
+</section>
+{% endif %}
 {% endblock %}

@@ -1,64 +1,154 @@
 {% extends "base.html" %}
-{% block title %}ScorPred - Data-Driven Sports Analysis{% endblock %}
+{% block title %}ScorPred - Sports Decision Intelligence{% endblock %}
 
 {% block content %}
-<div class="hero">
-  <h1 class="hero-title">Welcome to <span class="accent">ScorPred</span></h1>
-  <p class="hero-sub">Data-driven sports analysis for soccer and NBA</p>
-</div>
-
-<div class="card glow-card" style="margin-bottom:2rem;">
-  <h2 class="card-title" style="margin-bottom:1rem;">What would you like to analyze today?</h2>
-  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:1rem;">
-    <a href="/soccer" class="card glow-card" style="text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="text-align:center; padding:1.5rem;">
-        <div style="font-size:2rem; margin-bottom:.5rem;">⚽</div>
-        <h3 style="font-size:1.2rem; font-weight:600; margin-bottom:.3rem;">Soccer Analysis</h3>
-        <p style="color:#8b949e; font-size:.85rem;">Premier League and international fixtures</p>
+{% set home_match_analysis_href = '/prediction' if session.get('team_a_id') else '/nba/prediction' if session.get('nba_team_a_id') else '/soccer' %}
+<section class="landing-hero">
+  <div class="landing-hero-grid">
+    <div class="landing-copy">
+      <span class="page-kicker">Sports Decision Intelligence Platform</span>
+      <h1 class="landing-title">Premium match analysis built for signal, not noise.</h1>
+      <p class="landing-subtitle">
+        ScorPred brings soccer and NBA research into one dark, focused workspace for explainable picks,
+        matchup context, strategy tracking, and model performance review.
+      </p>
+      <div class="landing-actions">
+        <a href="/soccer" class="btn btn-primary">Open Soccer Analysis</a>
+        <a href="/nba/" class="btn btn-secondary">Open NBA Analysis</a>
+        <a href="/strategy-lab" class="btn btn-secondary">View Strategy Lab</a>
       </div>
+      <div class="landing-stats">
+        <div class="landing-stat">
+          <span class="metric-label">Coverage</span>
+          <strong>Soccer + NBA</strong>
+          <div class="metric-meta">Multi-sport prediction and review flow</div>
+        </div>
+        <div class="landing-stat">
+          <span class="metric-label">Decision Style</span>
+          <strong class="is-accent">Explainable</strong>
+          <div class="metric-meta">Weighted picks with visible drivers and risks</div>
+        </div>
+        <div class="landing-stat">
+          <span class="metric-label">Review Layer</span>
+          <strong class="is-info">Strategy Lab</strong>
+          <div class="metric-meta">Backtesting, grading, and ML comparison</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="landing-panel">
+      <article class="trust-card">
+        <span class="table-kicker">Live Workflow</span>
+        <div class="panel-list">
+          <div class="panel-list-item">
+            <strong>Select a matchup</strong>
+            <div class="flow-copy">Choose a fixture or game from the live soccer or NBA entry points.</div>
+          </div>
+          <div class="panel-list-item">
+            <strong>Read the analysis</strong>
+            <div class="flow-copy">See the final pick, confidence, risk flags, and weighted context in one view.</div>
+          </div>
+          <div class="panel-list-item">
+            <strong>Track the result</strong>
+            <div class="flow-copy">Store the prediction against the real game date for later reconciliation.</div>
+          </div>
+          <div class="panel-list-item">
+            <strong>Compare strategies</strong>
+            <div class="flow-copy">Use Strategy Lab to review performance and the current ML leader.</div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="section-stack">
+  <div class="split-header">
+    <div>
+      <span class="page-kicker">Core Routes</span>
+      <h2 class="section-title">Start anywhere in the product.</h2>
+    </div>
+  </div>
+
+  <div class="route-grid">
+    <a href="/soccer" class="route-card">
+      <span class="route-icon">SC</span>
+      <div class="route-label">Soccer</div>
+      <div class="route-title">Fixture analysis and team selection</div>
+      <div class="route-meta">Upcoming fixtures, manual matchup selection, and prediction handoff.</div>
+      <span class="route-cta">Open soccer workspace</span>
     </a>
 
-    <a href="/nba" class="card glow-card" style="text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="text-align:center; padding:1.5rem;">
-        <div style="font-size:2rem; margin-bottom:.5rem;">🏀</div>
-        <h3 style="font-size:1.2rem; font-weight:600; margin-bottom:.3rem;">NBA Analysis</h3>
-        <p style="color:#8b949e; font-size:.85rem;">NBA games and player props</p>
-      </div>
+    <a href="/nba/" class="route-card">
+      <span class="route-icon">NBA</span>
+      <div class="route-label">NBA</div>
+      <div class="route-title">Game analysis and prop context</div>
+      <div class="route-meta">Upcoming NBA games, form snapshots, and prediction pages.</div>
+      <span class="route-cta">Open NBA workspace</span>
     </a>
 
-    <a href="/top-picks-today" class="card glow-card" style="text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="text-align:center; padding:1.5rem;">
-        <div style="font-size:2rem; margin-bottom:.5rem;">🎯</div>
-        <h3 style="font-size:1.2rem; font-weight:600; margin-bottom:.3rem;">Top Picks Today</h3>
-        <p style="color:#8b949e; font-size:.85rem;">Strongest predictions across all sports</p>
-      </div>
+    <a href="{{ home_match_analysis_href }}" class="route-card">
+      <span class="route-icon">MA</span>
+      <div class="route-label">Match Analysis</div>
+      <div class="route-title">Final pick and signal review</div>
+      <div class="route-meta">Use the strongest analysis surface after selecting a matchup.</div>
+      <span class="route-cta">Go to match analysis</span>
     </a>
 
-    <a href="/model-performance" class="card glow-card" style="text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="text-align:center; padding:1.5rem;">
-        <div style="font-size:2rem; margin-bottom:.5rem;">📊</div>
-        <h3 style="font-size:1.2rem; font-weight:600; margin-bottom:.3rem;">Model Performance</h3>
-        <p style="color:#8b949e; font-size:.85rem;">Track accuracy and results</p>
-      </div>
+    <a href="/strategy-lab" class="route-card">
+      <span class="route-icon">SL</span>
+      <div class="route-label">Strategy Lab</div>
+      <div class="route-title">Backtesting and ML comparison</div>
+      <div class="route-meta">Review tracked outcomes, strategy breakdowns, and model leadership.</div>
+      <span class="route-cta">Open Strategy Lab</span>
+    </a>
+
+    <a href="/model-performance" class="route-card">
+      <span class="route-icon">PF</span>
+      <div class="route-label">Performance</div>
+      <div class="route-title">Prediction grading dashboard</div>
+      <div class="route-meta">Monitor completed results, confidence tiers, and unresolved predictions.</div>
+      <span class="route-cta">Review performance</span>
     </a>
   </div>
-</div>
+</section>
 
-<div class="card glow-card" style="background:rgba(239,68,68,.05); border:1px solid rgba(239,68,68,.2);">
-  <div style="text-align:center; padding:1rem;">
-    <div style="font-size:1.1rem; font-weight:600; color:#ef4444; margin-bottom:.5rem;">⚠️ Important Notice</div>
-    <p style="color:#8b949e; font-size:.9rem; margin:0;">
-      ScorPred provides model-based analysis for informational purposes only. It is not financial advice, guaranteed betting advice, or a recommendation to place any bets. All predictions are based on statistical models and historical data, but sports outcomes are inherently unpredictable.
-    </p>
+<section class="section-stack">
+  <div class="split-layout">
+    <article class="card glow-card">
+      <div class="split-header">
+        <div>
+          <span class="page-kicker">Product Value</span>
+          <h2 class="section-title">Built like an analytics platform, not a generic dashboard.</h2>
+        </div>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon">01</div>
+          <h3>Weighted recommendation engine</h3>
+          <p>Form, matchup context, venue, and squad considerations are combined into one final pick.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">02</div>
+          <h3>Readable explanation layer</h3>
+          <p>Drivers, risks, and optional angles are displayed clearly enough for quick decision review.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">03</div>
+          <h3>Performance accountability</h3>
+          <p>Tracked outcomes feed the dashboards so strategy and model quality can be reviewed honestly.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="disclaimer-card">
+      <span class="page-kicker">Important Notice</span>
+      <h2 class="section-title">Informational analysis only.</h2>
+      <p class="surface-note">
+        ScorPred provides model-based research and workflow support. It is not financial advice and it does
+        not guarantee outcomes. Always validate injuries, line movement, and late lineup context before acting.
+      </p>
+    </article>
   </div>
-</div>
-
+</section>
 {% endblock %}

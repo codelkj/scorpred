@@ -2,254 +2,278 @@
 {% block title %}Model Performance | ScorPred{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h1>Model <span class="accent">Performance</span></h1>
-  <p class="page-sub">Scorpred prediction accuracy — updated automatically as results come in</p>
-</div>
+{% set overall_accuracy = metrics.overall_accuracy if metrics.overall_accuracy is not none else None %}
+{% set overall_tone = 'mid' %}
+{% if overall_accuracy is not none %}
+  {% if overall_accuracy >= 55 %}
+    {% set overall_tone = 'good' %}
+  {% elif overall_accuracy < 45 %}
+    {% set overall_tone = 'risk' %}
+  {% endif %}
+{% endif %}
 
-{# ── Auto-update button ─────────────────────────────────────────────────── #}
-<div style="display:flex; justify-content:flex-end; margin-bottom:1.25rem;">
-  <a href="{{ url_for('update_prediction_results') }}" class="btn btn-secondary btn-sm btn-glow">
-    Refresh Results
-  </a>
-</div>
+<section class="landing-hero performance-hero">
+  <div class="performance-layout">
+    <div class="landing-copy">
+      <span class="page-kicker">Performance Dashboard</span>
+      <h1 class="landing-title">Track what the model said against what really happened.</h1>
+      <p class="landing-subtitle">
+        Review finalized outcomes, pending predictions, sport splits, and confidence performance without
+        losing the bigger picture.
+      </p>
+      <div class="performance-actions">
+        <a href="{{ url_for('update_prediction_results') }}" class="btn btn-primary">Refresh Results</a>
+        <a href="/strategy-lab" class="btn btn-secondary">Open Strategy Lab</a>
+      </div>
+    </div>
+
+    <div class="landing-panel">
+      <article class="trust-card">
+        <span class="table-kicker">Current Snapshot</span>
+        <div class="panel-list">
+          <div class="panel-list-item">
+            <strong>Finalized predictions</strong>
+            <div class="flow-copy">{{ metrics.finalized_predictions or 0 }} tracked picks have been graded.</div>
+          </div>
+          <div class="panel-list-item">
+            <strong>Pending predictions</strong>
+            <div class="flow-copy">{{ pending_predictions | length }} predictions are still waiting for final result reconciliation.</div>
+          </div>
+          <div class="panel-list-item">
+            <strong>Overall accuracy</strong>
+            <div class="flow-copy">
+              {% if overall_accuracy is not none %}
+                {{ overall_accuracy }}% across resolved predictions.
+              {% else %}
+                Waiting for enough resolved outcomes to grade the dashboard.
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
 
 {% if metrics.total_predictions == 0 %}
-<div class="card glow-card" style="padding:1.5rem; text-align:center;">
-  <div style="font-size:1.3rem; margin-bottom:.5rem;">📊</div>
-  <h3 style="margin-bottom:.4rem;">No predictions tracked yet</h3>
-  <p style="color:#8b949e; font-size:.85rem; margin-bottom:1rem;">
-    Predictions are tracked automatically when you generate them. Start with a matchup on the
-    <a href="/">Home</a> page or the <a href="/nba/">NBA</a> section.
-  </p>
-</div>
+<section class="section-stack">
+  <article class="performance-empty">
+    <span class="page-kicker">No History Yet</span>
+    <h2 class="section-title">No predictions have been tracked yet.</h2>
+    <p>
+      Predictions are stored automatically when you generate them. Start from the soccer workspace,
+      the NBA workspace, or a saved match analysis route.
+    </p>
+    <div class="page-actions" style="margin-top: 1rem;">
+      <a href="/soccer" class="btn btn-primary">Open Soccer</a>
+      <a href="/nba/" class="btn btn-secondary">Open NBA</a>
+    </div>
+  </article>
+</section>
 {% else %}
 
-{# ── Top-level summary row ─────────────────────────────────────────────── #}
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+<section class="section-stack">
+  <div class="performance-summary-grid">
+    <article class="performance-stat-card">
+      <span class="metric-label">Total Tracked</span>
+      <strong class="performance-stat-value">{{ metrics.total_predictions }}</strong>
+      <div class="performance-stat-meta">All predictions saved to the tracker</div>
+    </article>
 
-  <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
-    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Total Tracked</div>
-    <div class="stat-number accent" style="font-size:2.2rem; font-weight:800;">{{ metrics.total_predictions }}</div>
+    <article class="performance-stat-card">
+      <span class="metric-label">Wins</span>
+      <strong class="performance-stat-value performance-tone-good">{{ metrics.wins or 0 }}</strong>
+      <div class="performance-stat-meta">Resolved winner calls graded as correct</div>
+    </article>
+
+    <article class="performance-stat-card">
+      <span class="metric-label">Losses</span>
+      <strong class="performance-stat-value performance-tone-risk">{{ metrics.losses or 0 }}</strong>
+      <div class="performance-stat-meta">Resolved winner calls graded as incorrect</div>
+    </article>
+
+    <article class="performance-stat-card gradient-border">
+      <span class="metric-label">Overall Accuracy</span>
+      <strong class="performance-stat-value performance-tone-{{ overall_tone }}">
+        {{ overall_accuracy ~ '%' if overall_accuracy is not none else 'Awaiting sample' }}
+      </strong>
+      <div class="performance-stat-meta">Finalized prediction hit rate</div>
+    </article>
   </div>
+</section>
 
-  <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
-    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Wins</div>
-    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#00ff87;">{{ metrics.wins or 0 }}</div>
+<section class="section-stack">
+  <div class="section-heading">
+    <div>
+      <span class="page-kicker">Filters</span>
+      <h2 class="section-title">Focus the completed sample.</h2>
+    </div>
+    <div class="performance-toolbar">
+      <a href="{{ url_for('model_performance') }}" class="filter-chip {% if not sport_filter %}source-api{% endif %}">All Sports</a>
+      <a href="{{ url_for('model_performance', sport='soccer') }}" class="filter-chip {% if sport_filter == 'soccer' %}source-api{% endif %}">Soccer</a>
+      <a href="{{ url_for('model_performance', sport='nba') }}" class="filter-chip {% if sport_filter == 'nba' %}source-api{% endif %}">NBA</a>
+    </div>
   </div>
+</section>
 
-  <div class="card glow-card" style="text-align:center; padding:1.25rem 1rem;">
-    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Losses</div>
-    <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#ef4444;">{{ metrics.losses or 0 }}</div>
-  </div>
-
-  <div class="card glow-card gradient-border" style="text-align:center; padding:1.25rem 1rem;">
-    <div style="font-size:.72rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Overall Accuracy</div>
-    {% if metrics.overall_accuracy is not none %}
-      {% if metrics.overall_accuracy >= 55 %}
-        <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#00ff87;">{{ metrics.overall_accuracy }}%</div>
-      {% elif metrics.overall_accuracy >= 45 %}
-        <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#f59e0b;">{{ metrics.overall_accuracy }}%</div>
-      {% else %}
-        <div class="stat-number" style="font-size:2.2rem; font-weight:800; color:#ef4444;">{{ metrics.overall_accuracy }}%</div>
-      {% endif %}
-    {% else %}
-      <div style="font-size:.85rem; color:#8b949e; margin-top:.5rem;">Awaiting results…</div>
-    {% endif %}
-  </div>
-
-</div>
-
-{# ── Completed Results ────────────────────────────────────────────────── #}
 {% if completed_predictions %}
-<div class="section-title">
-  Completed Results{% if sport_filter %} — {{ 'Soccer' if sport_filter == 'soccer' else 'NBA' }}{% endif %}
-</div>
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; margin-bottom:1.5rem;">
-  {% for pred in completed_predictions %}
-  <div class="card glow-card" style="padding:1.25rem;">
-    <div style="margin-bottom:1rem;">
-      <div style="font-size:1.1rem; font-weight:600; color:#e6edf3; margin-bottom:.5rem;">
-        {{ pred.team_a }} vs {{ pred.team_b }}
+<section class="section-stack">
+  <div class="section-heading">
+    <div>
+      <span class="page-kicker">Completed Results</span>
+      <h2 class="section-title">
+        Finalized prediction outcomes{% if sport_filter %} for {{ 'Soccer' if sport_filter == 'soccer' else 'NBA' }}{% endif %}.
+      </h2>
+    </div>
+  </div>
+
+  <div class="results-grid">
+    {% for pred in completed_predictions %}
+    <article class="result-card">
+      <div class="result-row">
+        <div>
+          <div class="route-title">{{ pred.team_a }} vs {{ pred.team_b }}</div>
+          <div class="route-meta">{{ pred.date or pred.game_date or 'Date pending' }}</div>
+        </div>
+        <span class="result-badge {% if pred.winner_hit %}source-api{% else %}source-espn{% endif %}">
+          {{ pred.overall_game_result or ('Win' if pred.winner_hit else 'Loss') }}
+        </span>
       </div>
-      <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
-        Final Score: {{ pred.final_score_display }}
+
+      <div class="panel-list" style="margin-top: 1rem;">
+        <div class="panel-list-item">
+          <strong>Final Score</strong>
+          <div class="flow-copy">{{ pred.final_score_display or 'Pending final score' }}</div>
+        </div>
+        <div class="panel-list-item">
+          <strong>Winner Pick</strong>
+          <div class="flow-copy">{{ pred.winner_display or ('Correct winner call' if pred.winner_hit else 'Missed winner call') }}</div>
+        </div>
+        {% if pred.ou_display %}
+        <div class="panel-list-item">
+          <strong>Total Pick</strong>
+          <div class="flow-copy">{{ pred.ou_display }}</div>
+        </div>
+        {% endif %}
       </div>
-      {% if pred.total_label %}
-      <div style="font-size:.75rem; color:#8b949e; margin-bottom:.3rem;">
-        {{ pred.total_label }}
-      </div>
-      {% endif %}
-      <div style="font-size:.75rem; margin-bottom:.3rem;">
-        <span style="color:{% if pred.winner_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ pred.winner_display }}</span>
-      </div>
-      {% if pred.ou_display %}
-      <div style="font-size:.75rem; margin-bottom:.3rem;">
-        <span style="color:{% if pred.ou_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ pred.ou_display }}</span>
-      </div>
-      {% endif %}
-      <div style="font-size:.75rem; margin-bottom:.3rem;">
-        <span style="color:{% if pred.game_win %}#00ff87{% else %}#ef4444{% endif %}; font-weight:600;">Overall Result: {{ pred.overall_game_result }}</span>
-      </div>
+
       {% if pred.confidence %}
-      <div style="margin-top:.5rem;">
-        <span class="confidence-badge conf-{{ pred.confidence | lower }}" style="font-size:.7rem;">{{ pred.confidence }}</span>
+      <div class="performance-toolbar" style="margin-top: 1rem;">
+        <span class="confidence-badge conf-{{ pred.confidence | lower }}">{{ pred.confidence }}</span>
       </div>
       {% endif %}
-    </div>
+    </article>
+    {% endfor %}
   </div>
-  {% endfor %}
-</div>
+</section>
 {% endif %}
 
-{# ── By Sport ─────────────────────────────────────────────────────────── #}
 {% if metrics.by_sport %}
-<div class="section-title">Accuracy by Sport</div>
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem; margin-bottom:1.5rem;">
-  {% for sport_key in ['soccer', 'nba'] %}
-    {% if metrics.by_sport.get(sport_key) %}
-    {% set sport_data = metrics.by_sport[sport_key] %}
-    <a href="{{ url_for('model_performance', sport=sport_key) }}" class="card glow-card" style="padding:1.25rem; text-align:center; text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.5rem;">
-        {{ '⚽ Soccer' if sport_key == 'soccer' else '🏀 NBA' }}
-      </div>
-      {% if sport_data.accuracy >= 55 %}
-        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#00ff87;">{{ sport_data.accuracy }}%</div>
-      {% elif sport_data.accuracy >= 45 %}
-        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#f59e0b;">{{ sport_data.accuracy }}%</div>
-      {% else %}
-        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#ef4444;">{{ sport_data.accuracy }}%</div>
-      {% endif %}
-      <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">
-        Wins: {{ sport_data.wins }} Losses: {{ sport_data.losses }}
-      </div>
-      <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.6rem; overflow:hidden;">
-        <div style="width:{{ sport_data.accuracy }}%; height:100%;
-          background:{% if sport_data.accuracy >= 55 %}#00ff87{% elif sport_data.accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
-          transition:width .6s ease;"></div>
-      </div>
-    </a>
-    {% endif %}
-  {% endfor %}
-  {# All sports option #}
-  <a href="{{ url_for('model_performance') }}" class="card glow-card" style="padding:1.25rem; text-align:center; text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-     onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-     onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-    <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.5rem;">
-      📊 All Sports
+<section class="section-stack">
+  <div class="section-heading">
+    <div>
+      <span class="page-kicker">Sport Breakdown</span>
+      <h2 class="section-title">Where the tracked sample is strongest.</h2>
     </div>
-    {% if metrics.overall_accuracy is not none %}
-      {% if metrics.overall_accuracy >= 55 %}
-        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#00ff87;">{{ metrics.overall_accuracy }}%</div>
-      {% elif metrics.overall_accuracy >= 45 %}
-        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#f59e0b;">{{ metrics.overall_accuracy }}%</div>
-      {% else %}
-        <div class="stat-number" style="font-size:1.8rem; font-weight:800; color:#ef4444;">{{ metrics.overall_accuracy }}%</div>
-      {% endif %}
-    {% else %}
-      <div style="font-size:.85rem; color:#8b949e; margin-top:.5rem;">—</div>
-    {% endif %}
-    <div style="font-size:.78rem; color:#8b949e; margin-top:.3rem;">
-      Wins: {{ metrics.wins or 0 }} Losses: {{ metrics.losses or 0 }}
-    </div>
-    <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.6rem; overflow:hidden;">
-      <div style="width:{% if metrics.overall_accuracy %}{{ metrics.overall_accuracy }}{% else %}0{% endif %}%; height:100%;
-        background:{% if metrics.overall_accuracy and metrics.overall_accuracy >= 55 %}#00ff87{% elif metrics.overall_accuracy and metrics.overall_accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
-        transition:width .6s ease;"></div>
-    </div>
-  </a>
-</div>
-{% endif %}
-
-{# ── Active Filter Indicator ───────────────────────────────────────────── #}
-{% if sport_filter %}
-<div style="margin-bottom:1rem;">
-  <div style="display:inline-flex; align-items:center; gap:.5rem; background:rgba(0,255,135,.1); color:#00ff87; border-radius:6px; padding:.4rem .8rem; font-size:.85rem; font-weight:600;">
-    <span>Showing: {{ '⚽ Soccer' if sport_filter == 'soccer' else '🏀 NBA' }} completed results</span>
-    <a href="{{ url_for('model_performance') }}" style="color:#00ff87; text-decoration:none; font-size:.7rem; opacity:.8;" title="Clear filter">✕</a>
   </div>
-</div>
-{% endif %}
 
-{# ── By Confidence Level ───────────────────────────────────────────────── #}
-{% if metrics.by_confidence %}
-<div class="section-title">Accuracy by Confidence Level</div>
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; margin-bottom:1.5rem;">
-  {% for conf_level in ['High', 'Medium', 'Low'] %}
-    {% if metrics.by_confidence.get(conf_level) %}
-    {% set cd = metrics.by_confidence[conf_level] %}
-    <div class="card glow-card" style="padding:1.1rem 1.25rem;">
-      <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.6rem;">
-        <span class="confidence-badge conf-{{ conf_level | lower }}">{{ conf_level }}</span>
-        <span style="font-size:.78rem; color:#8b949e;">Wins: {{ cd.wins }} Losses: {{ cd.losses }}</span>
-      </div>
-      {% if cd.accuracy >= 55 %}
-        <div class="stat-number" style="font-size:1.6rem; font-weight:800; color:#00ff87;">{{ cd.accuracy }}%</div>
-      {% elif cd.accuracy >= 45 %}
-        <div class="stat-number" style="font-size:1.6rem; font-weight:800; color:#f59e0b;">{{ cd.accuracy }}%</div>
-      {% else %}
-        <div class="stat-number" style="font-size:1.6rem; font-weight:800; color:#ef4444;">{{ cd.accuracy }}%</div>
+  <div class="performance-grid">
+    {% for sport_key in ['soccer', 'nba'] %}
+      {% if metrics.by_sport.get(sport_key) %}
+      {% set sport_data = metrics.by_sport[sport_key] %}
+      {% set sport_tone = 'mid' %}
+      {% if sport_data.accuracy >= 55 %}
+        {% set sport_tone = 'good' %}
+      {% elif sport_data.accuracy < 45 %}
+        {% set sport_tone = 'risk' %}
       {% endif %}
-      <div style="height:4px; border-radius:2px; background:#21262d; margin-top:.5rem; overflow:hidden;">
-        <div style="width:{{ cd.accuracy }}%; height:100%;
-          background:{% if cd.accuracy >= 55 %}#00ff87{% elif cd.accuracy >= 45 %}#f59e0b{% else %}#ef4444{% endif %};
-          transition:width .6s ease;"></div>
-      </div>
+      <a href="{{ url_for('model_performance', sport=sport_key) }}" class="performance-card">
+        <span class="metric-label">{{ 'Soccer' if sport_key == 'soccer' else 'NBA' }}</span>
+        <strong class="metric-value performance-tone-{{ sport_tone }}">{{ sport_data.accuracy }}%</strong>
+        <div class="metric-meta">{{ sport_data.count }} graded | {{ sport_data.wins }} wins | {{ sport_data.losses }} losses</div>
+      </a>
+      {% endif %}
+    {% endfor %}
+    <a href="{{ url_for('model_performance') }}" class="performance-card">
+      <span class="metric-label">All Sports</span>
+      <strong class="metric-value performance-tone-{{ overall_tone }}">{{ overall_accuracy ~ '%' if overall_accuracy is not none else '--' }}</strong>
+      <div class="metric-meta">{{ metrics.wins or 0 }} wins | {{ metrics.losses or 0 }} losses</div>
+    </a>
+  </div>
+</section>
+{% endif %}
+
+{% if metrics.by_confidence %}
+<section class="section-stack">
+  <div class="section-heading">
+    <div>
+      <span class="page-kicker">Confidence Tiers</span>
+      <h2 class="section-title">How each confidence level is grading out.</h2>
     </div>
-    {% endif %}
-  {% endfor %}
-</div>
+  </div>
+
+  <div class="performance-grid">
+    {% for conf_level in ['High', 'Medium', 'Low'] %}
+      {% if metrics.by_confidence.get(conf_level) %}
+      {% set cd = metrics.by_confidence[conf_level] %}
+      {% set conf_tone = 'mid' %}
+      {% if cd.accuracy >= 55 %}
+        {% set conf_tone = 'good' %}
+      {% elif cd.accuracy < 45 %}
+        {% set conf_tone = 'risk' %}
+      {% endif %}
+      <article class="performance-card">
+        <span class="confidence-badge conf-{{ conf_level | lower }}">{{ conf_level }}</span>
+        <strong class="metric-value performance-tone-{{ conf_tone }}">{{ cd.accuracy }}%</strong>
+        <div class="metric-meta">{{ cd.count }} graded | {{ cd.wins }} wins | {{ cd.losses }} losses</div>
+      </article>
+      {% endif %}
+    {% endfor %}
+  </div>
+</section>
 {% elif metrics.finalized_predictions == 0 %}
-<div class="card glow-card" style="padding:1rem 1.25rem; color:#8b949e; font-size:.85rem;">
-  Awaiting finalized predictions — confidence breakdown will appear here once results are resolved.
-</div>
+<section class="section-stack">
+  <div class="empty-state">Awaiting finalized predictions. Confidence breakdowns will appear once results are resolved.</div>
+</section>
 {% endif %}
 
-{# ── Pending Predictions table ─────────────────────────────────────────── #}
 {% if pending_predictions %}
-<div class="section-title">Pending Predictions</div>
-<div class="card glow-card" style="padding:0; overflow:hidden; margin-bottom:1.25rem;">
-  <table style="width:100%; border-collapse:collapse; font-size:.82rem;">
-    <thead>
-      <tr style="background:rgba(255,255,255,.03); border-bottom:1px solid #262626;">
-        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Date</th>
-        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Sport</th>
-        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Matchup</th>
-        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Pick</th>
-        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Conf</th>
-        <th style="padding:.6rem .9rem; text-align:left; color:#8b949e; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.5px;">Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for pred in pending_predictions %}
-      <tr style="border-bottom:1px solid #1a1a1a;">
-        <td style="padding:.55rem .9rem; color:#8b949e;">{{ pred.created_at[:10] if pred.created_at else '—' }}</td>
-        <td style="padding:.55rem .9rem;">
-          <span style="font-size:.72rem; background:rgba(255,255,255,.06); color:#8b949e;
-            border-radius:4px; padding:.1rem .4rem; text-transform:uppercase;">{{ pred.sport }}</span>
-        </td>
-        <td style="padding:.55rem .9rem; color:#e6edf3;">{{ pred.team_a }} vs {{ pred.team_b }}</td>
-        <td style="padding:.55rem .9rem; color:#00ff87; font-weight:600;">{{ pred.predicted_winner }}</td>
-        <td style="padding:.55rem .9rem;">
-          <span class="confidence-badge conf-{{ pred.confidence | lower }}" style="font-size:.7rem;">{{ pred.confidence }}</span>
-        </td>
-        <td style="padding:.55rem .9rem;">
-          <span style="color:#f59e0b; font-size:.75rem;">Pending</span>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="section-stack">
+  <div class="table-header">
+    <div>
+      <span class="page-kicker">Pending Queue</span>
+      <h2 class="section-title">Predictions waiting for reconciliation.</h2>
+    </div>
+  </div>
+
+  <div class="performance-table-wrap">
+    <table class="performance-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Sport</th>
+          <th>Matchup</th>
+          <th>Pick</th>
+          <th>Confidence</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pred in pending_predictions %}
+        <tr>
+          <td>{{ pred.created_at[:10] if pred.created_at else '--' }}</td>
+          <td>{{ pred.sport }}</td>
+          <td>{{ pred.team_a }} vs {{ pred.team_b }}</td>
+          <td class="accent">{{ pred.predicted_winner }}</td>
+          <td><span class="confidence-badge conf-{{ pred.confidence | lower }}">{{ pred.confidence }}</span></td>
+          <td><span class="filter-chip">Pending</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 
-{% endif %}{# end total_predictions > 0 #}
-
-<div class="nav-cta">
-  <a href="/" class="btn btn-secondary btn-glow">Home</a>
-  <a href="{{ url_for('today_soccer_predictions') }}" class="btn btn-secondary btn-glow">Today Soccer</a>
-  <a href="{{ url_for('nba.today_predictions') }}" class="btn btn-secondary btn-glow">Today NBA</a>
-</div>
+{% endif %}
 {% endblock %}

@@ -2,206 +2,239 @@
 {% block title %}Soccer Analysis | ScorPred{% endblock %}
 
 {% block content %}
-<div class="hero">
-  <h1 class="hero-title">Soccer <span class="accent">Analysis</span></h1>
-  <p class="hero-sub">Data-driven match analysis for soccer fixtures</p>
-</div>
-
-<div class="card glow-card">
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
-    <div>
-      <h2 class="card-title" style="margin-bottom:.2rem;">Upcoming Fixtures</h2>
-      <p class="page-sub" style="margin:0;">Select an upcoming match and jump straight into the full analysis.</p>
-    </div>
-    <span class="source-badge {{ 'source-espn' if fixtures_source == 'espn' else 'source-api' }}">
-      {{ 'ESPN fixture list' if fixtures_source == 'espn' else 'Configured provider' }}
-    </span>
+<section class="page-hero">
+  <div class="page-hero-copy">
+    <span class="page-kicker">Soccer Workspace</span>
+    <h1 class="page-title">Analyze fixtures with a cleaner match intelligence flow.</h1>
+    <p class="page-sub">
+      Move from live fixture selection to full ScorPred analysis with less clutter, clearer structure,
+      and faster access to the strongest context.
+    </p>
   </div>
+  <div class="page-actions">
+    <a href="/fixtures" class="btn btn-secondary">View Fixtures</a>
+    <a href="/worldcup" class="btn btn-secondary">World Cup Predictor</a>
+  </div>
+</section>
 
-  {% if fixtures_error %}
-  <div class="alert alert-warn">{{ fixtures_error }}</div>
-  {% endif %}
-
-  {% if upcoming_fixtures %}
-  <div style="display:grid;gap:1rem;">
-    {% for f in upcoming_fixtures %}
-    {% set p = f.prediction %}
-    <div class="fpred-card" style="margin:0;">
-      <div class="fpred-meta">
-        <span>{{ f.fixture.date[:10] }}</span>
-        {% if f.fixture.date | length > 10 %}
-        <span>{{ f.fixture.date[11:16] }} UTC</span>
-        {% endif %}
-        {% if f.league and f.league.name %}
-        <span>{{ f.league.name }}</span>
-        {% endif %}
-        {% if f.league and f.league.round %}
-        <span>{{ f.league.round }}</span>
-        {% endif %}
-      </div>
-
-      <div class="fpred-teams-row">
-        <div class="fpred-team">
-          <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.home.name }}" />
-          <span class="fpred-team-name">{{ f.teams.home.name }}</span>
+<section class="section-stack">
+  <div class="split-layout">
+    <article class="card glow-card fixture-shell">
+      <div class="fixture-head">
+        <div>
+          <span class="page-kicker">Upcoming Fixtures</span>
+          <h2 class="section-title">Jump straight into Match Analysis.</h2>
+          <p class="page-sub">Select a scheduled fixture and keep the real game context attached to the prediction flow.</p>
         </div>
-        <div class="fpred-centre">
-          <span class="fpred-vs">vs</span>
-          <span class="confidence-badge conf-{{ p.confidence | lower }}">{{ p.confidence }}</span>
-        </div>
-        <div class="fpred-team right">
-          <span class="fpred-team-name">{{ f.teams.away.name }}</span>
-          <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.away.name }}" />
-        </div>
-      </div>
-
-      <div class="fpred-footer">
-        <span class="fpred-winner-label">
-          Predicted:
-          <strong class="accent">
-            {% if p.best_pick.prediction %}{{ p.best_pick.prediction }}
-            {% else %}No prediction available
-            {% endif %}
-          </strong>
+        <span class="source-badge {{ 'source-espn' if fixtures_source == 'espn' else 'source-api' }}">
+          {{ 'ESPN fixture list' if fixtures_source == 'espn' else 'Configured provider' }}
         </span>
-        <form method="POST" action="/select" style="display:inline">
-          <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
-          <input type="hidden" name="team_b" value="{{ f.teams.away.id }}" />
-          <input type="hidden" name="team_a_name" value="{{ f.teams.home.name }}" />
-          <input type="hidden" name="team_a_logo" value="{{ f.teams.home.logo }}" />
-          <input type="hidden" name="team_b_name" value="{{ f.teams.away.name }}" />
-          <input type="hidden" name="team_b_logo" value="{{ f.teams.away.logo }}" />
-          <input type="hidden" name="fixture_id" value="{{ f.fixture.id }}" />
-          <input type="hidden" name="fixture_date" value="{{ f.fixture.date }}" />
-          <input type="hidden" name="league_name" value="{{ f.league.name if f.league else '' }}" />
-          <input type="hidden" name="round" value="{{ f.league.round if f.league else '' }}" />
-          <input type="hidden" name="venue_name" value="{{ f.fixture.venue.name if f.fixture.venue else '' }}" />
-          <input type="hidden" name="data_source" value="{{ fixtures_source }}" />
-          <button type="submit" class="btn btn-primary btn-sm btn-glow">Analyze Fixture →</button>
-        </form>
       </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="empty-state">No upcoming fixtures are available right now.</div>
-  {% endif %}
-</div>
 
-<div class="card glow-card team-select-card">
-  <h2 class="card-title">Select a Matchup</h2>
+      {% if fixtures_error %}
+      <div class="alert alert-warn">{{ fixtures_error }}</div>
+      {% endif %}
 
-  {% if not teams %}
-  <div class="alert alert-warn">
-    {{ load_error or "Could not load teams. Check your API_FOOTBALL_KEY in .env." }}
-  </div>
-  {% else %}
-
-  <form method="POST" action="/select" id="teamForm">
-    <div class="team-pickers">
-
-      <!-- Team A -->
-      <div class="picker-group">
-        <label class="picker-label">Home Team</label>
-        <div class="custom-select-wrap" id="wrapA">
-          <div class="custom-select-trigger" id="triggerA">
-            <img class="team-logo-sm team-badge" id="logoA" src="" alt="" style="display:none" />
-            <span id="labelA">Choose Team A</span>
-            <span class="caret">▾</span>
+      {% if upcoming_fixtures %}
+      <div class="fixture-stack">
+        {% for f in upcoming_fixtures %}
+        {% set p = f.prediction %}
+        <article class="fpred-card glow-card">
+          <div class="fpred-meta">
+            <span>{{ f.fixture.date[:10] }}</span>
+            {% if f.fixture.date | length > 10 %}
+            <span>{{ f.fixture.date[11:16] }} UTC</span>
+            {% endif %}
+            {% if f.league and f.league.name %}
+            <span>{{ f.league.name }}</span>
+            {% endif %}
+            {% if f.league and f.league.round %}
+            <span>{{ f.league.round }}</span>
+            {% endif %}
+            <span class="confidence-badge conf-{{ p.confidence | lower }}">{{ p.confidence }}</span>
           </div>
-          <div class="custom-select-dropdown" id="dropA">
-            <input class="select-search" type="text" placeholder="Search team…" id="searchA" autocomplete="off" />
-            <div class="select-options" id="optionsA">
-              {% for t in teams | sort(attribute='team.name') %}
-              <div class="select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
-                <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm team-badge" />
-                <span>{{ t.team.name }}</span>
-              </div>
-              {% endfor %}
+
+          <div class="fpred-teams-row">
+            <div class="fpred-team">
+              <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.home.name }}" />
+              <span class="fpred-team-name">{{ f.teams.home.name }}</span>
+            </div>
+            <div class="fpred-centre">
+              <span class="fpred-vs">vs</span>
+            </div>
+            <div class="fpred-team right">
+              <span class="fpred-team-name">{{ f.teams.away.name }}</span>
+              <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.away.name }}" />
             </div>
           </div>
-          <input type="hidden" name="team_a" id="team_a" required />
-        </div>
-        <div class="team-form-preview" id="teamFormA">Last 5 form: --</div>
-      </div>
 
-      <div class="vs-badge">VS</div>
-
-      <!-- Team B -->
-      <div class="picker-group">
-        <label class="picker-label">Away Team</label>
-        <div class="custom-select-wrap" id="wrapB">
-          <div class="custom-select-trigger" id="triggerB">
-            <img class="team-logo-sm team-badge" id="logoB" src="" alt="" style="display:none" />
-            <span id="labelB">Choose Team B</span>
-            <span class="caret">▾</span>
+          <div class="fpred-footer">
+            <span class="fpred-winner-label">
+              Predicted:
+              <strong class="accent">{{ p.best_pick.prediction or 'No prediction available' }}</strong>
+            </span>
+            <form method="POST" action="/select">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
+              <input type="hidden" name="team_b" value="{{ f.teams.away.id }}" />
+              <input type="hidden" name="team_a_name" value="{{ f.teams.home.name }}" />
+              <input type="hidden" name="team_a_logo" value="{{ f.teams.home.logo }}" />
+              <input type="hidden" name="team_b_name" value="{{ f.teams.away.name }}" />
+              <input type="hidden" name="team_b_logo" value="{{ f.teams.away.logo }}" />
+              <input type="hidden" name="fixture_id" value="{{ f.fixture.id }}" />
+              <input type="hidden" name="fixture_date" value="{{ f.fixture.date }}" />
+              <input type="hidden" name="league_name" value="{{ f.league.name if f.league else '' }}" />
+              <input type="hidden" name="round" value="{{ f.league.round if f.league else '' }}" />
+              <input type="hidden" name="venue_name" value="{{ f.fixture.venue.name if f.fixture.venue else '' }}" />
+              <input type="hidden" name="data_source" value="{{ fixtures_source }}" />
+              <button type="submit" class="btn btn-primary btn-sm">Analyze Fixture</button>
+            </form>
           </div>
-          <div class="custom-select-dropdown" id="dropB">
-            <input class="select-search" type="text" placeholder="Search team…" id="searchB" autocomplete="off" />
-            <div class="select-options" id="optionsB">
-              {% for t in teams | sort(attribute='team.name') %}
-              <div class="select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
-                <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm team-badge" />
-                <span>{{ t.team.name }}</span>
-              </div>
-              {% endfor %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">No upcoming fixtures are available right now.</div>
+      {% endif %}
+    </article>
+
+    <article class="card glow-card">
+      <div class="split-header">
+        <div>
+          <span class="page-kicker">What You Can Do</span>
+          <h2 class="section-title">A more focused soccer workflow.</h2>
+        </div>
+      </div>
+      <div class="panel-list">
+        <div class="panel-list-item">
+          <strong>Open Match Analysis fast</strong>
+          <div class="flow-copy">Use a live fixture to carry the right date, competition, and venue into the prediction page.</div>
+        </div>
+        <div class="panel-list-item">
+          <strong>Run custom head-to-head research</strong>
+          <div class="flow-copy">Choose any two clubs manually when you want a broader form and matchup read.</div>
+        </div>
+        <div class="panel-list-item">
+          <strong>Keep prediction review disciplined</strong>
+          <div class="flow-copy">Use Performance and Strategy Lab to check what is working instead of relying on memory.</div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="section-stack">
+  <article class="card glow-card team-select-card">
+    <div class="split-header">
+      <div>
+        <span class="page-kicker">Manual Matchup</span>
+        <h2 class="section-title">Build a custom comparison.</h2>
+        <p class="page-sub">Choose any two teams to inspect form, head-to-head history, and the final ScorPred edge.</p>
+      </div>
+    </div>
+
+    {% if not teams %}
+    <div class="alert alert-warn">
+      {{ load_error or "Could not load teams. Check your API_FOOTBALL_KEY in .env." }}
+    </div>
+    {% else %}
+    <form method="POST" action="/select" id="teamForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <div class="team-pickers">
+        <div class="picker-group">
+          <label class="picker-label">Home Team</label>
+          <div class="custom-select-wrap" id="wrapA">
+            <div class="custom-select-trigger" id="triggerA">
+              <img class="team-logo-sm team-badge" id="logoA" src="" alt="" style="display:none" />
+              <span id="labelA">Choose Team A</span>
+              <span class="caret">v</span>
             </div>
+            <div class="custom-select-dropdown" id="dropA">
+              <input class="select-search" type="text" placeholder="Search team..." id="searchA" autocomplete="off" />
+              <div class="select-options" id="optionsA">
+                {% for t in teams | sort(attribute='team.name') %}
+                <div class="select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
+                  <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm team-badge" />
+                  <span>{{ t.team.name }}</span>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <input type="hidden" name="team_a" id="team_a" required />
           </div>
-          <input type="hidden" name="team_b" id="team_b" required />
+          <div class="team-form-preview" id="teamFormA">Last 5 form: --</div>
         </div>
-        <div class="team-form-preview" id="teamFormB">Last 5 form: --</div>
+
+        <div class="vs-badge">VS</div>
+
+        <div class="picker-group">
+          <label class="picker-label">Away Team</label>
+          <div class="custom-select-wrap" id="wrapB">
+            <div class="custom-select-trigger" id="triggerB">
+              <img class="team-logo-sm team-badge" id="logoB" src="" alt="" style="display:none" />
+              <span id="labelB">Choose Team B</span>
+              <span class="caret">v</span>
+            </div>
+            <div class="custom-select-dropdown" id="dropB">
+              <input class="select-search" type="text" placeholder="Search team..." id="searchB" autocomplete="off" />
+              <div class="select-options" id="optionsB">
+                {% for t in teams | sort(attribute='team.name') %}
+                <div class="select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
+                  <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm team-badge" />
+                  <span>{{ t.team.name }}</span>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <input type="hidden" name="team_b" id="team_b" required />
+          </div>
+          <div class="team-form-preview" id="teamFormB">Last 5 form: --</div>
+        </div>
       </div>
+
+      <div id="sameTeamError" class="alert alert-error" style="display:none">
+        Please select two different teams.
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-lg btn-full" id="analyseBtn" disabled>
+        Analyze Matchup
+      </button>
+    </form>
+    {% endif %}
+  </article>
+</section>
+
+<section class="section-stack">
+  <div class="split-header">
+    <div>
+      <span class="page-kicker">Shortcuts</span>
+      <h2 class="section-title">Useful entry points around the soccer product.</h2>
     </div>
-
-    <div id="sameTeamError" class="alert alert-error" style="display:none">
-      Please select two different teams.
-    </div>
-
-    <button type="submit" class="btn btn-primary btn-glow btn-lg btn-full" id="analyseBtn" disabled>
-      Analyse Matchup →
-    </button>
-  </form>
-  {% endif %}
-</div>
-
-<div class="features-grid">
-  <a href="/fixtures" class="feature-card glow-card feature-link">
-    <div class="feature-icon">📅</div>
-    <h3>Fixtures</h3>
-    <p>Upcoming Premier League matches with AI-predicted winners.</p>
-    <span class="feature-cta">View Fixtures →</span>
-  </a>
-  <a href="/worldcup" class="feature-card glow-card feature-link">
-    <div class="feature-icon">🏆</div>
-    <h3>World Cup 2026</h3>
-    <p>Predict any national team match using FIFA ranking strengths.</p>
-    <span class="feature-cta">Open Predictor →</span>
-  </a>
-  <a href="#teamForm" class="feature-card glow-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
-    <div class="feature-icon">📊</div>
-    <h3>Head-to-Head</h3>
-    <p>Last 5 meetings with goals, cards, corners and shots data.</p>
-    <span class="feature-cta">Select Teams →</span>
-  </a>
-  <a href="#teamForm" class="feature-card glow-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
-    <div class="feature-icon">📈</div>
-    <h3>Form Analysis</h3>
-    <p>Recent 5-game form strings with goals scored &amp; conceded.</p>
-    <span class="feature-cta">Select Teams →</span>
-  </a>
-  <a href="#teamForm" class="feature-card glow-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
-    <div class="feature-icon">🧬</div>
-    <h3>Poisson Model</h3>
-    <p>Statistically modelled correct-score &amp; over/under predictions.</p>
-    <span class="feature-cta">Select Teams →</span>
-  </a>
-  <a href="#teamForm" class="feature-card glow-card feature-link" onclick="document.getElementById('teamForm').scrollIntoView({behavior:'smooth'});return false;">
-    <div class="feature-icon">🩺</div>
-    <h3>Injury Report</h3>
-    <p>Live injury &amp; suspension data factored into every prediction.</p>
-    <span class="feature-cta">Select Teams →</span>
-  </a>
-</div>
+  </div>
+  <div class="route-grid">
+    <a href="/fixtures" class="route-card">
+      <span class="route-icon">FX</span>
+      <div class="route-label">Fixtures</div>
+      <div class="route-title">Upcoming match list</div>
+      <div class="route-meta">Browse the current slate with attached predicted winners.</div>
+      <span class="route-cta">Open fixtures</span>
+    </a>
+    <a href="/worldcup" class="route-card">
+      <span class="route-icon">WC</span>
+      <div class="route-label">World Cup</div>
+      <div class="route-title">International matchup predictor</div>
+      <div class="route-meta">Quick national team comparisons with tournament-focused context.</div>
+      <span class="route-cta">Open predictor</span>
+    </a>
+    <a href="/strategy-lab" class="route-card">
+      <span class="route-icon">SL</span>
+      <div class="route-label">Strategy Lab</div>
+      <div class="route-title">Review what is actually working</div>
+      <div class="route-meta">Compare tracked accuracy, confidence tiers, and the offline ML read.</div>
+      <span class="route-cta">Open Strategy Lab</span>
+    </a>
+  </div>
+</section>
 {% endblock %}
 
 {% block scripts %}
@@ -219,8 +252,7 @@
     }
   }
 
-  // Generic custom-select controller
-  function initCustomSelect(wrapperId, triggerId, dropId, searchId, optionsId, hiddenId, logoId, labelId, otherHiddenId) {
+  function initCustomSelect(wrapperId, triggerId, dropId, searchId, optionsId, hiddenId, logoId, labelId) {
     const wrap = document.getElementById(wrapperId);
     const trigger = document.getElementById(triggerId);
     const drop = document.getElementById(dropId);
@@ -238,12 +270,12 @@
 
     searchEl.addEventListener('input', () => {
       const q = searchEl.value.toLowerCase();
-      allOpts().forEach(o => {
+      allOpts().forEach((o) => {
         o.style.display = o.dataset.name.toLowerCase().includes(q) ? '' : 'none';
       });
     });
 
-    allOpts().forEach(opt => {
+    allOpts().forEach((opt) => {
       opt.addEventListener('click', () => {
         hidden.value = opt.dataset.value;
         label.textContent = opt.dataset.name;
@@ -256,13 +288,13 @@
       });
     });
 
-    document.addEventListener('click', e => {
+    document.addEventListener('click', (e) => {
       if (!wrap.contains(e.target)) drop.classList.remove('open');
     });
   }
 
-  initCustomSelect('wrapA','triggerA','dropA','searchA','optionsA','team_a','logoA','labelA','team_b');
-  initCustomSelect('wrapB','triggerB','dropB','searchB','optionsB','team_b','logoB','labelB','team_a');
+  initCustomSelect('wrapA', 'triggerA', 'dropA', 'searchA', 'optionsA', 'team_a', 'logoA', 'labelA');
+  initCustomSelect('wrapB', 'triggerB', 'dropB', 'searchB', 'optionsB', 'team_b', 'logoB', 'labelB');
 
   function validateForm() {
     const a = document.getElementById('team_a').value;
@@ -280,21 +312,5 @@
       btn.disabled = true;
     }
   }
-</script>
-
-<!-- Particles background -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/particles.js/2.0.0/particles.min.js"></script>
-<div id="particles-js"></div>
-<script>
-particlesJS('particles-js', {
-  particles: {
-    number: { value: 40 },
-    color: { value: '#00ff87' },
-    opacity: { value: 0.15 },
-    size: { value: 2 },
-    line_linked: { enable: true, color: '#00ff87', opacity: 0.05 },
-    move: { enable: true, speed: 0.8 }
-  }
-});
 </script>
 {% endblock %}

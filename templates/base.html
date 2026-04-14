@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}ScorPred{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
   <!-- Tailwind (loaded first so our CSS overrides its preflight) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Our main stylesheet -->
@@ -22,36 +23,35 @@
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   {% block head %}{% endblock %}
 </head>
-<body>
+{% set match_analysis_href = '/prediction' if session.get('team_a_id') else '/nba/prediction' if session.get('nba_team_a_id') else '/soccer' %}
+{% set match_analysis_active = request.path in ['/matchup', '/prediction'] or request.path.startswith('/nba/matchup') or request.path.startswith('/nba/prediction') %}
+<body class="{% block body_class %}{% endblock %}">
 
   <nav class="navbar">
     <a href="/" class="nav-brand">
       <span class="brand-icon">SP</span>
-      <span>ScorPred</span>
+      <span class="brand-copy">
+        <strong>ScorPred</strong>
+        <small>Data Intelligence</small>
+      </span>
     </a>
     <div class="nav-links">
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
-      <a href="/soccer" class="{% if request.path == '/soccer' or request.path in ['/today-soccer-predictions', '/fixtures'] %}active{% endif %}">Soccer</a>
+      <a href="/soccer" class="{% if request.path == '/soccer' or request.path in ['/today-soccer-predictions', '/fixtures', '/worldcup'] %}active{% endif %}">Soccer</a>
       <a href="/nba/" class="{% if request.path.startswith('/nba') %}active{% endif %}">NBA</a>
-      <a href="/today-soccer-predictions" class="{% if request.path == '/today-soccer-predictions' %}active{% endif %}">Today Soccer</a>
-      <a href="/nba/today-predictions" class="{% if request.path == '/nba/today-predictions' %}active{% endif %}">Today NBA</a>
-      <a href="/top-picks-today" class="{% if request.path == '/top-picks-today' %}active{% endif %}">Top Picks Today</a>
+      <a href="{{ match_analysis_href }}" class="{% if match_analysis_active %}active{% endif %}">Match Analysis</a>
       <a href="/model-performance" class="{% if request.path == '/model-performance' %}active{% endif %}">Performance</a>
       <a href="/strategy-lab" class="{% if request.path == '/strategy-lab' %}active{% endif %}">Strategy Lab</a>
-      {% if session.get('team_a_id') %}
-      <a href="/matchup" class="{% if request.path == '/matchup' %}active{% endif %}">Matchup</a>
-      <a href="/prediction" class="{% if request.path == '/prediction' %}active{% endif %}">Prediction</a>
-      {% endif %}
     </div>
     <div class="nav-mobile-toggle" id="navToggle">&#9776;</div>
   </nav>
 
-  <main class="container">
+  <main class="container app-shell">
     {% block content %}{% endblock %}
   </main>
 
   <footer class="site-footer">
-    <p>Predictions and prop ideas are informational only, not financial advice. Bet responsibly and confirm lineups, injuries, and odds before acting.</p>
+    <p>Explainable sports modeling for research and decision support. Validate injuries, lineups, and market context before acting.</p>
     <p class="footer-meta">Data source: {{ data_source or 'Live mixed feeds' }} | Updated: {{ last_updated or 'Unknown' }}</p>
   </footer>
 
