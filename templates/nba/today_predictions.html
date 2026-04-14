@@ -34,13 +34,13 @@
       <a href="{{ url_for('nba.select_game', team_a=item.home_team.id, team_b=item.away_team.id) }}"
          style="text-decoration:none; color:inherit;">
         <div class="card h-100 game-card
-            {% if item.confidence == 'High' %}border-success{% elif item.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
+          {% if item.confidence == 'High' %}border-success{% elif item.confidence == 'Medium' %}border-warning{% elif item.confidence == 'Low' %}border-danger{% else %}border-secondary{% endif %}">
 
           <!-- Confidence Badge -->
           <div class="position-absolute top-0 end-0 p-2">
             <span class="badge
-                {% if item.confidence == 'High' %}bg-success{% elif item.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-              {{ item.confidence }}
+                {% if item.confidence == 'High' %}bg-success{% elif item.confidence == 'Medium' %}bg-warning text-dark{% elif item.confidence == 'Low' %}bg-danger{% else %}bg-secondary{% endif %}">
+              {{ item.prediction.best_pick.confidence_label if item.prediction and item.prediction.best_pick else item.confidence }}
             </span>
           </div>
 
@@ -106,6 +106,7 @@
             {% set high_conf = predictions | selectattr('confidence', 'equalto', 'High') | list %}
             {% set med_conf  = predictions | selectattr('confidence', 'equalto', 'Medium') | list %}
             {% set low_conf  = predictions | selectattr('confidence', 'equalto', 'Low') | list %}
+            {% set limited_conf = predictions | selectattr('confidence', 'equalto', 'Limited Data') | list %}
             <div class="col-md-4">
               <span class="badge bg-success">High</span> {{ high_conf | length }} picks
             </div>
@@ -115,6 +116,11 @@
             <div class="col-md-4">
               <span class="badge bg-danger">Low</span> {{ low_conf | length }} picks
             </div>
+            {% if limited_conf | length > 0 %}
+            <div class="col-md-12 mt-2">
+              <span class="badge bg-secondary">Limited Data</span> {{ limited_conf | length }} picks
+            </div>
+            {% endif %}
           </div>
         </div>
       </div>

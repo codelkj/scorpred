@@ -14,7 +14,7 @@ import json
 import os
 import time
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -104,7 +104,7 @@ def _cache_path(endpoint: str, params: dict) -> Path:
 def _cache_valid(path: Path, hours: int = CACHE_HOURS) -> bool:
     if not path.exists():
         return False
-    age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+    age = datetime.now(UTC) - datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
     return age < timedelta(hours=hours)
 
 
@@ -202,7 +202,7 @@ def clear_cache() -> None:
 # -- ESPN fallback helpers ---------------------------------------------------
 
 def _current_espn_season() -> int:
-    now = datetime.now()
+    now = datetime.now(UTC)
     return now.year - 1 if now.month < 7 else now.year
 
 
@@ -929,7 +929,7 @@ def get_upcoming_fixtures(
     # leagues have multi-day gaps between matchdays. A short 2-3 day window can
     # look empty even when valid upcoming fixtures exist.
     slug = _espn_slug(league_id)
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(UTC)
     all_fixtures: list = []
     seen_ids: set[str] = set()
     max_days_ahead = max(7, min(28, next_n * 2))
@@ -986,7 +986,7 @@ def get_espn_fixtures(espn_slug: str, next_n: int = 20) -> list:
     # ESPN base for soccer scoreboard uses league slug in path
     soccer_base = "https://site.api.espn.com/apis/site/v2/sports/soccer"
     url = f"{soccer_base}/{espn_slug}/scoreboard"
-    cache_key = f"espn_slug:{espn_slug}:{datetime.now().strftime('%Y-%m-%d')}"
+    cache_key = f"espn_slug:{espn_slug}:{datetime.now(UTC).strftime('%Y-%m-%d')}"
     try:
         payload = _espn_get_json(url, cache_key, ttl_hours=0.5)
     except Exception:
@@ -1064,7 +1064,7 @@ def get_live_fixtures(league_id: int | None = None) -> list:
         try:
             payload = _espn_get_json(
                 f"{ESPN_BASE}/{_espn_slug(lid)}/scoreboard",
-                f"live:{lid}:{datetime.now().strftime('%Y-%m-%d-%H')}",
+                f"live:{lid}:{datetime.now(UTC).strftime('%Y-%m-%d-%H')}",
                 ttl_hours=0.016,
             )
         except Exception:
@@ -1083,7 +1083,7 @@ def get_today_fixtures(league_id: int | None = None) -> list:
         try:
             payload = _espn_get_json(
                 f"{ESPN_BASE}/{_espn_slug(lid)}/scoreboard",
-                f"today:{lid}:{datetime.now().strftime('%Y-%m-%d')}",
+                f"today:{lid}:{datetime.now(UTC).strftime('%Y-%m-%d')}",
                 ttl_hours=1,
             )
         except Exception:

@@ -31,6 +31,11 @@
       <p class="analysis-summary">
         {{ scorpred.best_pick.reasoning or scorpred.matchup_reading or 'ScorPred is leaning to the strongest weighted edge in the current matchup context.' }}
       </p>
+      {% if scorpred.recommended_play == 'Avoid' and scorpred.top_lean %}
+      <p class="analysis-summary" style="margin-top:.35rem; color:#8b949e;">
+        {{ scorpred.top_lean.display }}
+      </p>
+      {% endif %}
       <div class="analysis-badge-row">
         <span class="confidence-badge conf-{{ confidence | lower }}">{{ confidence }} Confidence</span>
         <span class="risk-badge {{ risk_class }}">{{ risk_label }}</span>
@@ -166,6 +171,14 @@
       <p>Keep these risks visible before locking a decision.</p>
     </div>
     <div class="warning-flags">
+      {% if scorpred.recommended_play == 'Avoid' %}
+      <span class="warning-flag is-danger">Recommended Play: Avoid</span>
+      {% endif %}
+      {% if scorpred.avoid_reasons %}
+        {% for reason in scorpred.avoid_reasons %}
+      <span class="warning-flag is-warning">{{ reason }}</span>
+        {% endfor %}
+      {% endif %}
       {% if confidence == 'Low' %}
       <span class="warning-flag is-danger">Low-confidence signal</span>
       {% endif %}

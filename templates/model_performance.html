@@ -61,7 +61,7 @@
     <span class="page-kicker">No History Yet</span>
     <h2 class="section-title">No predictions have been tracked yet.</h2>
     <p>
-      Predictions are stored automatically when you gener ate them. Start from the soccer workspace,
+      Predictions are stored automatically when you generate them. Start from the soccer workspace,
       the NBA workspace, or match analysis.
     </p>
     <div class="page-actions" style="margin-top: 1rem;">
@@ -251,41 +251,78 @@
     </div>
   </div>
 
+  {% set ns = namespace(win=0, partial=0, loss=0) %}
+  {% for p in completed_predictions %}
+    {% if (p.overall_game_result or '') == 'Win' %}
+      {% set ns.win = ns.win + 1 %}
+    {% elif (p.overall_game_result or '') == 'Partial' %}
+      {% set ns.partial = ns.partial + 1 %}
+    {% else %}
+      {% set ns.loss = ns.loss + 1 %}
+    {% endif %}
+  {% endfor %}
+
+  <div class="performance-toolbar">
+    <span class="filter-chip">Completed: {{ completed_predictions | length }}</span>
+    <span class="source-badge source-api">Wins: {{ ns.win }}</span>
+    <span class="source-badge source-espn">Losses: {{ ns.loss }}</span>
+    {% if ns.partial %}<span class="filter-chip">Partials: {{ ns.partial }}</span>{% endif %}
+  </div>
+
   <div class="results-grid">
     {% for pred in completed_predictions %}
-    <article class="result-card">
+    {% set overall = pred.overall_game_result or ('Win' if pred.winner_hit else 'Loss') %}
+    {% set winner_hit = pred.winner_hit is sameas(true) %}
+    {% set totals_hit = pred.totals_hit if pred.totals_hit is not none else pred.ou_hit %}
+    <article class="result-card performance-result-card">
       <div class="result-row">
         <div>
           <div class="route-title">{{ pred.team_a }} vs {{ pred.team_b }}</div>
-          <div class="route-meta">{{ pred.date or pred.game_date or 'Date pending' }}</div>
+          <div class="route-meta">{{ (pred.sport or 'sport') | upper }} · {{ pred.date or pred.game_date or 'Date pending' }}</div>
         </div>
-        <span class="result-badge {% if pred.winner_hit %}source-api{% else %}source-espn{% endif %}">
-          {{ pred.overall_game_result or ('Win' if pred.winner_hit else 'Loss') }}
-        </span>
+        <span class="result-badge {% if overall == 'Win' %}source-api{% elif overall == 'Partial' %}filter-chip{% else %}source-espn{% endif %}">{{ overall }}</span>
       </div>
 
-      <div class="panel-list" style="margin-top: 1rem;">
-        <div class="panel-list-item">
-          <strong>Final Score</strong>
-          <div class="flow-copy">{{ pred.final_score_display or 'Pending final score' }}</div>
+      <div class="performance-result-grid">
+        <div class="performance-result-stat">
+          <span class="performance-result-label">Final Score</span>
+          <strong class="performance-result-value">{{ pred.final_score_display or 'Pending' }}</strong>
         </div>
-        <div class="panel-list-item">
-          <strong>Winner Pick</strong>
-          <div class="flow-copy">{{ pred.winner_display or ('Correct winner call' if pred.winner_hit else 'Missed winner call') }}</div>
+        <div class="performance-result-stat">
+          <span class="performance-result-label">Winner Pick</span>
+          <span class="result-badge {% if winner_hit %}source-api{% else %}source-espn{% endif %}">{{ 'Hit' if winner_hit else 'Miss' }}</span>
         </div>
-        {% if pred.ou_display %}
-        <div class="panel-list-item">
-          <strong>Total Pick</strong>
-          <div class="flow-copy">{{ pred.ou_display }}</div>
+        <div class="performance-result-stat">
+          <span class="performance-result-label">Totals Pick</span>
+          {% if totals_hit is sameas(true) %}
+          <span class="result-badge source-api">Hit</span>
+          {% elif totals_hit is sameas(false) %}
+          <span class="result-badge source-espn">Miss</span>
+          {% else %}
+          <span class="filter-chip">Not tracked</span>
+          {% endif %}
         </div>
-        {% endif %}
+        <div class="performance-result-stat">
+          <span class="performance-result-label">Confidence</span>
+          {% if pred.confidence %}
+          <span class="confidence-badge conf-{{ pred.confidence | lower }}">{{ pred.confidence }}</span>
+          {% else %}
+          <span class="filter-chip">Limited Data</span>
+          {% endif %}
+        </div>
+        <div class="performance-result-stat">
+          <span class="performance-result-label">Risk</span>
+          {% if pred.predicted_winner == 'avoid' %}
+          <span class="risk-badge is-warning">Avoid</span>
+          {% else %}
+          <span class="risk-badge {% if overall == 'Loss' %}is-danger{% elif overall == 'Partial' %}is-warning{% else %}is-info{% endif %}">{{ 'Elevated' if overall == 'Loss' else ('Watch' if overall == 'Partial' else 'Controlled') }}</span>
+          {% endif %}
+        </div>
       </div>
 
-      {% if pred.confidence %}
-      <div class="performance-toolbar" style="margin-top: 1rem;">
-        <span class="confidence-badge conf-{{ pred.confidence | lower }}">{{ pred.confidence }}</span>
+      <div class="route-meta" style="margin-top:.85rem;">
+        Predicted lean: {{ pred.predicted_winner_normalized or pred.predicted_winner or '--' }} · Actual outcome: {{ pred.actual_winner or '--' }}
       </div>
-      {% endif %}
     </article>
     {% endfor %}
   </div>

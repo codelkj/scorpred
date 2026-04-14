@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +48,7 @@ def _cache_path(endpoint: str, params: dict[str, Any] | None = None) -> Path:
 def _cache_valid(path: Path, ttl_seconds: int) -> bool:
     if not path.exists():
         return False
-    age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+    age = datetime.now(UTC) - datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
     return age.total_seconds() < ttl_seconds
 
 
@@ -431,7 +431,7 @@ def _enrich_game_scores(game: dict[str, Any]) -> dict[str, Any]:
 def _latest_completed_team_games(
     team_id: str,
     season: int = NBA_SEASON,
-    lookback_seasons: int = 2,
+    lookback_seasons: int = 0,
     enrich_scores: bool = False,
 ) -> list[dict]:
     team_id = str(team_id)
@@ -442,6 +442,43 @@ def _latest_completed_team_games(
                 return [_enrich_game_scores(dict(game)) for game in games]
             return games
     return []
+
+
+def _season_from_game_date(game: dict[str, Any]) -> int | None:
+    date_text = ((game.get("date") or {}).get("start") or "")[:10]
+    if not date_text:
+        return None
+    try:
+        dt = datetime.fromisoformat(date_text)
+    except ValueError:
+        return None
+    # NBA regular season spans two years; treat Jul-Dec as season year and Jan-Jun as previous season year.
+    return dt.year if dt.month >= 7 else dt.year - 1
+
+
+def get_team_recent_form_context(team_id, season: int = NBA_SEASON, n: int = 10, historical_lookback: int = 2) -> dict[str, Any]:
+    """Return current-season recent form plus optional clearly-separated historical context."""
+    team_id = str(team_id)
+    current = _latest_completed_team_games(team_id, season=season, lookback_seasons=0, enrich_scores=True)[:n]
+    historical: list[dict[str, Any]] = []
+    historical_season: int | None = None
+
+    if not current:
+        for candidate in range(season - 1, season - historical_lookback - 1, -1):
+            rows = _completed_team_games_for_season(team_id, candidate)
+            if rows:
+                historical = [_enrich_game_scores(dict(game)) for game in rows[:n]]
+                historical_season = candidate
+                break
+
+    return {
+        "current_games": current,
+        "historical_games": historical,
+        "current_season": season,
+        "historical_season": historical_season,
+        "current_complete": len(current) >= min(5, n),
+        "using_historical_context": bool(historical),
+    }
 
 
 def _points_for_team(game: dict[str, Any], team_id: str) -> tuple[int | None, int | None, bool | None]:
@@ -568,8 +605,8 @@ def _derive_team_stats_from_games(team_id: str, games: list[dict[str, Any]]) -> 
 
 def get_team_recent_form(team_id, season: int = NBA_SEASON, n: int = 10) -> list[dict]:
     team_id = str(team_id)
-    finished = _latest_completed_team_games(team_id, season=season, enrich_scores=True)
-    return finished[:n]
+    context = get_team_recent_form_context(team_id, season=season, n=n, historical_lookback=0)
+    return context.get("current_games") or []
 
 
 def get_h2h(team_a_id, team_b_id, season: int = NBA_SEASON) -> list[dict]:

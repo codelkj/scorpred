@@ -102,10 +102,10 @@
             {% endif %}
             {% if g.prediction and g.prediction.best_pick %}
             <span class="confidence-badge {% if g.prediction.best_pick.confidence == 'High' %}conf-high{% elif g.prediction.best_pick.confidence == 'Medium' %}conf-medium{% else %}conf-low{% endif %}">
-              {{ g.prediction.best_pick.confidence or 'Unknown' }}
+              {{ g.prediction.best_pick.confidence_label or (g.prediction.best_pick.confidence ~ ' Confidence') }}
             </span>
             {% else %}
-            <span class="filter-chip">No confidence</span>
+            <span class="filter-chip">Limited Data</span>
             {% endif %}
           </div>
 

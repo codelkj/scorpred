@@ -599,11 +599,14 @@ class TestNbaPredictionRoute:
 
         with patch("nba_live_client.get_event_snapshot", return_value=home_game), \
              patch("nba_live_client.get_h2h", return_value=[home_game, away_game]), \
-             patch("nba_live_client.get_team_recent_form", side_effect=[[home_game, away_game], [away_game, home_game]]), \
+             patch("nba_live_client.get_team_recent_form_context", side_effect=[
+                 {"current_games": [home_game, away_game], "historical_games": [], "using_historical_context": False},
+                 {"current_games": [away_game, home_game], "historical_games": [], "using_historical_context": False},
+             ]), \
              patch("nba_live_client.get_team_injuries", side_effect=[[], []]), \
              patch("nba_live_client.get_team_season_stats", side_effect=[stats_a, stats_b]), \
              patch("nba_live_client.get_standings", return_value={"west": [{"team": {"name": "Lakers"}, "rank": 3}], "east": [{"team": {"name": "Celtics"}, "rank": 1}]}), \
-             patch("scorpred_engine.scorpred_predict", return_value=_mock_nba_scorpred()), \
+             patch("scormastermind.predict_match", return_value={"ui_prediction": _mock_nba_scorpred()}), \
              patch("model_tracker.save_prediction") as mock_save:
             rv = client.get("/nba/prediction")
 
@@ -614,6 +617,78 @@ class TestNbaPredictionRoute:
         assert b"Team Snapshot" in rv.data
         assert mock_save.call_count == 1
         assert mock_save.call_args.kwargs["game_date"] == "2026-04-21T19:30:00Z"
+
+    def test_nba_index_never_renders_no_confidence_phrase(self, client):
+        game = _mock_nba_game(date="2026-04-21")
+
+        with patch("nba_live_client.get_teams", return_value=_mock_nba_teams()), \
+             patch("nba_live_client.get_today_games", return_value=[]), \
+             patch("nba_live_client.get_upcoming_games", return_value=[game]), \
+             patch("nba_live_client.get_h2h", return_value=[]), \
+             patch("nba_live_client.get_team_recent_form_context", return_value={"current_games": [], "using_historical_context": False}), \
+             patch("nba_live_client.get_team_injuries", return_value=[]), \
+             patch("nba_live_client.get_standings", return_value={}), \
+             patch("scorpred_engine.scorpred_predict", return_value={
+                 "best_pick": {"prediction": "Lakers Win", "team": "A"},
+                 "win_probabilities": {"a": 51.0, "b": 49.0},
+                 "prob_home": 51.0,
+                 "prob_away": 49.0,
+             }):
+            rv = client.get("/nba/")
+
+        assert rv.status_code == 200
+        assert b"No confidence" not in rv.data
+        assert b"Limited Data" in rv.data
+
+    def test_nba_prediction_shows_limited_data_notice_when_current_season_is_sparse(self, client):
+        with client.session_transaction() as sess:
+            sess["nba_team_a_id"] = "1610612747"
+            sess["nba_team_a_name"] = "Los Angeles Lakers"
+            sess["nba_team_a_logo"] = "https://example.com/lakers.png"
+            sess["nba_team_a_nickname"] = "Lakers"
+            sess["nba_team_a_city"] = "Los Angeles"
+            sess["nba_team_b_id"] = "1610612738"
+            sess["nba_team_b_name"] = "Boston Celtics"
+            sess["nba_team_b_logo"] = "https://example.com/celtics.png"
+            sess["nba_team_b_nickname"] = "Celtics"
+            sess["nba_team_b_city"] = "Boston"
+            sess["nba_selected_game"] = {
+                "event_id": "401000001",
+                "date": "2026-04-21T19:30:00Z",
+                "status": "Scheduled",
+                "venue_name": "Test Arena",
+                "short_name": "Celtics @ Lakers",
+            }
+
+        home_game = _mock_nba_game()
+
+        with patch("nba_live_client.get_event_snapshot", return_value=home_game), \
+             patch("nba_live_client.get_h2h", return_value=[]), \
+             patch("nba_live_client.get_team_recent_form_context", side_effect=[
+                 {"current_games": [], "historical_games": [home_game], "using_historical_context": True},
+                 {"current_games": [], "historical_games": [home_game], "using_historical_context": True},
+             ]), \
+             patch("nba_live_client.get_team_injuries", side_effect=[[], []]), \
+             patch("nba_live_client.get_team_season_stats", side_effect=[None, None]), \
+             patch("nba_live_client.get_standings", return_value={}), \
+             patch("scormastermind.predict_match", return_value={
+                 "ui_prediction": {
+                     "best_pick": {"prediction": "Lakers Win", "team": "A", "confidence": "Low", "reasoning": "Edge is thin."},
+                     "win_probabilities": {"a": 51.0, "b": 49.0},
+                     "score_gap": 0.4,
+                     "components_a": {"form": 5, "offense": 5, "defense": 5, "h2h": 5, "home_away": 5, "opp_strength": 5, "squad": 5, "match_context": 5},
+                     "components_b": {"form": 5, "offense": 5, "defense": 5, "h2h": 5, "home_away": 5, "opp_strength": 5, "squad": 5, "match_context": 5},
+                     "team_a_score": 5.2,
+                     "team_b_score": 5.0,
+                     "key_edges": [],
+                 }
+             }), \
+             patch("model_tracker.save_prediction"):
+            rv = client.get("/nba/prediction")
+
+        assert rv.status_code == 200
+        assert b"Current-season data is limited for this matchup" in rv.data
+        assert b"Historical context is shown where current-season coverage is incomplete" in rv.data
 
 
 class TestStrategyLabRoute:

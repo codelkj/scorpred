@@ -10,7 +10,7 @@ Session keys use the nba_ prefix to avoid collisions with the football section.
 """
 
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 import re
 import traceback
@@ -230,7 +230,7 @@ def _log_team_match_debug(stage: str, selected_home: str, selected_away: str, te
         for team in teams
     ]
     current_app.logger.info(
-        "nba select_game debug stage=%s selected_home=%r selected_away=%r normalized_selected=%s available_team_names=%s normalized_team_names=%s failure_reason=%s",
+        "nba select_game trace stage=%s selected_home=%r selected_away=%r normalized_selected=%s available_team_names=%s normalized_team_names=%s failure_reason=%s",
         stage,
         selected_home,
         selected_away,
@@ -381,6 +381,68 @@ def _page_context(**kwargs) -> dict:
     }
     context.update(kwargs)
     return context
+
+
+def _confidence_display_label(conf_key: str) -> str:
+    key = str(conf_key or "").strip()
+    if key == "High":
+        return "High Confidence"
+    if key == "Medium":
+        return "Moderate Confidence"
+    if key == "Low":
+        return "Low Confidence"
+    return "Limited Data"
+
+
+def _downgrade_confidence_key(conf_key: str) -> str:
+    if conf_key == "High":
+        return "Medium"
+    if conf_key == "Medium":
+        return "Low"
+    if conf_key == "Low":
+        return "Limited Data"
+    return "Limited Data"
+
+
+def _apply_nba_confidence_profile(
+    prediction: dict,
+    *,
+    form_a_games: int,
+    form_b_games: int,
+    stats_a_available: bool,
+    stats_b_available: bool,
+    used_historical_context: bool,
+    data_limited: bool,
+) -> dict:
+    if not isinstance(prediction, dict):
+        return prediction
+
+    best_pick = prediction.get("best_pick") or {}
+    win_probs = prediction.get("win_probabilities") or {}
+    prob_a = float(win_probs.get("a", 50.0) or 50.0)
+    prob_b = float(win_probs.get("b", 50.0) or 50.0)
+    prob_gap = abs(prob_a - prob_b)
+
+    form_quality = min(form_a_games, form_b_games)
+    stats_ok = bool(stats_a_available and stats_b_available)
+
+    if data_limited or form_quality < 2 or not stats_ok:
+        conf_key = "Limited Data"
+    elif prob_gap >= 14 and form_quality >= 5:
+        conf_key = "High"
+    elif prob_gap >= 7 and form_quality >= 3:
+        conf_key = "Medium"
+    else:
+        conf_key = "Low"
+
+    if used_historical_context and conf_key in {"High", "Medium", "Low"}:
+        conf_key = _downgrade_confidence_key(conf_key)
+
+    best_pick["confidence"] = conf_key
+    best_pick["confidence_label"] = _confidence_display_label(conf_key)
+    prediction["best_pick"] = best_pick
+    prediction["confidence_label"] = best_pick["confidence_label"]
+    return prediction
 
 
 def _refresh_requested() -> bool:
@@ -669,15 +731,19 @@ def index():
                 pass
             
             try:
-                form_home_raw = nc.get_team_recent_form(home_id)
+                form_home_context = nc.get_team_recent_form_context(home_id, season=nc.NBA_SEASON, n=10)
+                form_home_raw = form_home_context.get("current_games") or []
                 form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
             except Exception:
+                form_home_context = {"using_historical_context": False}
                 pass
             
             try:
-                form_away_raw = nc.get_team_recent_form(away_id)
+                form_away_context = nc.get_team_recent_form_context(away_id, season=nc.NBA_SEASON, n=10)
+                form_away_raw = form_away_context.get("current_games") or []
                 form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
             except Exception:
+                form_away_context = {"using_historical_context": False}
                 pass
             
             try:
@@ -728,6 +794,15 @@ def index():
                 team_b_name=away_team.get("nickname") or away_team["name"],
                 sport="nba",
                 opp_strengths=nba_opp_strengths,
+            )
+            prediction = _apply_nba_confidence_profile(
+                prediction,
+                form_a_games=len(form_home),
+                form_b_games=len(form_away),
+                stats_a_available=True,
+                stats_b_available=True,
+                used_historical_context=bool(form_home_context.get("using_historical_context") or form_away_context.get("using_historical_context")),
+                data_limited=(len(form_home) < 2 or len(form_away) < 2),
             )
             
             upcoming_games_with_predictions.append({**game, "prediction": prediction})
@@ -864,6 +939,9 @@ def matchup():
     stats_b = None
     roster_a = []
     roster_b = []
+    raw_h2h = []
+    form_context_a = {"current_season": nc.NBA_SEASON, "current_games": [], "historical_games": [], "using_historical_context": False}
+    form_context_b = {"current_season": nc.NBA_SEASON, "current_games": [], "historical_games": [], "using_historical_context": False}
 
     if selected_game and selected_game.get("event_id"):
         try:
@@ -874,22 +952,24 @@ def matchup():
             _log_err("Selected game snapshot", e)
 
     try:
-        raw_h2h  = nc.get_h2h(id_a, id_b)
+        raw_h2h = nc.get_h2h(id_a, id_b)
         h2h_rows = np_nba.h2h_display(raw_h2h, id_a, id_b)
         h2h_summary = np_nba.build_h2h_summary(raw_h2h, id_a, id_b, n=5)
     except Exception as e:
         _log_err("H2H fetch", e)
 
     try:
-        recent_a = nc.get_team_recent_form(id_a)
-        form_a   = np_nba.extract_form_for_display(recent_a, id_a)
+        form_context_a = nc.get_team_recent_form_context(id_a, season=nc.NBA_SEASON, n=10)
+        recent_a = form_context_a.get("current_games") or []
+        form_a = np_nba.extract_form_for_display(recent_a, id_a)
         recent_form_a = np_nba.extract_recent_form(recent_a, id_a, n=5)
     except Exception as e:
         _log_err("Form A fetch", e)
 
     try:
-        recent_b = nc.get_team_recent_form(id_b)
-        form_b   = np_nba.extract_form_for_display(recent_b, id_b)
+        form_context_b = nc.get_team_recent_form_context(id_b, season=nc.NBA_SEASON, n=10)
+        recent_b = form_context_b.get("current_games") or []
+        form_b = np_nba.extract_form_for_display(recent_b, id_b)
         recent_form_b = np_nba.extract_recent_form(recent_b, id_b, n=5)
     except Exception as e:
         _log_err("Form B fetch", e)
@@ -954,8 +1034,8 @@ def matchup():
     # ── Scorpred Engine ────────────────────────────────────────────────────────
     scorpred = None
     try:
-        h2h_form_a = np_nba.extract_recent_form(h2h_rows, id_a, n=10)
-        h2h_form_b = np_nba.extract_recent_form(h2h_rows, id_b, n=10)
+        h2h_form_a = np_nba.extract_recent_form(raw_h2h, id_a, n=10)
+        h2h_form_b = np_nba.extract_recent_form(raw_h2h, id_b, n=10)
 
         # Build opponent-strength lookup from NBA standings
         nba_opp_strengths = {}
@@ -1001,8 +1081,26 @@ def matchup():
             }
         )
         scorpred = mastermind.get("ui_prediction") or {}
+        scorpred = _apply_nba_confidence_profile(
+            scorpred,
+            form_a_games=len(recent_form_a),
+            form_b_games=len(recent_form_b),
+            stats_a_available=bool(stats_a),
+            stats_b_available=bool(stats_b),
+            used_historical_context=bool(form_context_a.get("using_historical_context") or form_context_b.get("using_historical_context")),
+            data_limited=(len(recent_form_a) < 2 or len(recent_form_b) < 2),
+        )
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
+
+    season_context = {
+        "current_season": nc.NBA_SEASON,
+        "form_a_current": len(form_context_a.get("current_games") or []),
+        "form_b_current": len(form_context_b.get("current_games") or []),
+        "form_a_historical": len(form_context_a.get("historical_games") or []),
+        "form_b_historical": len(form_context_b.get("historical_games") or []),
+        "has_historical_context": bool(form_context_a.get("historical_games") or form_context_b.get("historical_games")),
+    }
 
     return render_template(
         "nba/matchup.html",
@@ -1028,6 +1126,7 @@ def matchup():
             key_players_a=key_players_a,
             key_players_b=key_players_b,
             scorpred=scorpred,
+            season_context=season_context,
             error=error,
             route_support=_support("matchup"),
         ),
@@ -1151,6 +1250,8 @@ def prediction():
     stats_b = None
     selected_game = _selected_nba_game()
     game_snapshot = None
+    form_context_a = {"current_season": nc.NBA_SEASON, "current_games": [], "historical_games": [], "using_historical_context": False}
+    form_context_b = {"current_season": nc.NBA_SEASON, "current_games": [], "historical_games": [], "using_historical_context": False}
 
     if selected_game and selected_game.get("event_id"):
         try:
@@ -1169,13 +1270,15 @@ def prediction():
         _log_err("H2H for prediction", e)
 
     try:
-        form_a_raw = nc.get_team_recent_form(id_a)
+        form_context_a = nc.get_team_recent_form_context(id_a, season=nc.NBA_SEASON, n=10)
+        form_a_raw = form_context_a.get("current_games") or []
         form_a_filtered = np_nba.filter_completed_nba_games(form_a_raw)
     except Exception as e:
         _log_err("Form A for prediction", e)
 
     try:
-        form_b_raw = nc.get_team_recent_form(id_b)
+        form_context_b = nc.get_team_recent_form_context(id_b, season=nc.NBA_SEASON, n=10)
+        form_b_raw = form_context_b.get("current_games") or []
         form_b_filtered = np_nba.filter_completed_nba_games(form_b_raw)
     except Exception as e:
         _log_err("Form B for prediction", e)
@@ -1258,21 +1361,47 @@ def prediction():
             }
         )
         scorpred = mastermind.get("ui_prediction") or {}
+        scorpred = _apply_nba_confidence_profile(
+            scorpred,
+            form_a_games=len(nba_form_a),
+            form_b_games=len(nba_form_b),
+            stats_a_available=bool(stats_a),
+            stats_b_available=bool(stats_b),
+            used_historical_context=bool(form_context_a.get("using_historical_context") or form_context_b.get("using_historical_context")),
+            data_limited=(len(nba_form_a) < 2 or len(nba_form_b) < 2),
+        )
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
 
+    has_historical_context = bool(form_context_a.get("historical_games") or form_context_b.get("historical_games"))
+    limited_current_season = len(form_a_filtered) < 2 or len(form_b_filtered) < 2
+
     data_notes = [
         "Upcoming/live game context is from ESPN's public scoreboard and summary feeds.",
-        "Season records, PPG, and net rating are live from the standings feed.",
-        "Recent form, head-to-head history, rosters, and injuries are all based on real schedule and roster data.",
-        "Analysis uses only completed games (final/post state) for accurate recent form and H2H history.",
+        "Primary analysis uses current-season completed form and current-season team snapshot data.",
+        "Head-to-head is shown as historical context and is not treated as current-season form.",
     ]
+    if limited_current_season:
+        data_notes.append("Current-season data is limited for this matchup.")
+    if has_historical_context:
+        data_notes.append("Historical context is shown where current-season coverage is incomplete.")
+
+    season_context = {
+        "current_season": nc.NBA_SEASON,
+        "form_a_current": len(form_context_a.get("current_games") or []),
+        "form_b_current": len(form_context_b.get("current_games") or []),
+        "form_a_historical": len(form_context_a.get("historical_games") or []),
+        "form_b_historical": len(form_context_b.get("historical_games") or []),
+        "has_historical_context": has_historical_context,
+        "limited_current_season": limited_current_season,
+        "stats_current_available": bool(stats_a and stats_b),
+    }
 
     # Track this prediction
     try:
         if scorpred:
             best_pick = scorpred.get("best_pick", {})
-            pred_winner = best_pick.get("team", "")
+            pred_winner = best_pick.get("tracking_team") or best_pick.get("team", "")
             probs = scorpred.get("win_probabilities", {})
             conf = best_pick.get("confidence", "Medium")
             
@@ -1308,6 +1437,8 @@ def prediction():
             prediction=scorpred,
             scorpred=scorpred,    # template guards on {% if scorpred %} — expose it directly
             data_notes=data_notes,
+            show_data_notice=(limited_current_season or has_historical_context),
+            season_context=season_context,
             error=error,
             route_support=_support("prediction"),
         ),
@@ -1332,7 +1463,7 @@ def today_predictions():
         _log_err("Teams fetch for today predictions", e)
 
     # Fetch today's NBA scoreboard
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(UTC)
     current_app.logger.info(
         "today_predictions: UTC=%s — fetching today's scoreboard",
         now_utc.strftime("%Y-%m-%d %H:%M"),
@@ -1427,15 +1558,19 @@ def today_predictions():
                 pass
 
             try:
-                form_home_raw = nc.get_team_recent_form(home_id)
+                form_home_context = nc.get_team_recent_form_context(home_id, season=nc.NBA_SEASON, n=10)
+                form_home_raw = form_home_context.get("current_games") or []
                 form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
             except Exception:
+                form_home_context = {"using_historical_context": False}
                 pass
 
             try:
-                form_away_raw = nc.get_team_recent_form(away_id)
+                form_away_context = nc.get_team_recent_form_context(away_id, season=nc.NBA_SEASON, n=10)
+                form_away_raw = form_away_context.get("current_games") or []
                 form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
             except Exception:
+                form_away_context = {"using_historical_context": False}
                 pass
 
             try:
@@ -1463,6 +1598,15 @@ def today_predictions():
                 team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
                 sport="nba",
                 opp_strengths=nba_opp_strengths,
+            )
+            prediction = _apply_nba_confidence_profile(
+                prediction,
+                form_a_games=len(form_home),
+                form_b_games=len(form_away),
+                stats_a_available=True,
+                stats_b_available=True,
+                used_historical_context=bool(form_home_context.get("using_historical_context") or form_away_context.get("using_historical_context")),
+                data_limited=(len(form_home) < 2 or len(form_away) < 2),
             )
 
             best_pick = prediction.get("best_pick", {})

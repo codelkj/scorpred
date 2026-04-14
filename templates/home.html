@@ -55,65 +55,61 @@
       <div class="faang-system-grid">
         <div>
           <span>Overall Accuracy</span>
-          <strong>Live in Strategy Lab</strong>
-        </div>
-        <div>
-          <span>Tracked Predictions</span>
-          <strong>Live in Performance</strong>
-        </div>
-        <div>
-          <span>Best Strategy</span>
-          <strong>See Strategy Lab</strong>
-        </div>
-        <div>
-          <span>Last Updated</span>
-          <strong>{{ last_updated }}</strong>
-        </div>
-      </div>
-    </article>
-
-    <article class="card glow-card">
-      <h2 class="faang-section-title">Today's Top Picks</h2>
-      <div class="faang-pick-list">
-        {% if selected_match %}
-        <div class="faang-pick-row">
+            <strong>{{ system_snapshot.overall_accuracy }}</strong>
+          </div>
           <div>
-            <strong>{{ selected_match }}</strong>
-            <div class="route-meta">Active soccer selection</div>
+            <span>Tracked Predictions</span>
+            <strong>{{ system_snapshot.tracked_predictions }}</strong>
           </div>
-          <div class="faang-pick-tags">
-            <span class="source-badge source-api">LEAN</span>
-            <span class="filter-chip">Open Match Analysis</span>
-          </div>
-        </div>
-        {% endif %}
-        {% if selected_nba_match %}
-        <div class="faang-pick-row">
           <div>
-            <strong>{{ selected_nba_match }}</strong>
-            <div class="route-meta">Active NBA selection</div>
+            <span>Best Strategy</span>
+            <strong>{{ system_snapshot.best_strategy }}</strong>
           </div>
-          <div class="faang-pick-tags">
-            <span class="source-badge source-api">LEAN</span>
-            <span class="filter-chip">Open NBA Prediction</span>
+          <div>
+            <span>Last Updated</span>
+            <strong>{{ last_updated }}</strong>
           </div>
         </div>
-        {% endif %}
-        {% if not selected_match and not selected_nba_match %}
-        <div class="empty-state">No strong picks are pinned yet. Select a matchup to generate a clean recommendation.</div>
-        {% endif %}
-      </div>
-    </article>
-  </section>
+      </article>
 
-  <section class="card glow-card faang-copy-card">
-    <h2 class="faang-section-title">How It Works</h2>
-    <ul class="faang-bullet-list">
-      <li>Rule + ML signals combine into one recommendation with transparent reasoning.</li>
-      <li>Confidence and risk labels help separate strong edges from thin leans.</li>
-      <li>Tracked results feed Performance and Strategy Lab for accountability.</li>
-      <li>Avoid logic suppresses forced picks when edge quality is weak.</li>
-    </ul>
+      <article class="card glow-card">
+        <h2 class="faang-section-title">Today's Top Picks</h2>
+        <div class="faang-pick-list">
+          {% for pick in top_picks %}
+          <div class="faang-pick-row">
+            <div>
+              <strong>{{ pick.matchup }}</strong>
+              <div class="route-meta">{{ pick.sport }}{% if pick.game_date %} · {{ pick.game_date }}{% endif %}</div>
+            </div>
+            <div class="faang-pick-tags">
+              {% if pick.play_type == 'BET' %}
+              <span class="source-badge source-api">{{ pick.play_type }}</span>
+              {% elif pick.play_type == 'AVOID' %}
+              <span class="source-badge source-espn">{{ pick.play_type }}</span>
+              {% else %}
+              <span class="filter-chip">{{ pick.play_type }}</span>
+              {% endif %}
+              <span class="filter-chip">{{ pick.recommendation }}</span>
+              <span class="confidence-badge conf-{{ pick.confidence | lower }}">{{ pick.confidence_display }}</span>
+            </div>
+          </div>
+          {% endfor %}
+          {% if not top_picks %}
+          <div class="empty-state">No strong picks available right now. Open Match Analysis for fresh calls.</div>
+          {% endif %}
+        </div>
+      </article>
+
+      <article class="card glow-card">
+        <h2 class="faang-section-title">How It Works</h2>
+        <ul class="faang-bullet-list">
+          <li>Rule + ML signals combine into one recommendation with transparent reasoning.</li>
+          <li>Confidence and risk labels help separate strong edges from thin leans.</li>
+          <li>Tracked results feed Performance and Strategy Lab for accountability.</li>
+          <li>Avoid logic suppresses forced picks when edge quality is weak.</li>
+        </ul>
+      </article>
+    </div>
   </section>
 
   <section class="card glow-card">
@@ -121,12 +117,12 @@
       <h2 class="faang-section-title">Performance Preview</h2>
     </div>
     <div class="faang-result-strip">
-      <span class="result-badge source-api">Win</span>
-      <span class="result-badge source-espn">Loss</span>
-      <span class="result-badge filter-chip">Partial</span>
-      <span class="result-badge source-api">Win</span>
-      <span class="result-badge source-api">Win</span>
-      <span class="result-badge source-espn">Loss</span>
+      {% for result in performance_preview %}
+      <span class="result-badge {% if result == 'Win' %}source-api{% elif result == 'Partial' %}filter-chip{% else %}source-espn{% endif %}">{{ result }}</span>
+      {% endfor %}
+      {% if not performance_preview %}
+      <span class="filter-chip">Awaiting graded outcomes</span>
+      {% endif %}
     </div>
     <p class="faang-copy">Open Performance for full graded result history and confidence splits.</p>
   </section>

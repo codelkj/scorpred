@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+
+_UPCOMING_FIXTURE_CACHE_TTL_SECONDS = 180
+_UPCOMING_FIXTURE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+
 
 def clean_injuries(items: list[dict]) -> list[dict]:
     cleaned = []
@@ -37,6 +45,15 @@ def load_upcoming_fixtures(
     football_data_source,
     next_n: int = 20,
 ):
+    force_refresh = bool(getattr(api_client, "FORCE_REFRESH", False))
+    cache_key = (league, season, int(next_n), football_data_source())
+    now = datetime.now(UTC)
+
+    if not force_refresh:
+        cached = _UPCOMING_FIXTURE_CACHE.get(cache_key)
+        if cached and isinstance(cached.get("expires_at"), datetime) and cached["expires_at"] > now:
+            return deepcopy(cached["value"])
+
     load_error = None
     fixtures_with_pred = []
     data_source = football_data_source()
@@ -54,6 +71,35 @@ def load_upcoming_fixtures(
         standings_list = []
         logger.warning("Standings unavailable for quick predictions: %s", exc)
 
+    opp_strengths = build_opp_strengths(engine, standings_list)
+
+    # Avoid duplicate team API calls in the same page load.
+    team_fixtures_cache: dict[int, list] = {}
+    injuries_cache: dict[int, list] = {}
+    h2h_cache: dict[tuple[int, int], list] = {}
+
+    def _cached_team_fixtures(team_id: int) -> list:
+        if team_id in team_fixtures_cache:
+            return team_fixtures_cache[team_id]
+        rows = api_client.get_team_fixtures(team_id, league, season, last=10)
+        team_fixtures_cache[team_id] = rows
+        return rows
+
+    def _cached_injuries(team_id: int) -> list:
+        if team_id in injuries_cache:
+            return injuries_cache[team_id]
+        rows = clean_injuries(api_client.get_injuries(league, season, team_id))
+        injuries_cache[team_id] = rows
+        return rows
+
+    def _cached_h2h(home_id: int, away_id: int) -> list:
+        key = tuple(sorted((int(home_id), int(away_id))))
+        if key in h2h_cache:
+            return h2h_cache[key]
+        rows = api_client.get_h2h(home_id, away_id, last=10)
+        h2h_cache[key] = rows
+        return rows
+
     for fixture in upcoming:
         prediction = None
         try:
@@ -69,23 +115,23 @@ def load_upcoming_fixtures(
             injuries_away = []
 
             try:
-                h2h_raw = api_client.get_h2h(home_id, away_id, last=10)
+                h2h_raw = _cached_h2h(home_id, away_id)
             except Exception:
                 logger.debug("Upcoming fixture h2h missing for %s vs %s", home_name, away_name)
             try:
-                fixtures_home = api_client.get_team_fixtures(home_id, league, season, last=10)
+                fixtures_home = _cached_team_fixtures(home_id)
             except Exception:
                 logger.debug("Upcoming fixture home team form missing for %s", home_name)
             try:
-                fixtures_away = api_client.get_team_fixtures(away_id, league, season, last=10)
+                fixtures_away = _cached_team_fixtures(away_id)
             except Exception:
                 logger.debug("Upcoming fixture away team form missing for %s", away_name)
             try:
-                injuries_home = clean_injuries(api_client.get_injuries(league, season, home_id))
+                injuries_home = _cached_injuries(home_id)
             except Exception:
                 logger.debug("Upcoming fixture home injuries missing for %s", home_name)
             try:
-                injuries_away = clean_injuries(api_client.get_injuries(league, season, away_id))
+                injuries_away = _cached_injuries(away_id)
             except Exception:
                 logger.debug("Upcoming fixture away injuries missing for %s", away_name)
 
@@ -119,7 +165,7 @@ def load_upcoming_fixtures(
                 team_a_name=home_name,
                 team_b_name=away_name,
                 sport="soccer",
-                opp_strengths=build_opp_strengths(engine, standings_list),
+                opp_strengths=opp_strengths,
             )
         except Exception as exc:
             logger.warning(
@@ -142,7 +188,12 @@ def load_upcoming_fixtures(
             )
         fixtures_with_pred.append({**fixture, "prediction": prediction})
 
-    return fixtures_with_pred, load_error, data_source, ""
+    result = (fixtures_with_pred, load_error, data_source, "")
+    _UPCOMING_FIXTURE_CACHE[cache_key] = {
+        "expires_at": now + timedelta(seconds=_UPCOMING_FIXTURE_CACHE_TTL_SECONDS),
+        "value": deepcopy(result),
+    }
+    return result
 
 
 def build_key_threats(

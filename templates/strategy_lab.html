@@ -14,7 +14,8 @@
 {% set low_row = row_low[0] if row_low else None %}
 
 {% set avoid_recent = metrics.recent_predictions | selectattr('predicted_winner', 'equalto', 'avoid') | list if metrics.recent_predictions else [] %}
-{% set avoid_completed = recent_completed_predictions | selectattr('predicted_winner', 'equalto', 'avoid') | list if recent_completed_predictions else [] %}
+{% set avoid_completed_source = avoid_impact_predictions if avoid_impact_predictions is defined else recent_completed_predictions %}
+{% set avoid_completed = avoid_completed_source | selectattr('predicted_winner', 'equalto', 'avoid') | list if avoid_completed_source else [] %}
 {% set avoid_if_played = (avoid_completed | selectattr('winner_hit', 'equalto', true) | list | length) %}
 {% set avoid_total_completed = avoid_completed | length %}
 {% set avoid_if_played_acc = ((avoid_if_played / avoid_total_completed) * 100) if avoid_total_completed else none %}
@@ -159,9 +160,9 @@
   <section class="card glow-card">
     <h2 class="faang-section-title">ML vs Rule Insights</h2>
     <ul class="faang-bullet-list">
-      <li>ML performs better when feature interactions become nonlinear in the saved comparison window.</li>
-      <li>Rule-based tracking remains strongest in transparent, confidence-tiered live decision workflows.</li>
-      <li>Agreement is strongest when High confidence picks and top sport segment trends align.</li>
+      {% for insight in (ml_rule_insights or key_insights[:3]) %}
+      <li>{{ insight }}</li>
+      {% endfor %}
     </ul>
   </section>
 

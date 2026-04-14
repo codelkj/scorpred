@@ -31,7 +31,7 @@ Data Quality:
 """
 
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, UTC
 import json
 import os
 import re
@@ -281,7 +281,7 @@ def _match_context_score(form: list[dict], sport: str = "soccer") -> tuple[float
     if not most_recent:
         return 5.0, {"days_since_last": None, "category": "neutral", "note": "No valid dates"}
 
-    days_since_last = max(0, (datetime.utcnow() - most_recent).days)
+    days_since_last = max(0, (datetime.now(UTC) - most_recent).days)
     if days_since_last <= 3:
         score = 4.2
         category = "short_rest"
@@ -558,7 +558,7 @@ def track_prediction(
     actual_result: str | None = None,
 ) -> None:
     record = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "predicted_winner": predicted_winner,
         "confidence": confidence,
         "team_a_name": team_a_name,

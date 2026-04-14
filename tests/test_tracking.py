@@ -29,6 +29,16 @@ def _load_predictions(path: Path) -> list[dict]:
     return payload.get("predictions", [])
 
 
+def _set_prediction_fields(path: Path, pred_id: str, fields: dict) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    predictions = payload.get("predictions", [])
+    for pred in predictions:
+        if pred.get("id") == pred_id:
+            pred.update(fields)
+            break
+    path.write_text(json.dumps({"predictions": predictions}, indent=2), encoding="utf-8")
+
+
 def test_save_prediction_stores_explicit_game_date(tracking_file):
     pred_id = mt.save_prediction(
         sport="soccer",
@@ -142,3 +152,144 @@ def test_get_summary_metrics_grades_completed_predictions_from_persisted_results
     assert metrics["by_confidence"]["Low"]["losses"] == 1
     assert metrics["by_sport"]["soccer"]["accuracy"] == 100.0
     assert metrics["by_sport"]["nba"]["accuracy"] == 0.0
+
+
+def test_draw_prediction_hits_when_final_score_is_draw(tracking_file):
+    pred_id = mt.save_prediction(
+        sport="soccer",
+        team_a="Chelsea",
+        team_b="Manchester United",
+        predicted_winner="Draw",
+        win_probs={"a": 31.5, "draw": 35.0, "b": 33.5},
+        confidence="Low",
+        game_date="2026-04-22",
+    )
+
+    assert mt.update_prediction_result(pred_id, "draw", {"a": 1, "b": 1})
+    completed = mt.get_completed_predictions()
+    assert completed[0]["winner_hit"] is True
+    assert completed[0]["winner_display"] == "Winner Pick: Hit"
+
+
+def test_team_name_prediction_misses_when_actual_is_draw(tracking_file):
+    pred_id = mt.save_prediction(
+        sport="soccer",
+        team_a="Chelsea",
+        team_b="Manchester United",
+        predicted_winner="Chelsea",
+        win_probs={"a": 45.0, "draw": 30.0, "b": 25.0},
+        confidence="Medium",
+        game_date="2026-04-23",
+    )
+
+    assert mt.update_prediction_result(pred_id, "draw", {"a": 1, "b": 1})
+    completed = mt.get_completed_predictions()
+    assert completed[0]["winner_hit"] is False
+
+
+def test_home_win_prediction_misses_when_away_team_wins(tracking_file):
+    pred_id = mt.save_prediction(
+        sport="soccer",
+        team_a="Chelsea",
+        team_b="Manchester United",
+        predicted_winner="Home Win",
+        win_probs={"a": 52.0, "draw": 24.0, "b": 24.0},
+        confidence="Medium",
+        game_date="2026-04-24",
+    )
+
+    assert mt.update_prediction_result(pred_id, "B", {"a": 0, "b": 2})
+    completed = mt.get_completed_predictions()
+    assert completed[0]["winner_hit"] is False
+
+
+def test_totals_hit_but_winner_miss_is_split_correctly(tracking_file):
+    pred_id = mt.save_prediction(
+        sport="soccer",
+        team_a="Chelsea",
+        team_b="Manchester United",
+        predicted_winner="B",
+        win_probs={"a": 52.0, "draw": 23.0, "b": 25.0},
+        confidence="Medium",
+        game_date="2026-04-25",
+    )
+    _set_prediction_fields(tracking_file, pred_id, {"predicted_total_pick": "Over"})
+
+    assert mt.update_prediction_result(pred_id, "A", {"a": 2, "b": 1})
+    completed = mt.get_completed_predictions()
+    assert completed[0]["winner_hit"] is False
+    assert completed[0]["totals_hit"] is True
+    assert completed[0]["overall_game_result"] == "Partial"
+
+
+def test_winner_hit_but_totals_miss_is_split_correctly(tracking_file):
+    pred_id = mt.save_prediction(
+        sport="soccer",
+        team_a="Chelsea",
+        team_b="Manchester United",
+        predicted_winner="A",
+        win_probs={"a": 52.0, "draw": 23.0, "b": 25.0},
+        confidence="Medium",
+        game_date="2026-04-26",
+    )
+    _set_prediction_fields(tracking_file, pred_id, {"predicted_total_pick": "Over"})
+
+    assert mt.update_prediction_result(pred_id, "A", {"a": 1, "b": 0})
+    completed = mt.get_completed_predictions()
+    assert completed[0]["winner_hit"] is True
+    assert completed[0]["totals_hit"] is False
+    assert completed[0]["overall_game_result"] == "Partial"
+
+
+def test_completed_card_labels_use_corrected_grading_fields(tracking_file):
+    pred_id = mt.save_prediction(
+        sport="soccer",
+        team_a="Chelsea",
+        team_b="Manchester United",
+        predicted_winner="A",
+        win_probs={"a": 52.0, "draw": 23.0, "b": 25.0},
+        confidence="Medium",
+        game_date="2026-04-27",
+    )
+    _set_prediction_fields(tracking_file, pred_id, {"predicted_total_pick": "Under"})
+
+    assert mt.update_prediction_result(pred_id, "A", {"a": 2, "b": 0})
+    completed = mt.get_completed_predictions()
+    assert completed[0]["final_score_display"] == "2-0"
+    assert completed[0]["winner_display"] == "Winner Pick: Hit"
+    assert "Totals Pick (Under 2.5): Hit" == completed[0]["ou_display"]
+    assert completed[0]["overall_game_result"] == "Win"
+
+
+def test_stale_completed_record_is_recomputed_on_load(tracking_file):
+    stale = {
+        "predictions": [
+            {
+                "id": "stale001",
+                "sport": "soccer",
+                "date": "2026-04-28",
+                "game_date": "2026-04-28",
+                "team_a": "Chelsea",
+                "team_b": "Manchester United",
+                "predicted_winner": "Chelsea",
+                "prob_a": 51.0,
+                "prob_b": 25.0,
+                "prob_draw": 24.0,
+                "confidence": "Medium",
+                "status": "completed",
+                "actual_result": "draw",
+                "is_correct": True,
+                "final_score": {"a": 1, "b": 1},
+                "created_at": "2026-04-28T12:00:00Z",
+                "updated_at": "2026-04-28T12:00:00Z",
+            }
+        ]
+    }
+    tracking_file.write_text(json.dumps(stale, indent=2), encoding="utf-8")
+
+    completed = mt.get_completed_predictions()
+    assert completed[0]["winner_hit"] is False
+    assert completed[0]["is_correct"] is False
+
+    reloaded = _load_predictions(tracking_file)
+    assert reloaded[0]["is_correct"] is False

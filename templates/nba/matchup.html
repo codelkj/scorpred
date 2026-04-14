@@ -46,6 +46,16 @@
   </div>
   {% endif %}
 
+  {% if season_context and (season_context.form_a_current < 2 or season_context.form_b_current < 2 or season_context.has_historical_context) %}
+  <div class="system-notice is-warning" style="margin-bottom:1rem;">
+    <div class="system-notice-icon">!</div>
+    <div class="system-notice-body">
+      <div class="system-notice-title">System Notice</div>
+      <div class="system-notice-copy">Current-season data is limited for this matchup. Historical context is shown where current-season coverage is incomplete.</div>
+    </div>
+  </div>
+  {% endif %}
+
   {# Mock data notice #}
   {% set status_text = game_snapshot.status.long if game_snapshot else (selected_game.status if selected_game else '') %}
   {% set status_state = game_snapshot.status.state if game_snapshot else '' %}
@@ -103,7 +113,7 @@
   <!-- ── Tab 1: H2H ────────────────────────────────────────────────────────── -->
   <div class="nba-tab-panel active" id="tab-h2h">
     <div class="nba-card glow-card">
-      <div class="nba-card-title">⚔️ Last 10 H2H Meetings</div>
+      <div class="nba-card-title">⚔️ Last 10 H2H Meetings <span class="source-badge source-espn" style="margin-left:.5rem;">Historical Context</span></div>
       {% if h2h_rows %}
       <div class="nba-table-wrap">
         <table class="nba-table">
@@ -211,7 +221,7 @@
           </table>
         </div>
         {% else %}
-        <p style="color:var(--nba-muted);">No recent form data available.</p>
+        <p style="color:var(--nba-muted);">Current-season recent form is limited for this team.</p>
         {% endif %}
       </div>
       {% endfor %}
@@ -221,7 +231,7 @@
   <!-- ── Tab 3: Team Stats Comparison ──────────────────────────────────────── -->
   <div class="nba-tab-panel" id="tab-stats">
     <div class="nba-card glow-card">
-      <div class="nba-card-title">📊 Season Stats Comparison</div>
+      <div class="nba-card-title">📊 Season Stats Comparison <span class="source-badge {% if stats_a and stats_b %}source-api{% else %}source-espn{% endif %}" style="margin-left:.5rem;">{% if stats_a and stats_b %}Current Season{% else %}Historical Context{% endif %}</span></div>
       {% if stats_a or stats_b %}
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
         {% for side, team, stats in [('A', team_a, stats_a), ('B', team_b, stats_b)] %}
@@ -332,7 +342,7 @@
       <div style="text-align:center;">
         <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px;">Score /10</div>
         <div style="margin:.4rem 0; font-size:.9rem; color:#8b949e;">vs</div>
-        <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }}</span>
+        <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence_label or (scorpred.best_pick.confidence ~ ' Confidence') }}</span>
       </div>
       <div style="text-align:center;">
         <div class="stat-number" data-target="{{ scorpred.team_b_score }}"
@@ -434,7 +444,7 @@
       <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin-bottom:.4rem;">Scorpred Best Pick</div>
       <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
         <span style="font-size:1.15rem; font-weight:700; color:#00ff87;">{{ scorpred.best_pick.prediction }}</span>
-        <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }}</span>
+        <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence_label or (scorpred.best_pick.confidence ~ ' Confidence') }}</span>
         <span style="font-size:.8rem; color:#8b949e; font-style:italic;">Gap: {{ scorpred.score_gap }}/10</span>
       </div>
       <div style="font-size:.82rem; color:#8b949e; margin-top:.4rem;">{{ scorpred.best_pick.reasoning }}</div>

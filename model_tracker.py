@@ -12,6 +12,7 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 import uuid
+import re
 from utils.parsing import normalize_date
 
 _TRACKING_FILE = os.path.join(os.path.dirname(__file__), "cache", "prediction_tracking.json")
@@ -65,7 +66,15 @@ def _load_predictions() -> list[dict]:
     try:
         with open(_TRACKING_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data.get("predictions", []) if isinstance(data, dict) else []
+        predictions = data.get("predictions", []) if isinstance(data, dict) else []
+        changed = False
+        for pred in predictions:
+            if pred.get("status") == "completed":
+                changed = _apply_grading(pred) or changed
+        if changed:
+            with open(_TRACKING_FILE, "w", encoding="utf-8") as f:
+                json.dump({"predictions": predictions}, f, indent=2)
+        return predictions
     except Exception:
         return []
 
@@ -85,6 +94,195 @@ def _get_game_key(sport: str, date: str, team_a: str, team_b: str) -> str:
     # Normalize teams by sorting alphabetically
     teams = sorted([team_a.lower().strip(), team_b.lower().strip()])
     return f"{sport.lower()}|{date}|{teams[0]}|{teams[1]}"
+
+
+def _normalize_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _canonical_outcome(value: Any, team_a: str, team_b: str) -> str:
+    text = _normalize_text(value)
+    if not text:
+        return ""
+
+    draw_aliases = {
+        "draw",
+        "d",
+        "x",
+        "tie",
+        "tied",
+        "stalemate",
+        "home/away draw",
+    }
+    if text in draw_aliases:
+        return "draw"
+
+    if text in {"a", "home", "home win", "homewin", "1", "team a", "teama"}:
+        return "A"
+    if text in {"b", "away", "away win", "awaywin", "2", "team b", "teamb"}:
+        return "B"
+
+    norm_a = _normalize_text(team_a)
+    norm_b = _normalize_text(team_b)
+    if norm_a and (text == norm_a or f"{norm_a} win" in text):
+        return "A"
+    if norm_b and (text == norm_b or f"{norm_b} win" in text):
+        return "B"
+
+    return ""
+
+
+def _canonical_total_pick(value: Any) -> str:
+    text = _normalize_text(value)
+    if not text:
+        return ""
+    if text in {"over", "o", "ov", "over 2.5", "over 220.5"}:
+        return "Over"
+    if text in {"under", "u", "un", "under 2.5", "under 220.5"}:
+        return "Under"
+    return ""
+
+
+def _actual_result_from_score(final_score: dict | None) -> str:
+    if not isinstance(final_score, dict):
+        return ""
+    a_score = final_score.get("a")
+    b_score = final_score.get("b")
+    if a_score is None or b_score is None:
+        return ""
+    try:
+        a_val = int(a_score)
+        b_val = int(b_score)
+    except (TypeError, ValueError):
+        return ""
+    if a_val > b_val:
+        return "A"
+    if b_val > a_val:
+        return "B"
+    return "draw"
+
+
+def _totals_line_for_sport(sport: str) -> float:
+    return 220.5 if sport == "nba" else 2.5
+
+
+def _apply_grading(pred: dict[str, Any]) -> bool:
+    """Recompute winner/totals/overall grading for one prediction record."""
+    changed = False
+    sport = str(pred.get("sport") or "").lower()
+    team_a = str(pred.get("team_a") or "")
+    team_b = str(pred.get("team_b") or "")
+    final_score = pred.get("final_score") if isinstance(pred.get("final_score"), dict) else None
+
+    predicted_outcome = _canonical_outcome(pred.get("predicted_winner"), team_a, team_b)
+    actual_outcome = _canonical_outcome(pred.get("actual_result"), team_a, team_b)
+    if not actual_outcome:
+        actual_outcome = _actual_result_from_score(final_score)
+
+    winner_hit: bool | None
+    if predicted_outcome and actual_outcome:
+        winner_hit = predicted_outcome == actual_outcome
+    else:
+        winner_hit = None
+
+    total_scored: int | None = None
+    if final_score:
+        a_score = final_score.get("a")
+        b_score = final_score.get("b")
+        if isinstance(a_score, (int, float)) and isinstance(b_score, (int, float)):
+            total_scored = int(a_score) + int(b_score)
+
+    ou_line = _totals_line_for_sport(sport)
+    actual_total_side = ""
+    if total_scored is not None:
+        if total_scored > ou_line:
+            actual_total_side = "Over"
+        elif total_scored < ou_line:
+            actual_total_side = "Under"
+        else:
+            actual_total_side = "Push"
+
+    predicted_total_side = _canonical_total_pick(
+        pred.get("predicted_total_pick")
+        or pred.get("predicted_ou")
+        or pred.get("ou_pick")
+    )
+
+    totals_hit: bool | None
+    if predicted_total_side and actual_total_side in {"Over", "Under"}:
+        totals_hit = predicted_total_side == actual_total_side
+    else:
+        totals_hit = None
+
+    if winner_hit is True:
+        if totals_hit is False:
+            overall_result = "Partial"
+        else:
+            overall_result = "Win"
+    elif winner_hit is False:
+        if totals_hit is True:
+            overall_result = "Partial"
+        else:
+            overall_result = "Loss"
+    else:
+        overall_result = "Pending"
+
+    winner_display = "Winner Pick: Pending"
+    if winner_hit is True:
+        winner_display = "Winner Pick: Hit"
+    elif winner_hit is False:
+        winner_display = "Winner Pick: Miss"
+
+    totals_display = "Totals Pick: Not tracked"
+    if predicted_total_side:
+        if actual_total_side == "Push":
+            totals_display = f"Totals Pick ({predicted_total_side} {ou_line}): Push"
+        elif totals_hit is True:
+            totals_display = f"Totals Pick ({predicted_total_side} {ou_line}): Hit"
+        elif totals_hit is False:
+            totals_display = f"Totals Pick ({predicted_total_side} {ou_line}): Miss"
+        else:
+            totals_display = "Totals Pick: Pending"
+
+    if final_score and isinstance(final_score, dict):
+        final_score_display = f"{final_score.get('a', 0)}-{final_score.get('b', 0)}"
+    else:
+        final_score_display = "Unknown"
+
+    if actual_outcome == "A":
+        actual_winner = team_a or "Unknown"
+    elif actual_outcome == "B":
+        actual_winner = team_b or "Unknown"
+    elif actual_outcome == "draw":
+        actual_winner = "Draw"
+    else:
+        actual_winner = "Unknown"
+
+    updates: dict[str, Any] = {
+        "predicted_winner_normalized": predicted_outcome,
+        "actual_result_normalized": actual_outcome,
+        "winner_hit": winner_hit,
+        "is_correct": winner_hit,
+        "winner_display": winner_display,
+        "actual_winner": actual_winner,
+        "total_scored": total_scored,
+        "total_label": f"Total {'Points' if sport == 'nba' else 'Goals'}: {total_scored}" if total_scored is not None else "",
+        "ou_line": ou_line,
+        "ou_result": actual_total_side,
+        "totals_hit": totals_hit,
+        "ou_hit": totals_hit,
+        "ou_display": totals_display,
+        "final_score_display": final_score_display,
+        "game_win": bool(winner_hit) if winner_hit is not None else False,
+        "overall_game_result": overall_result,
+    }
+
+    for key, value in updates.items():
+        if pred.get(key) != value:
+            pred[key] = value
+            changed = True
+
+    return changed
 
 
 def save_prediction(
@@ -212,9 +410,9 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
     for pred in predictions:
         if pred.get("id") == pred_id:
             pred["actual_result"] = actual_result
-            pred["is_correct"] = (pred.get("predicted_winner") == actual_result)
             pred["status"] = "completed"
             pred["final_score"] = final_score
+            _apply_grading(pred)
             pred["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
             _save_predictions(predictions)
             return True
@@ -364,66 +562,6 @@ def get_completed_predictions(limit: int = 50) -> list[dict]:
     
     # Enhance with calculated fields
     for pred in completed:
-        sport = pred.get("sport", "").lower()
-        final_score = pred.get("final_score", {})
-        
-        # Calculate total scored
-        if final_score and isinstance(final_score, dict):
-            if sport == "soccer":
-                total_goals = final_score.get("a", 0) + final_score.get("b", 0)
-                pred["total_scored"] = total_goals
-                pred["total_label"] = f"Total Goals: {total_goals}"
-                
-                # Determine O/U result (using 2.5 as default line)
-                ou_line = 2.5
-                if total_goals > ou_line:
-                    pred["ou_result"] = "Over"
-                    pred["ou_hit"] = True
-                else:
-                    pred["ou_result"] = "Under" 
-                    pred["ou_hit"] = False
-                pred["ou_display"] = f"U/O {ou_line}: {'Hit' if pred['ou_hit'] else 'Miss'}"
-                
-            elif sport == "nba":
-                total_points = final_score.get("a", 0) + final_score.get("b", 0)
-                pred["total_scored"] = total_points
-                pred["total_label"] = f"Total Points: {total_points}"
-                
-                # For NBA, use a dynamic line based on typical NBA totals
-                # This is a simple approximation - in reality you'd want historical data
-                ou_line = 220.5  # Default NBA total line
-                if total_points > ou_line:
-                    pred["ou_result"] = "Over"
-                    pred["ou_hit"] = True
-                else:
-                    pred["ou_result"] = "Under"
-                    pred["ou_hit"] = False
-                pred["ou_display"] = f"U/O {ou_line}: {'Hit' if pred['ou_hit'] else 'Miss'}"
-        
-        # Format final score display
-        if final_score and isinstance(final_score, dict):
-            pred["final_score_display"] = f"{final_score.get('a', 0)}-{final_score.get('b', 0)}"
-        else:
-            pred["final_score_display"] = "Unknown"
-        
-        # Determine actual winner
-        actual_result = pred.get("actual_result", "")
-        if actual_result == "A":
-            pred["actual_winner"] = pred.get("team_a", "Unknown")
-        elif actual_result == "B":
-            pred["actual_winner"] = pred.get("team_b", "Unknown")
-        elif actual_result == "draw":
-            pred["actual_winner"] = "Draw"
-        else:
-            pred["actual_winner"] = "Unknown"
-        
-        # Winner pick result
-        pred["winner_hit"] = pred.get("is_correct", False)
-        pred["winner_display"] = f"Winner Pick: {'Hit' if pred['winner_hit'] else 'Miss'}"
-        
-        # The tracked prediction is the winner pick. Totals are shown as context,
-        # but dashboard grading should follow the actual persisted winner result.
-        pred["game_win"] = pred["winner_hit"]
-        pred["overall_game_result"] = "Win" if pred["game_win"] else "Loss"
+        _apply_grading(pred)
     
     return completed

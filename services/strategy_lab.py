@@ -220,6 +220,46 @@ def empty_strategy_lab_context() -> dict[str, Any]:
     }
 
 
+def _ml_vs_rule_insights(
+    metrics: dict[str, Any],
+    confidence_rows: list[dict[str, Any]],
+    ml_summary: dict[str, Any],
+) -> list[str]:
+    insights: list[str] = []
+    live_accuracy = metrics.get("overall_accuracy")
+
+    if ml_summary.get("available") and live_accuracy is not None:
+        rf_accuracy = ml_summary.get("random_forest_accuracy")
+        if isinstance(rf_accuracy, (int, float)):
+            if rf_accuracy > live_accuracy:
+                insights.append(
+                    f"ML currently leads in offline evaluation ({rf_accuracy:.1f}% vs live tracked {live_accuracy:.1f}%)."
+                )
+            elif rf_accuracy < live_accuracy:
+                insights.append(
+                    f"Rule workflow is currently stronger in tracked outcomes ({live_accuracy:.1f}% vs ML {rf_accuracy:.1f}%)."
+                )
+            else:
+                insights.append(
+                    f"ML and tracked rule workflow are currently aligned at {live_accuracy:.1f}%."
+                )
+
+    best_confidence = _best_row(confidence_rows)
+    if best_confidence:
+        insights.append(
+            f"Agreement is strongest in {best_confidence['label']} confidence picks ({best_confidence['accuracy_display']})."
+        )
+    else:
+        insights.append("Agreement strength is still stabilizing as finalized samples grow.")
+
+    if ml_summary.get("available"):
+        insights.append(ml_summary.get("summary", "ML comparison report is available."))
+    else:
+        insights.append("ML report is not available yet, so rule-vs-ML comparison is provisional.")
+
+    return insights[:3]
+
+
 def build_strategy_lab_context(
     tracker_module: Any = mt,
     ml_module: Any = mlp,
@@ -227,6 +267,7 @@ def build_strategy_lab_context(
     """Build the view model for the Strategy Lab page."""
     metrics = _safe_metrics(tracker_module.get_summary_metrics())
     completed_predictions = tracker_module.get_completed_predictions(limit=6)
+    avoid_impact_predictions = tracker_module.get_completed_predictions(limit=50)
     sport_rows = _format_breakdown_rows(
         metrics.get("by_sport") or {},
         ["soccer", "nba"],
@@ -263,5 +304,7 @@ def build_strategy_lab_context(
         "confidence_breakdown": confidence_rows,
         "key_insights": _key_insights(metrics, sport_rows, confidence_rows, ml_summary),
         "ml_comparison": ml_summary,
+        "ml_rule_insights": _ml_vs_rule_insights(metrics, confidence_rows, ml_summary),
         "recent_completed_predictions": completed_predictions,
+        "avoid_impact_predictions": avoid_impact_predictions,
     }

@@ -40,6 +40,10 @@ def _confidence_label(confidence: float) -> str:
     return "Low"
 
 
+def _is_weak_data_quality(data_quality: str) -> bool:
+    return str(data_quality or "").strip().lower() in {"limited", "weak", "poor"}
+
+
 def _load_ml_report() -> dict[str, Any] | None:
     if not _ML_REPORT_PATH.exists():
         return None
@@ -287,6 +291,66 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
         prob_draw=prob_draw,
         confidence_float=confidence,
     )
+
+    outcomes: list[dict[str, Any]] = [
+        {"team": "A", "prediction": f"{team_a_name} Win", "prob": prob_a},
+        {"team": "B", "prediction": f"{team_b_name} Win", "prob": prob_b},
+    ]
+    if sport == "soccer":
+        outcomes.append({"team": "draw", "prediction": "Draw", "prob": prob_draw})
+    outcomes.sort(key=lambda item: _safe_float(item.get("prob"), 0.0), reverse=True)
+
+    top_outcome = outcomes[0]
+    second_outcome = outcomes[1] if len(outcomes) > 1 else outcomes[0]
+    top_prob_pct = _safe_float(top_outcome.get("prob"), 0.0) * 100.0
+    top_two_gap_pct = (_safe_float(top_outcome.get("prob"), 0.0) - _safe_float(second_outcome.get("prob"), 0.0)) * 100.0
+
+    data_quality = str(rule_prediction.get("data_quality") or "Moderate")
+    weak_data_quality = _is_weak_data_quality(data_quality)
+
+    ml_prob_a = _safe_float(ml.get("prob_a"), 0.5)
+    ml_side = "A" if ml_prob_a >= 0.58 else "B" if ml_prob_a <= 0.42 else ""
+    rule_side = "A" if rule_prob_a >= 0.58 else "B" if rule_prob_a <= 0.42 else ""
+    strong_signal_disagreement = bool(ml.get("available")) and bool(ml_side) and bool(rule_side) and ml_side != rule_side and abs(ml_prob_a - rule_prob_a) >= 0.20
+
+    avoid_reasons: list[str] = []
+    if top_prob_pct < 70.0:
+        avoid_reasons.append("No strong edge found")
+    if top_two_gap_pct < 4.0:
+        avoid_reasons.append("Outcome probabilities are too close")
+    if weak_data_quality:
+        avoid_reasons.append("High uncertainty matchup")
+    if strong_signal_disagreement:
+        avoid_reasons.append("ML and rule signals disagree strongly")
+
+    avoid_triggered = bool(avoid_reasons)
+    top_lean = {
+        "team": top_outcome.get("team"),
+        "prediction": top_outcome.get("prediction"),
+        "probability": round(top_prob_pct, 1),
+        "display": f"Top lean: {top_outcome.get('prediction')} ({top_prob_pct:.1f}%)",
+    }
+
+    best_pick = ui_prediction.get("best_pick") or {}
+    if avoid_triggered:
+        reason = avoid_reasons[0]
+        best_pick["prediction"] = "Avoid"
+        best_pick["team"] = "avoid"
+        best_pick["tracking_team"] = top_outcome.get("team")
+        best_pick["confidence"] = "Low"
+        best_pick["reasoning"] = reason
+        ui_prediction["confidence"] = "Low"
+        ui_prediction["recommended_play"] = "Avoid"
+        ui_prediction["avoid_reasons"] = avoid_reasons
+        ui_prediction["top_lean"] = top_lean
+        ui_prediction["risk_label"] = "Elevated"
+    else:
+        best_pick["tracking_team"] = best_pick.get("team") or top_outcome.get("team")
+        ui_prediction["recommended_play"] = best_pick.get("prediction") or top_outcome.get("prediction")
+        ui_prediction["avoid_reasons"] = []
+        ui_prediction["top_lean"] = top_lean
+
+    ui_prediction["best_pick"] = best_pick
 
     return {
         "winner": winner,

@@ -7,7 +7,8 @@
 {% endblock %}
 
 {% block content %}
-{% set confidence = scorpred.best_pick.confidence if scorpred else 'Low' %}
+{% set confidence = scorpred.best_pick.confidence if scorpred else 'Limited Data' %}
+{% set confidence_label = (scorpred.best_pick.confidence_label if scorpred and scorpred.best_pick else 'Limited Data') %}
 {% set risk_label = 'Risk: Elevated' %}
 {% set risk_class = 'is-danger' %}
 {% if scorpred and confidence == 'High' and scorpred.score_gap >= 1.5 %}
@@ -74,12 +75,12 @@
   </div>
   {% endif %}
 
-  {% if data_notes %}
+  {% if show_data_notice and data_notes %}
   <div class="system-notice is-warning">
     <div class="system-notice-icon">!</div>
     <div class="system-notice-body">
       <div class="system-notice-title">System Notice</div>
-      <div class="system-notice-copy">A few data inputs are limited for this matchup, so review the context before relying on the final call.</div>
+      <div class="system-notice-copy">Current-season data is limited for this matchup. Historical context is shown where current-season coverage is incomplete.</div>
       <ul class="system-notice-list">
       {% for note in data_notes %}
       <li>{{ note }}</li>
@@ -116,7 +117,7 @@
         </p>
         <div class="analysis-badge-row">
           <span class="confidence-badge {% if confidence == 'High' %}conf-high{% elif confidence == 'Medium' %}conf-medium{% else %}conf-low{% endif %}">
-            {{ confidence }} Confidence
+            {{ confidence_label }}
           </span>
           <span class="risk-badge {{ risk_class }}">{{ risk_label }}</span>
         </div>
@@ -259,7 +260,7 @@
       </div>
       <div class="scoreboard-center">
         <span class="mini-label">Score / 10</span>
-        <span class="confidence-badge {% if confidence == 'High' %}conf-high{% elif confidence == 'Medium' %}conf-medium{% else %}conf-low{% endif %}">{{ confidence }}</span>
+        <span class="confidence-badge {% if confidence == 'High' %}conf-high{% elif confidence == 'Medium' %}conf-medium{% else %}conf-low{% endif %}">{{ confidence_label }}</span>
       </div>
       <div class="score-team">
         <span class="score-team-name">{{ team_b.nickname or team_b.name }}</span>
@@ -324,6 +325,9 @@
         <h2>Season-level comparison</h2>
         <p>Quick check of record, scoring profile, and home-away splits for both teams.</p>
       </div>
+      <span class="source-badge {% if season_context and season_context.stats_current_available %}source-api{% else %}source-espn{% endif %}">
+        {% if season_context and season_context.stats_current_available %}Current Season{% else %}Historical Context{% endif %}
+      </span>
     </div>
     <div class="nba-stats-compare">
       {% for team, stats in [(team_a, stats_a), (team_b, stats_b)] %}
@@ -353,6 +357,7 @@
         <h2>Last completed meetings</h2>
         <p>Use the recent matchup history as context rather than as a stand-alone signal.</p>
       </div>
+      <span class="source-badge source-espn">Historical Context</span>
     </div>
 
     {% if h2h_summary.total %}
@@ -394,6 +399,7 @@
           <span class="eyebrow">{{ team.nickname or team.name }} Recent Form</span>
           <h2>Latest completed games</h2>
         </div>
+        <span class="source-badge source-api">Current Season</span>
       </div>
       {% if form_list %}
       <div class="nba-table-wrap">
@@ -421,7 +427,12 @@
         </table>
       </div>
       {% else %}
-      <div class="empty-state">No recent completed games were available.</div>
+      <div class="empty-state">
+        Current-season data is limited for this matchup.
+        {% if season_context and season_context.has_historical_context %}
+        Historical context is shown where current-season coverage is incomplete.
+        {% endif %}
+      </div>
       {% endif %}
     </article>
     {% endfor %}
