@@ -3,152 +3,138 @@
 
 {% block content %}
 {% set home_match_analysis_href = '/prediction' if session.get('team_a_id') else '/nba/prediction' if session.get('nba_team_a_id') else '/soccer' %}
-<section class="landing-hero">
-  <div class="landing-hero-grid">
-    <div class="landing-copy">
-      <span class="page-kicker">Sports Decision Intelligence Platform</span>
-      <h1 class="landing-title">Premium match analysis built for signal, not noise.</h1>
-      <p class="landing-subtitle">
-        ScorPred brings soccer and NBA research into one dark, focused workspace for explainable picks,
-        matchup context, strategy tracking, and model performance review.
-      </p>
-      <div class="landing-actions">
-        <a href="/soccer" class="btn btn-primary">Open Soccer Analysis</a>
-        <a href="/nba/" class="btn btn-secondary">Open NBA Analysis</a>
-        <a href="/strategy-lab" class="btn btn-secondary">View Strategy Lab</a>
-      </div>
-      <div class="landing-stats">
-        <div class="landing-stat">
-          <span class="metric-label">Coverage</span>
-          <strong>Soccer + NBA</strong>
-          <div class="metric-meta">Multi-sport prediction and review flow</div>
-        </div>
-        <div class="landing-stat">
-          <span class="metric-label">Decision Style</span>
-          <strong class="is-accent">Explainable</strong>
-          <div class="metric-meta">Weighted picks with visible drivers and risks</div>
-        </div>
-        <div class="landing-stat">
-          <span class="metric-label">Review Layer</span>
-          <strong class="is-info">Strategy Lab</strong>
-          <div class="metric-meta">Backtesting, grading, and ML comparison</div>
-        </div>
+{% set selected_match = (session.get('team_a_name') ~ ' vs ' ~ session.get('team_b_name')) if session.get('team_a_name') and session.get('team_b_name') else None %}
+{% set selected_nba_match = (session.get('nba_team_a_name') ~ ' vs ' ~ session.get('nba_team_b_name')) if session.get('nba_team_a_name') and session.get('nba_team_b_name') else None %}
+
+<div class="faang-shell">
+  <section class="card glow-card faang-hero">
+    <div class="faang-hero-head">
+      <div class="faang-copy-wrap">
+        <span class="page-kicker">ScorPred</span>
+        <h1 class="faang-title">Sports Decision Intelligence Platform</h1>
+        <p class="faang-copy">Make faster, clearer betting decisions with explainable signals, confidence controls, and tracked outcomes.</p>
       </div>
     </div>
-
-    <div class="landing-panel">
-      <article class="trust-card">
-        <span class="table-kicker">Live Workflow</span>
-        <div class="panel-list">
-          <div class="panel-list-item">
-            <strong>Select a matchup</strong>
-            <div class="flow-copy">Choose a fixture or game from the live soccer or NBA entry points.</div>
-          </div>
-          <div class="panel-list-item">
-            <strong>Read the analysis</strong>
-            <div class="flow-copy">See the final pick, confidence, risk flags, and weighted context in one view.</div>
-          </div>
-          <div class="panel-list-item">
-            <strong>Track the result</strong>
-            <div class="flow-copy">Store the prediction against the real game date for later reconciliation.</div>
-          </div>
-          <div class="panel-list-item">
-            <strong>Compare strategies</strong>
-            <div class="flow-copy">Use Strategy Lab to review performance and the current ML leader.</div>
-          </div>
-        </div>
-      </article>
+    <div class="faang-action-row">
+      <a href="{{ home_match_analysis_href }}" class="btn btn-primary">Analyze Match</a>
+      <a href="/strategy-lab" class="btn btn-secondary">Strategy Lab</a>
     </div>
-  </div>
-</section>
+  </section>
 
-<section class="section-stack">
-  <div class="split-header">
-    <div>
-      <span class="page-kicker">Core Routes</span>
-      <h2 class="section-title">Start anywhere in the product.</h2>
+  <section class="card glow-card">
+    <div class="faang-section-head">
+      <h2 class="faang-section-title">Quick Actions</h2>
     </div>
-  </div>
+    <div class="route-grid">
+      <a href="{{ home_match_analysis_href }}" class="route-card">
+        <span class="route-icon">MA</span>
+        <div class="route-title">Analyze Match</div>
+        <div class="route-meta">Open the main decision view for your selected matchup.</div>
+      </a>
+      <a href="/today-soccer-predictions" class="route-card">
+        <span class="route-icon">TG</span>
+        <div class="route-title">Today's Games</div>
+        <div class="route-meta">Review current soccer game calls and confidence levels.</div>
+      </a>
+      <a href="/strategy-lab" class="route-card">
+        <span class="route-icon">SL</span>
+        <div class="route-title">Strategy Lab</div>
+        <div class="route-meta">Compare strategy outcomes and confidence-segment performance.</div>
+      </a>
+      <a href="/model-performance" class="route-card">
+        <span class="route-icon">PF</span>
+        <div class="route-title">Performance</div>
+        <div class="route-meta">Track completed predictions, accuracy, and result quality.</div>
+      </a>
+    </div>
+  </section>
 
-  <div class="route-grid">
-    <a href="/soccer" class="route-card">
-      <span class="route-icon">SC</span>
-      <div class="route-label">Soccer</div>
-      <div class="route-title">Fixture analysis and team selection</div>
-      <div class="route-meta">Upcoming fixtures, manual matchup selection, and prediction handoff.</div>
-      <span class="route-cta">Open soccer workspace</span>
-    </a>
-
-    <a href="/nba/" class="route-card">
-      <span class="route-icon">NBA</span>
-      <div class="route-label">NBA</div>
-      <div class="route-title">Game analysis and prop context</div>
-      <div class="route-meta">Upcoming NBA games, form snapshots, and prediction pages.</div>
-      <span class="route-cta">Open NBA workspace</span>
-    </a>
-
-    <a href="{{ home_match_analysis_href }}" class="route-card">
-      <span class="route-icon">MA</span>
-      <div class="route-label">Match Analysis</div>
-      <div class="route-title">Final pick and signal review</div>
-      <div class="route-meta">Use the strongest analysis surface after selecting a matchup.</div>
-      <span class="route-cta">Go to match analysis</span>
-    </a>
-
-    <a href="/strategy-lab" class="route-card">
-      <span class="route-icon">SL</span>
-      <div class="route-label">Strategy Lab</div>
-      <div class="route-title">Backtesting and ML comparison</div>
-      <div class="route-meta">Review tracked outcomes, strategy breakdowns, and model leadership.</div>
-      <span class="route-cta">Open Strategy Lab</span>
-    </a>
-
-    <a href="/model-performance" class="route-card">
-      <span class="route-icon">PF</span>
-      <div class="route-label">Performance</div>
-      <div class="route-title">Prediction grading dashboard</div>
-      <div class="route-meta">Monitor completed results, confidence tiers, and unresolved predictions.</div>
-      <span class="route-cta">Review performance</span>
-    </a>
-  </div>
-</section>
-
-<section class="section-stack">
-  <div class="split-layout">
+  <section class="faang-text-grid">
     <article class="card glow-card">
-      <div class="split-header">
+      <h2 class="faang-section-title">System Snapshot</h2>
+      <div class="faang-system-grid">
         <div>
-          <span class="page-kicker">Product Value</span>
-          <h2 class="section-title">Built like an analytics platform, not a generic dashboard.</h2>
+          <span>Overall Accuracy</span>
+          <strong>Live in Strategy Lab</strong>
         </div>
-      </div>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <div class="feature-icon">01</div>
-          <h3>Weighted recommendation engine</h3>
-          <p>Form, matchup context, venue, and squad considerations are combined into one final pick.</p>
+        <div>
+          <span>Tracked Predictions</span>
+          <strong>Live in Performance</strong>
         </div>
-        <div class="feature-card">
-          <div class="feature-icon">02</div>
-          <h3>Readable explanation layer</h3>
-          <p>Drivers, risks, and optional angles are displayed clearly enough for quick decision review.</p>
+        <div>
+          <span>Best Strategy</span>
+          <strong>See Strategy Lab</strong>
         </div>
-        <div class="feature-card">
-          <div class="feature-icon">03</div>
-          <h3>Performance accountability</h3>
-          <p>Tracked outcomes feed the dashboards so strategy and model quality can be reviewed honestly.</p>
+        <div>
+          <span>Last Updated</span>
+          <strong>{{ last_updated }}</strong>
         </div>
       </div>
     </article>
 
-    <article class="disclaimer-card">
-      <span class="page-kicker">Important Notice</span>
-      <h2 class="section-title">Informational analysis only.</h2>
-      <p class="surface-note">
-        ScorPred provides model-based research and workflow support. It is not financial advice and it does
-        not guarantee outcomes. Always validate injuries, line movement, and late lineup context before acting.
-      </p>
+    <article class="card glow-card">
+      <h2 class="faang-section-title">Today's Top Picks</h2>
+      <div class="faang-pick-list">
+        {% if selected_match %}
+        <div class="faang-pick-row">
+          <div>
+            <strong>{{ selected_match }}</strong>
+            <div class="route-meta">Active soccer selection</div>
+          </div>
+          <div class="faang-pick-tags">
+            <span class="source-badge source-api">LEAN</span>
+            <span class="filter-chip">Open Match Analysis</span>
+          </div>
+        </div>
+        {% endif %}
+        {% if selected_nba_match %}
+        <div class="faang-pick-row">
+          <div>
+            <strong>{{ selected_nba_match }}</strong>
+            <div class="route-meta">Active NBA selection</div>
+          </div>
+          <div class="faang-pick-tags">
+            <span class="source-badge source-api">LEAN</span>
+            <span class="filter-chip">Open NBA Prediction</span>
+          </div>
+        </div>
+        {% endif %}
+        {% if not selected_match and not selected_nba_match %}
+        <div class="empty-state">No strong picks are pinned yet. Select a matchup to generate a clean recommendation.</div>
+        {% endif %}
+      </div>
     </article>
-  </div>
-</section>
+  </section>
+
+  <section class="card glow-card faang-copy-card">
+    <h2 class="faang-section-title">How It Works</h2>
+    <ul class="faang-bullet-list">
+      <li>Rule + ML signals combine into one recommendation with transparent reasoning.</li>
+      <li>Confidence and risk labels help separate strong edges from thin leans.</li>
+      <li>Tracked results feed Performance and Strategy Lab for accountability.</li>
+      <li>Avoid logic suppresses forced picks when edge quality is weak.</li>
+    </ul>
+  </section>
+
+  <section class="card glow-card">
+    <div class="faang-section-head">
+      <h2 class="faang-section-title">Performance Preview</h2>
+    </div>
+    <div class="faang-result-strip">
+      <span class="result-badge source-api">Win</span>
+      <span class="result-badge source-espn">Loss</span>
+      <span class="result-badge filter-chip">Partial</span>
+      <span class="result-badge source-api">Win</span>
+      <span class="result-badge source-api">Win</span>
+      <span class="result-badge source-espn">Loss</span>
+    </div>
+    <p class="faang-copy">Open Performance for full graded result history and confidence splits.</p>
+  </section>
+
+  <section class="card glow-card faang-final-call">
+    <h2 class="faang-section-title">Ready to Analyze?</h2>
+    <p class="faang-copy">Start with a matchup and get a clean decision card in seconds.</p>
+    <a href="{{ home_match_analysis_href }}" class="btn btn-primary">Analyze Match</a>
+  </section>
+</div>
 {% endblock %}
