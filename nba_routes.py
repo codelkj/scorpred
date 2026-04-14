@@ -12,6 +12,7 @@ Session keys use the nba_ prefix to avoid collisions with the football section.
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
+import re
 import traceback
 
 import requests
@@ -22,6 +23,7 @@ from flask import (
 import nba_live_client as nc
 import nba_predictor as np_nba
 import scorpred_engine as se
+import scormastermind as sm
 import model_tracker as mt
 
 nba_bp = Blueprint(
@@ -33,6 +35,264 @@ nba_bp = Blueprint(
 
 
 # -- Helpers -----------------------------------------------------------------
+
+_NBA_TEAM_ALIASES = {
+    "atlanta hawks": "hawks",
+    "hawks": "hawks",
+    "atl": "hawks",
+    "boston celtics": "celtics",
+    "celtics": "celtics",
+    "bos": "celtics",
+    "brooklyn nets": "nets",
+    "nets": "nets",
+    "bkn": "nets",
+    "charlotte hornets": "hornets",
+    "hornets": "hornets",
+    "cha": "hornets",
+    "chicago bulls": "bulls",
+    "bulls": "bulls",
+    "chi": "bulls",
+    "cleveland cavaliers": "cavaliers",
+    "cavaliers": "cavaliers",
+    "cavs": "cavaliers",
+    "cle": "cavaliers",
+    "dallas mavericks": "mavericks",
+    "mavericks": "mavericks",
+    "mavs": "mavericks",
+    "dal": "mavericks",
+    "denver nuggets": "nuggets",
+    "nuggets": "nuggets",
+    "den": "nuggets",
+    "detroit pistons": "pistons",
+    "pistons": "pistons",
+    "det": "pistons",
+    "golden state warriors": "warriors",
+    "warriors": "warriors",
+    "gs": "warriors",
+    "gsw": "warriors",
+    "houston rockets": "rockets",
+    "rockets": "rockets",
+    "hou": "rockets",
+    "indiana pacers": "pacers",
+    "pacers": "pacers",
+    "ind": "pacers",
+    "los angeles clippers": "clippers",
+    "la clippers": "clippers",
+    "clippers": "clippers",
+    "lac": "clippers",
+    "los angeles lakers": "lakers",
+    "la lakers": "lakers",
+    "lakers": "lakers",
+    "lal": "lakers",
+    "memphis grizzlies": "grizzlies",
+    "grizzlies": "grizzlies",
+    "mem": "grizzlies",
+    "miami heat": "heat",
+    "heat": "heat",
+    "mia": "heat",
+    "milwaukee bucks": "bucks",
+    "bucks": "bucks",
+    "mil": "bucks",
+    "minnesota timberwolves": "timberwolves",
+    "timberwolves": "timberwolves",
+    "wolves": "timberwolves",
+    "min": "timberwolves",
+    "new orleans pelicans": "pelicans",
+    "pelicans": "pelicans",
+    "nop": "pelicans",
+    "no": "pelicans",
+    "new york knicks": "knicks",
+    "knicks": "knicks",
+    "ny": "knicks",
+    "nyk": "knicks",
+    "oklahoma city thunder": "thunder",
+    "thunder": "thunder",
+    "okc": "thunder",
+    "orlando magic": "magic",
+    "magic": "magic",
+    "orl": "magic",
+    "philadelphia 76ers": "76ers",
+    "philadelphia sixers": "76ers",
+    "76ers": "76ers",
+    "sixers": "76ers",
+    "phi": "76ers",
+    "phoenix suns": "suns",
+    "suns": "suns",
+    "phx": "suns",
+    "portland trail blazers": "trail blazers",
+    "portland trailblazers": "trail blazers",
+    "trail blazers": "trail blazers",
+    "blazers": "trail blazers",
+    "por": "trail blazers",
+    "sacramento kings": "kings",
+    "kings": "kings",
+    "sac": "kings",
+    "san antonio spurs": "spurs",
+    "spurs": "spurs",
+    "sa": "spurs",
+    "sas": "spurs",
+    "toronto raptors": "raptors",
+    "raptors": "raptors",
+    "tor": "raptors",
+    "utah jazz": "jazz",
+    "jazz": "jazz",
+    "uta": "jazz",
+    "washington wizards": "wizards",
+    "wizards": "wizards",
+    "was": "wizards",
+}
+
+_NBA_TEAM_METADATA = {
+    "hawks": {"name": "Atlanta Hawks", "city": "Atlanta", "nickname": "Hawks"},
+    "celtics": {"name": "Boston Celtics", "city": "Boston", "nickname": "Celtics"},
+    "nets": {"name": "Brooklyn Nets", "city": "Brooklyn", "nickname": "Nets"},
+    "hornets": {"name": "Charlotte Hornets", "city": "Charlotte", "nickname": "Hornets"},
+    "bulls": {"name": "Chicago Bulls", "city": "Chicago", "nickname": "Bulls"},
+    "cavaliers": {"name": "Cleveland Cavaliers", "city": "Cleveland", "nickname": "Cavaliers"},
+    "mavericks": {"name": "Dallas Mavericks", "city": "Dallas", "nickname": "Mavericks"},
+    "nuggets": {"name": "Denver Nuggets", "city": "Denver", "nickname": "Nuggets"},
+    "pistons": {"name": "Detroit Pistons", "city": "Detroit", "nickname": "Pistons"},
+    "warriors": {"name": "Golden State Warriors", "city": "Golden State", "nickname": "Warriors"},
+    "rockets": {"name": "Houston Rockets", "city": "Houston", "nickname": "Rockets"},
+    "pacers": {"name": "Indiana Pacers", "city": "Indiana", "nickname": "Pacers"},
+    "clippers": {"name": "Los Angeles Clippers", "city": "Los Angeles", "nickname": "Clippers"},
+    "lakers": {"name": "Los Angeles Lakers", "city": "Los Angeles", "nickname": "Lakers"},
+    "grizzlies": {"name": "Memphis Grizzlies", "city": "Memphis", "nickname": "Grizzlies"},
+    "heat": {"name": "Miami Heat", "city": "Miami", "nickname": "Heat"},
+    "bucks": {"name": "Milwaukee Bucks", "city": "Milwaukee", "nickname": "Bucks"},
+    "timberwolves": {"name": "Minnesota Timberwolves", "city": "Minnesota", "nickname": "Timberwolves"},
+    "pelicans": {"name": "New Orleans Pelicans", "city": "New Orleans", "nickname": "Pelicans"},
+    "knicks": {"name": "New York Knicks", "city": "New York", "nickname": "Knicks"},
+    "thunder": {"name": "Oklahoma City Thunder", "city": "Oklahoma City", "nickname": "Thunder"},
+    "magic": {"name": "Orlando Magic", "city": "Orlando", "nickname": "Magic"},
+    "76ers": {"name": "Philadelphia 76ers", "city": "Philadelphia", "nickname": "76ers"},
+    "suns": {"name": "Phoenix Suns", "city": "Phoenix", "nickname": "Suns"},
+    "trail blazers": {"name": "Portland Trail Blazers", "city": "Portland", "nickname": "Trail Blazers"},
+    "kings": {"name": "Sacramento Kings", "city": "Sacramento", "nickname": "Kings"},
+    "spurs": {"name": "San Antonio Spurs", "city": "San Antonio", "nickname": "Spurs"},
+    "raptors": {"name": "Toronto Raptors", "city": "Toronto", "nickname": "Raptors"},
+    "jazz": {"name": "Utah Jazz", "city": "Utah", "nickname": "Jazz"},
+    "wizards": {"name": "Washington Wizards", "city": "Washington", "nickname": "Wizards"},
+}
+
+
+def _normalize_nba_name(value: str) -> str:
+    text = (value or "").strip().lower()
+    text = re.sub(r"[.\-_/]+", " ", text)
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _canonical_nba_name(value: str) -> str:
+    normalized = _normalize_nba_name(value)
+    if not normalized:
+        return ""
+    return _NBA_TEAM_ALIASES.get(normalized, normalized)
+
+
+def _team_name_candidates(team: dict) -> list[str]:
+    values = [
+        team.get("name", ""),
+        team.get("nickname", ""),
+        team.get("shortName", ""),
+        team.get("abbrev", ""),
+        " ".join(part for part in [team.get("city", ""), team.get("nickname", "")] if part),
+        " ".join(part for part in [team.get("city", ""), team.get("name", "")] if part),
+    ]
+    return [value for value in values if str(value or "").strip()]
+
+
+def _match_reason(selected_names: list[str], team_index: dict[str, list[dict]]) -> str:
+    if not selected_names:
+        return "no selected team names provided"
+    canonical_selected = [_canonical_nba_name(name) for name in selected_names if _canonical_nba_name(name)]
+    if not canonical_selected:
+        return "selected team names normalized to empty canonical values"
+    missing = [name for name in canonical_selected if name not in team_index]
+    if missing:
+        return f"no canonical match for {', '.join(missing)}"
+    return "canonical match was ambiguous or unavailable"
+
+
+def _log_team_match_debug(stage: str, selected_home: str, selected_away: str, teams: list[dict], reason: str = "") -> None:
+    available_names = [team.get("name", "") for team in teams]
+    normalized_selected = {
+        "home": _canonical_nba_name(selected_home),
+        "away": _canonical_nba_name(selected_away),
+    }
+    normalized_teams = [
+        {
+            "id": str(team.get("id", "")),
+            "name": team.get("name", ""),
+            "canonical": sorted({_canonical_nba_name(candidate) for candidate in _team_name_candidates(team) if _canonical_nba_name(candidate)}),
+        }
+        for team in teams
+    ]
+    current_app.logger.info(
+        "nba select_game debug stage=%s selected_home=%r selected_away=%r normalized_selected=%s available_team_names=%s normalized_team_names=%s failure_reason=%s",
+        stage,
+        selected_home,
+        selected_away,
+        normalized_selected,
+        available_names,
+        normalized_teams,
+        reason or "resolved",
+    )
+
+
+def _selection_mismatch_notice(selected_home: str, selected_away: str, teams: list[dict], reason: str) -> str:
+    return "The selected NBA game could not be matched to the current team list. Please refresh and try again."
+
+
+def _resolve_nba_team_from_selection(raw_id: str, raw_name: str, teams: list[dict]) -> tuple[dict | None, str]:
+    team_by_id = {str(team.get("id", "")).strip(): team for team in teams if str(team.get("id", "")).strip()}
+    if raw_id and raw_id in team_by_id:
+        return team_by_id[raw_id], "matched by provider id"
+
+    selected_canonical = _canonical_nba_name(raw_name)
+    if not selected_canonical:
+        return None, "selected team name normalized to empty canonical value"
+
+    canonical_index: dict[str, list[dict]] = {}
+    for team in teams:
+        canonical_names = {
+            _canonical_nba_name(candidate)
+            for candidate in _team_name_candidates(team)
+            if _canonical_nba_name(candidate)
+        }
+        for canonical_name in canonical_names:
+            canonical_index.setdefault(canonical_name, []).append(team)
+
+    matches = canonical_index.get(selected_canonical, [])
+    if len(matches) == 1:
+        return matches[0], f"matched by canonical name {selected_canonical}"
+    if len(matches) > 1:
+        return matches[0], f"matched by canonical name {selected_canonical} with duplicates"
+    return None, _match_reason([raw_name], canonical_index)
+
+
+def _fallback_nba_team_from_selection(raw_id: str, raw_name: str, raw_logo: str) -> tuple[dict | None, str]:
+    canonical = _canonical_nba_name(raw_name)
+    if not raw_id or not canonical:
+        return None, "payload fallback unavailable"
+
+    metadata = _NBA_TEAM_METADATA.get(canonical, {})
+    if not metadata:
+        return None, f"payload fallback unavailable for canonical name {canonical}"
+
+    display_name = metadata.get("name") or raw_name.strip() or canonical.title()
+    nickname = metadata.get("nickname") or display_name.split()[-1]
+    city = metadata.get("city") or display_name.removesuffix(f" {nickname}").strip()
+    return {
+        "id": str(raw_id).strip(),
+        "name": display_name,
+        "nickname": nickname,
+        "shortName": nickname,
+        "city": city,
+        "logo": raw_logo or "",
+        "abbrev": "",
+    }, f"matched by selection payload canonical name {canonical}"
 
 def _require_nba_teams():
     """Return (team_a, team_b) dicts from session, or (None, None) if not set."""
@@ -60,6 +320,10 @@ def _selected_nba_game():
     return session.get("nba_selected_game")
 
 
+def _selection_error_redirect(message: str):
+    return redirect(url_for("nba.index", selection_error=message))
+
+
 def _store_nba_teams(team_a: dict, team_b: dict) -> None:
     session["nba_team_a_id"] = str(team_a.get("id", ""))
     session["nba_team_a_name"] = team_a.get("name", "")
@@ -74,22 +338,24 @@ def _store_nba_teams(team_a: dict, team_b: dict) -> None:
     session["nba_team_b_city"] = team_b.get("city", "")
 
 
-def _store_selected_game_from_form() -> None:
-    event_id = request.form.get("event_id", "").strip()
+def _store_selected_game_from_payload(payload) -> None:
+    event_id = payload.get("event_id", "").strip()
     if not event_id:
         session.pop("nba_selected_game", None)
         return
 
     session["nba_selected_game"] = {
         "event_id": event_id,
-        "date": request.form.get("event_date", "").strip(),
-        "status": request.form.get("event_status", "").strip(),
-        "venue_name": request.form.get("venue_name", "").strip(),
-        "short_name": request.form.get("short_name", "").strip(),
-        "home_name": request.form.get("team_a_name", "").strip(),
-        "home_logo": request.form.get("team_a_logo", "").strip(),
-        "away_name": request.form.get("team_b_name", "").strip(),
-        "away_logo": request.form.get("team_b_logo", "").strip(),
+        "date": payload.get("event_date", "").strip(),
+        "status": payload.get("event_status", "").strip(),
+        "venue_name": payload.get("venue_name", "").strip(),
+        "short_name": payload.get("short_name", "").strip(),
+        "home_name": payload.get("team_a_name", "").strip(),
+        "home_logo": payload.get("team_a_logo", "").strip(),
+        "away_name": payload.get("team_b_name", "").strip(),
+        "away_logo": payload.get("team_b_logo", "").strip(),
+        "sport": "nba",
+        "league_name": "NBA",
     }
 
 
@@ -475,6 +741,7 @@ def index():
             teams=teams,
             today_games=today_games,
             upcoming_games=upcoming_games_with_predictions,
+            selection_notice=(request.args.get("selection_error") or "").strip() or None,
             selected_game=_selected_nba_game() or {},
             load_error=load_error,
             route_support=_support("index"),
@@ -490,23 +757,23 @@ def select():
     b_id = request.form.get("team_b", "").strip()
 
     if not a_id or not b_id or a_id == b_id:
-        return redirect(url_for("nba.index"))
+        return _selection_error_redirect("The selected NBA matchup could not be prepared for Match Analysis.")
 
     try:
         teams = nc.get_teams()
     except Exception:
-        return redirect(url_for("nba.index"))
+        return _selection_error_redirect("The selected NBA matchup could not be loaded because team data is unavailable.")
 
     # IDs from the new provider are strings like "1", "2" etc.
     team_map = {str(t["id"]): t for t in teams}
     if a_id not in team_map or b_id not in team_map:
-        return redirect(url_for("nba.index"))
+        return _selection_error_redirect("The selected NBA matchup could not be matched to the current team list.")
 
     ta, tb = team_map[a_id], team_map[b_id]
     _store_nba_teams(ta, tb)
     session.pop("nba_selected_game", None)
 
-    return redirect(url_for("nba.matchup"))
+    return redirect(url_for("nba.prediction"))
 
 
 @nba_bp.route("/select-game", methods=["GET", "POST"])
@@ -515,25 +782,56 @@ def select_game():
     # Support both GET (card links) and POST (form submissions)
     a_id = (request.form.get("team_a") or request.args.get("team_a") or "").strip()
     b_id = (request.form.get("team_b") or request.args.get("team_b") or "").strip()
+    a_name = (request.form.get("team_a_name") or request.args.get("team_a_name") or "").strip()
+    b_name = (request.form.get("team_b_name") or request.args.get("team_b_name") or "").strip()
+    a_logo = (request.form.get("team_a_logo") or request.args.get("team_a_logo") or "").strip()
+    b_logo = (request.form.get("team_b_logo") or request.args.get("team_b_logo") or "").strip()
 
     if not a_id or not b_id or a_id == b_id:
-        return redirect(url_for("nba.index"))
+        return _selection_error_redirect("The selected NBA game could not be prepared for Match Analysis.")
 
     try:
         teams = nc.get_teams()
     except Exception:
-        return redirect(url_for("nba.index"))
+        return _selection_error_redirect("The selected NBA game could not be loaded because team data is unavailable.")
 
-    team_map = {str(t["id"]): t for t in teams}
-    if a_id not in team_map or b_id not in team_map:
-        return redirect(url_for("nba.index"))
+    team_a, reason_a = _resolve_nba_team_from_selection(a_id, a_name, teams)
+    team_b, reason_b = _resolve_nba_team_from_selection(b_id, b_name, teams)
 
-    _store_nba_teams(team_map[a_id], team_map[b_id])
+    if not team_a:
+        team_a, fallback_reason_a = _fallback_nba_team_from_selection(a_id, a_name, a_logo)
+        if team_a:
+            reason_a = fallback_reason_a
+    if not team_b:
+        team_b, fallback_reason_b = _fallback_nba_team_from_selection(b_id, b_name, b_logo)
+        if team_b:
+            reason_b = fallback_reason_b
+
+    if not team_a or not team_b:
+        failure_reason = f"home={reason_a}; away={reason_b}"
+        _log_team_match_debug(
+            "failed",
+            a_name,
+            b_name,
+            teams,
+            reason=failure_reason,
+        )
+        return _selection_error_redirect(_selection_mismatch_notice(a_name, b_name, teams, failure_reason))
+
+    _log_team_match_debug(
+        "resolved",
+        a_name,
+        b_name,
+        teams,
+        reason=f"home={reason_a}; away={reason_b}",
+    )
+
+    _store_nba_teams(team_a, team_b)
     if request.method == "POST":
-        _store_selected_game_from_form()
+        _store_selected_game_from_payload(request.form)
     else:
-        session.pop("nba_selected_game", None)
-    return redirect(url_for("nba.matchup"))
+        _store_selected_game_from_payload(request.args)
+    return redirect(url_for("nba.prediction"))
 
 
 @nba_bp.route("/matchup")
@@ -541,7 +839,7 @@ def matchup():
     _apply_refresh()
     team_a, team_b = _require_nba_teams()
     if not team_a:
-        return redirect(url_for("nba.index"))
+        return _selection_error_redirect("Match Analysis could not be opened because no NBA game is selected.")
 
     id_a, id_b = str(team_a["id"]), str(team_b["id"])
     error = None
@@ -683,19 +981,26 @@ def matchup():
         except Exception:
             pass
 
-        scorpred = se.scorpred_predict(
-            form_a=recent_form_a,
-            form_b=recent_form_b,
-            h2h_form_a=h2h_form_a,
-            h2h_form_b=h2h_form_b,
-            injuries_a=injuries_a,
-            injuries_b=injuries_b,
-            team_a_is_home=True,  # Assume team_a is home for now
-            team_a_name=team_a.get("nickname") or team_a["name"],
-            team_b_name=team_b.get("nickname") or team_b["name"],
-            sport="nba",
-            opp_strengths=nba_opp_strengths,
+        mastermind = sm.predict_match(
+            {
+                "sport": "nba",
+                "team_a_name": team_a.get("nickname") or team_a["name"],
+                "team_b_name": team_b.get("nickname") or team_b["name"],
+                "team_a_is_home": True,
+                "form_a": recent_form_a,
+                "form_b": recent_form_b,
+                "h2h_form_a": h2h_form_a,
+                "h2h_form_b": h2h_form_b,
+                "injuries_a": injuries_a,
+                "injuries_b": injuries_b,
+                "opp_strengths": nba_opp_strengths,
+                "team_stats": {
+                    "a": stats_a or {},
+                    "b": stats_b or {},
+                },
+            }
         )
+        scorpred = mastermind.get("ui_prediction") or {}
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
 
@@ -828,7 +1133,7 @@ def prediction():
     _apply_refresh()
     team_a, team_b = _require_nba_teams()
     if not team_a:
-        return redirect(url_for("nba.index"))
+        return _selection_error_redirect("Match Analysis could not be opened because no NBA game is selected.")
 
     id_a, id_b = str(team_a["id"]), str(team_b["id"])
     error = None
@@ -933,19 +1238,26 @@ def prediction():
         except Exception:
             pass
 
-        scorpred = se.scorpred_predict(
-            form_a=nba_form_a,
-            form_b=nba_form_b,
-            h2h_form_a=h2h_form_a,
-            h2h_form_b=h2h_form_b,
-            injuries_a=injuries_a,
-            injuries_b=injuries_b,
-            team_a_is_home=True,
-            team_a_name=team_a.get("nickname") or team_a["name"],
-            team_b_name=team_b.get("nickname") or team_b["name"],
-            sport="nba",
-            opp_strengths=nba_opp_strengths,
+        mastermind = sm.predict_match(
+            {
+                "sport": "nba",
+                "team_a_name": team_a.get("nickname") or team_a["name"],
+                "team_b_name": team_b.get("nickname") or team_b["name"],
+                "team_a_is_home": True,
+                "form_a": nba_form_a,
+                "form_b": nba_form_b,
+                "h2h_form_a": h2h_form_a,
+                "h2h_form_b": h2h_form_b,
+                "injuries_a": injuries_a,
+                "injuries_b": injuries_b,
+                "opp_strengths": nba_opp_strengths,
+                "team_stats": {
+                    "a": stats_a or {},
+                    "b": stats_b or {},
+                },
+            }
         )
+        scorpred = mastermind.get("ui_prediction") or {}
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
 

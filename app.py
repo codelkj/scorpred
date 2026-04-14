@@ -13,6 +13,7 @@ import api_client as football_api
 import predictor as pred
 import props_engine as pe
 import scorpred_engine as se
+import scormastermind as sm
 import model_tracker as mt
 import result_updater as ru
 from security import check_chat_rate_limit, configure_security
@@ -71,6 +72,10 @@ def _football_data_source() -> str:
 
 def _page_context(data_source: str | None = None, **kwargs) -> dict:
     return assistant_services.page_context(ac, data_source=data_source, **kwargs)
+
+
+def _selection_error_redirect(endpoint: str, message: str):
+    return redirect(url_for(endpoint, selection_error=message))
 
 
 def _clean_injuries(items: list[dict]) -> list[dict]:
@@ -259,6 +264,7 @@ def soccer():
             upcoming_fixtures=upcoming_fixtures or [],
             fixtures_error=fixtures_error,
             fixtures_source=fixtures_source,
+            selection_notice=(request.args.get("selection_error") or "").strip() or None,
             selected_fixture=_selected_fixture(),
         ),
     )
@@ -275,16 +281,16 @@ def select_game():
     source = (fixture_context or {}).get("data_source", "configured")
 
     if not a_id_raw or not b_id_raw or a_id_raw == b_id_raw:
-        return redirect(url_for("index"))
+        return _selection_error_redirect("soccer", "The selected soccer fixture could not be prepared for Match Analysis.")
 
     try:
         teams = ac.get_teams(LEAGUE, SEASON)
     except Exception as exc:
         app.logger.error("Failed to fetch provider teams during selection: %s", exc)
-        teams = []
+        return _selection_error_redirect("soccer", "The selected soccer fixture could not be loaded because team data is unavailable.")
 
     if not teams:
-        return _critical_error("Team data is unavailable, so the matchup could not be prepared.")
+        return _selection_error_redirect("soccer", "The selected soccer fixture could not be loaded because team data is unavailable.")
 
     team_map = {
         str((entry.get("team") or entry).get("id")): (entry.get("team") or entry)
@@ -299,17 +305,13 @@ def select_game():
         team_b = _resolve_provider_team_by_name(request.form.get("team_b_name", ""), teams)
 
     if not team_a or not team_b:
-        return render_template(
-            "error.html",
-            msg=(
-                "This fixture could not be matched to the configured football data "
-                "provider, so the full analysis could not be loaded."
-            ),
-            **_page_context(),
+        return _selection_error_redirect(
+            "soccer",
+            "The selected soccer fixture could not be matched to the current provider, so Match Analysis was not loaded.",
         )
 
     _store_selected_teams(team_a, team_b, fixture_context)
-    return redirect(url_for("matchup"))
+    return redirect(url_for("prediction"))
 
 
 @app.route("/matchup", methods=["GET"])
@@ -317,7 +319,7 @@ def matchup():
     _set_data_refresh()
     team_a, team_b = _require_teams()
     if not team_a:
-        return redirect(url_for("index"))
+        return _selection_error_redirect("soccer", "Match Analysis could not be opened because no soccer fixture is selected.")
     selected_fixture = _selected_fixture()
 
     id_a, id_b = team_a["id"], team_b["id"]
@@ -397,19 +399,26 @@ def matchup():
         pass
     opp_strengths = _build_opp_strengths(standings_for_opp)
 
-    scorpred = se.scorpred_predict(
-        form_a=form_a,
-        form_b=form_b,
-        h2h_form_a=h2h_form_a,
-        h2h_form_b=h2h_form_b,
-        injuries_a=injuries_a_raw,
-        injuries_b=injuries_b_raw,
-        team_a_is_home=True,
-        team_a_name=team_a["name"],
-        team_b_name=team_b["name"],
-        sport="soccer",
-        opp_strengths=opp_strengths,
+    mastermind = sm.predict_match(
+        {
+            "sport": "soccer",
+            "team_a_name": team_a["name"],
+            "team_b_name": team_b["name"],
+            "team_a_is_home": True,
+            "form_a": form_a,
+            "form_b": form_b,
+            "h2h_form_a": h2h_form_a,
+            "h2h_form_b": h2h_form_b,
+            "injuries_a": injuries_a_raw,
+            "injuries_b": injuries_b_raw,
+            "opp_strengths": opp_strengths,
+            "team_stats": {
+                "a": split_a,
+                "b": split_b,
+            },
+        }
     )
+    scorpred = mastermind.get("ui_prediction") or {}
 
     # ── Key threats (danger men) ────────────────────────────────────────────────
     squad_a, squad_b = [], []
@@ -607,7 +616,7 @@ def prediction():
     _set_data_refresh()
     team_a, team_b = _require_teams()
     if not team_a:
-        return redirect(url_for("index"))
+        return _selection_error_redirect("soccer", "Match Analysis could not be opened because no soccer fixture is selected.")
     selected_fixture = _selected_fixture()
 
     id_a, id_b = team_a["id"], team_b["id"]
@@ -681,20 +690,27 @@ def prediction():
         pass
     opp_strengths = _build_opp_strengths(standings_for_opp)
 
-    # Single unified prediction from Scorpred Engine
-    prediction = se.scorpred_predict(
-        form_a=form_a,
-        form_b=form_b,
-        h2h_form_a=h2h_form_a,
-        h2h_form_b=h2h_form_b,
-        injuries_a=injuries_a,
-        injuries_b=injuries_b,
-        team_a_is_home=True,
-        team_a_name=team_a["name"],
-        team_b_name=team_b["name"],
-        sport="soccer",
-        opp_strengths=opp_strengths,
+    # Single unified prediction from ScorMastermind
+    mastermind = sm.predict_match(
+        {
+            "sport": "soccer",
+            "team_a_name": team_a["name"],
+            "team_b_name": team_b["name"],
+            "team_a_is_home": True,
+            "form_a": form_a,
+            "form_b": form_b,
+            "h2h_form_a": h2h_form_a,
+            "h2h_form_b": h2h_form_b,
+            "injuries_a": injuries_a,
+            "injuries_b": injuries_b,
+            "opp_strengths": opp_strengths,
+            "team_stats": {
+                "a": {"form": form_a},
+                "b": {"form": form_b},
+            },
+        }
     )
+    prediction = mastermind.get("ui_prediction") or {}
 
     # Track this prediction
     try:
