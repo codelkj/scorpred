@@ -1,346 +1,506 @@
 {% extends "base.html" %}
-{% block title %}Model Performance | ScorPred{% endblock %}
+{% block title %}Model Evaluation Dashboard | ScorPred{% endblock %}
+
+{% block head %}
+<style>
+  .eval-shell { display: grid; gap: 1.1rem; }
+  .eval-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: .9rem;
+  }
+  .eval-kpi-card {
+    background: linear-gradient(150deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 14px;
+    padding: .95rem 1rem;
+  }
+  .eval-kpi-label { color: var(--muted); font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; }
+  .eval-kpi-value { margin-top: .35rem; font-size: 1.35rem; font-weight: 700; color: var(--text); }
+  .eval-kpi-meta { margin-top: .2rem; font-size: .78rem; color: var(--muted); }
+
+  .eval-grid-2 {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: .9rem;
+  }
+  .eval-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: .9rem;
+  }
+  .eval-card {
+    background: linear-gradient(180deg, rgba(16,16,16,.96), rgba(10,10,10,.96));
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem;
+  }
+  .eval-card h3 {
+    font-size: 1rem;
+    margin-bottom: .35rem;
+    color: var(--text);
+  }
+  .eval-card .sub {
+    color: var(--muted);
+    font-size: .82rem;
+    margin-bottom: .8rem;
+  }
+  .eval-chart-wrap { position: relative; min-height: 260px; }
+  .eval-chart-wrap.compact { min-height: 220px; }
+
+  .eval-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: .7rem;
+  }
+  .eval-mini {
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 10px;
+    padding: .7rem .75rem;
+    background: rgba(255,255,255,.02);
+  }
+  .eval-mini .label { color: var(--muted); font-size: .75rem; }
+  .eval-mini .value { color: var(--text); font-size: 1.05rem; font-weight: 700; margin-top: .2rem; }
+
+  .eval-table-wrap { overflow-x: auto; }
+  .eval-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 880px;
+    font-size: .88rem;
+  }
+  .eval-table th, .eval-table td {
+    text-align: left;
+    padding: .62rem .55rem;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .eval-table th {
+    color: #c7d0da;
+    font-size: .74rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .eval-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: .2rem .52rem;
+    border: 1px solid rgba(255,255,255,.14);
+    color: #d8e2ee;
+    font-size: .74rem;
+  }
+  .eval-pill.good { border-color: rgba(16,185,129,.45); color: #9ae6c8; }
+  .eval-pill.warn { border-color: rgba(234,179,8,.45); color: #f7e29a; }
+  .eval-pill.risk { border-color: rgba(239,68,68,.45); color: #f6b0b0; }
+
+  @media (max-width: 1080px) {
+    .eval-grid-2 { grid-template-columns: 1fr; }
+    .eval-grid-3 { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
 
 {% block content %}
-{% set overall_accuracy = metrics.overall_accuracy if metrics.overall_accuracy is not none else None %}
-{% set overall_tone = 'mid' %}
-{% if overall_accuracy is not none %}
-  {% if overall_accuracy >= 55 %}
-    {% set overall_tone = 'good' %}
-  {% elif overall_accuracy < 45 %}
-    {% set overall_tone = 'risk' %}
-  {% endif %}
-{% endif %}
-{% set active_tab = request.args.get('tab', 'overview').lower() %}
+{% set kpis = evaluation.get('kpis', {}) if evaluation else {} %}
+{% set series = evaluation.get('series', {}) if evaluation else {} %}
+{% set rolling_by_match = series.get('rolling_by_match', []) if series else [] %}
+{% set rolling_by_day = series.get('rolling_by_day', []) if series else [] %}
+{% set cumulative_points = series.get('cumulative_points', []) if series else [] %}
+{% set confidence_calibration = evaluation.get('confidence_calibration', []) if evaluation else [] %}
+{% set strategy_rows = evaluation.get('strategy_comparison', []) if evaluation else [] %}
+{% set breakdowns = evaluation.get('breakdowns', {}) if evaluation else {} %}
+{% set by_sport = breakdowns.get('by_sport', []) if breakdowns else [] %}
+{% set by_confidence_tier = breakdowns.get('by_confidence_tier', []) if breakdowns else [] %}
+{% set by_predicted_outcome = breakdowns.get('by_predicted_outcome', []) if breakdowns else [] %}
+{% set recent_form = breakdowns.get('recent_form', {}) if breakdowns else {} %}
+{% set failure_rows = evaluation.get('failure_rows', []) if evaluation else [] %}
 
 <section class="landing-hero performance-hero">
-  <div class="performance-layout">
-    <div class="landing-copy">
-      <span class="page-kicker">Performance Dashboard</span>
-      <h1 class="landing-title">Track what the model said against what really happened.</h1>
-      <p class="landing-subtitle">
-        Review tracked predictions, finalized outcomes, and performance splits without losing the bigger picture.
-      </p>
-      <div class="performance-actions">
-        <a href="{{ url_for('update_prediction_results') }}" class="btn btn-primary">Refresh Results</a>
-        <a href="/strategy-lab" class="btn btn-secondary">Open Strategy Lab</a>
-      </div>
-    </div>
-
-    <div class="landing-panel">
-      <article class="trust-card">
-        <span class="table-kicker">Live Metrics</span>
-        <div class="panel-list">
-          <div class="panel-list-item">
-            <strong>Tracked Predictions</strong>
-            <div class="flow-copy">{{ metrics.total_predictions or 0 }} total predictions saved.</div>
-          </div>
-          <div class="panel-list-item">
-            <strong>Finalized Outcomes</strong>
-            <div class="flow-copy">{{ metrics.finalized_predictions or 0 }} predictions have been graded.</div>
-          </div>
-          <div class="panel-list-item">
-            <strong>Overall Accuracy</strong>
-            <div class="flow-copy">
-              {% if overall_accuracy is not none %}
-                <strong class="performance-tone-{{ overall_tone }}">{{ overall_accuracy }}%</strong> across finalized outcomes.
-              {% else %}
-                Awaiting resolved outcomes for grading.
-              {% endif %}
-            </div>
-          </div>
-        </div>
-      </article>
-    </div>
+  <div class="landing-copy">
+    <span class="page-kicker">Model Evaluation Dashboard</span>
+    <h1 class="landing-title">Quality, reliability, and strategy behavior in one view.</h1>
+    <p class="landing-subtitle">
+      Evaluate accuracy trends, confidence calibration, strategy performance, and failure patterns using live tracked outcomes.
+    </p>
   </div>
 </section>
 
-{% if metrics.total_predictions == 0 %}
-<section class="section-stack">
-  <article class="performance-empty">
-    <span class="page-kicker">No History Yet</span>
-    <h2 class="section-title">No predictions have been tracked yet.</h2>
-    <p>
-      Predictions are stored automatically when you generate them. Start from the soccer workspace,
-      the NBA workspace, or match analysis.
-    </p>
-    <div class="page-actions" style="margin-top: 1rem;">
-      <a href="/soccer" class="btn btn-primary">Open Soccer</a>
-      <a href="/nba/" class="btn btn-secondary">Open NBA</a>
+<section class="eval-shell">
+  <div class="eval-kpi-grid">
+    <article class="eval-kpi-card">
+      <div class="eval-kpi-label">Overall Accuracy</div>
+      <div class="eval-kpi-value">{{ (kpis.overall_accuracy ~ '%') if kpis.overall_accuracy is not none else 'Awaiting sample' }}</div>
+      <div class="eval-kpi-meta">Finalized winner outcomes</div>
+    </article>
+    <article class="eval-kpi-card">
+      <div class="eval-kpi-label">Rolling Win Rate</div>
+      <div class="eval-kpi-value">{{ (kpis.rolling_win_rate ~ '%') if kpis.rolling_win_rate is not none else '--' }}</div>
+      <div class="eval-kpi-meta">Window {{ evaluation.rolling_window or 10 }}</div>
+    </article>
+    <article class="eval-kpi-card">
+      <div class="eval-kpi-label">Tracked Predictions</div>
+      <div class="eval-kpi-value">{{ kpis.total_tracked_predictions or 0 }}</div>
+      <div class="eval-kpi-meta">All saved predictions</div>
+    </article>
+    <article class="eval-kpi-card">
+      <div class="eval-kpi-label">Finalized Predictions</div>
+      <div class="eval-kpi-value">{{ kpis.finalized_predictions or 0 }}</div>
+      <div class="eval-kpi-meta">Included in grading</div>
+    </article>
+    <article class="eval-kpi-card">
+      <div class="eval-kpi-label">Avoids Skipped</div>
+      <div class="eval-kpi-value">{{ kpis.avoids_skipped or 0 }}</div>
+      <div class="eval-kpi-meta">Avoid recommendations</div>
+    </article>
+    <article class="eval-kpi-card">
+      <div class="eval-kpi-label">Current Best Strategy</div>
+      <div class="eval-kpi-value" style="font-size:1.02rem;">{{ kpis.current_best_strategy or 'Awaiting sample' }}</div>
+      <div class="eval-kpi-meta">Top evaluated strategy</div>
+    </article>
+    <article class="eval-kpi-card">
+      <div class="eval-kpi-label">ROI / Points</div>
+      <div class="eval-kpi-value">{{ kpis.roi_or_points if kpis.roi_or_points is not none else 0 }}</div>
+      <div class="eval-kpi-meta">Cumulative outcome proxy</div>
+    </article>
+  </div>
+
+  <div class="eval-grid-2">
+    <article class="eval-card">
+      <h3>Win Rate Over Time</h3>
+      <div class="sub">Rolling win percentage using finalized predictions. Toggle between match index and daily trend.</div>
+      <div style="display:flex; gap:.5rem; margin-bottom:.7rem;">
+        <button class="btn btn-secondary btn-sm" id="trendByMatch" type="button">Match Index</button>
+        <button class="btn btn-secondary btn-sm" id="trendByDay" type="button">Daily</button>
+      </div>
+      <div class="eval-chart-wrap"><canvas id="rollingWinRateChart"></canvas></div>
+    </article>
+
+    <article class="eval-card">
+      <h3>Cumulative Performance Curve</h3>
+      <div class="sub">+1 correct, -1 incorrect, 0 avoid where present.</div>
+      <div class="eval-chart-wrap"><canvas id="cumulativePerformanceChart"></canvas></div>
+    </article>
+  </div>
+
+  <div class="eval-grid-2">
+    <article class="eval-card">
+      <h3>Confidence Calibration</h3>
+      <div class="sub">Predicted confidence bands vs realized hit rate.</div>
+      <div class="eval-chart-wrap compact"><canvas id="confidenceCalibrationChart"></canvas></div>
+    </article>
+
+    <article class="eval-card">
+      <h3>Strategy Comparison</h3>
+      <div class="sub">Rule, ML, combined, edge-filtered, and avoid-aware strategy outcomes.</div>
+      <div class="eval-chart-wrap compact"><canvas id="strategyComparisonChart"></canvas></div>
+    </article>
+  </div>
+
+  <div class="eval-grid-3">
+    <article class="eval-card">
+      <h3>By Sport Accuracy</h3>
+      <div class="sub">Compact sport-level performance split.</div>
+      <div class="eval-chart-wrap compact"><canvas id="bySportChart"></canvas></div>
+    </article>
+
+    <article class="eval-card">
+      <h3>By Confidence Tier</h3>
+      <div class="sub">High, medium, and low confidence hit rate.</div>
+      <div class="eval-chart-wrap compact"><canvas id="byConfidenceTierChart"></canvas></div>
+    </article>
+
+    <article class="eval-card">
+      <h3>Home / Away / Draw Accuracy</h3>
+      <div class="sub">Where predicted outcome classes are strongest or weakest.</div>
+      <div class="eval-chart-wrap compact"><canvas id="outcomeBreakdownChart"></canvas></div>
+    </article>
+  </div>
+
+  <article class="eval-card">
+    <h3>Recent Model Form</h3>
+    <div class="sub">Short-window model quality snapshot.</div>
+    <div class="eval-mini-grid">
+      <div class="eval-mini">
+        <div class="label">Last 10</div>
+        <div class="value">{{ (recent_form.last_10.accuracy ~ '%') if recent_form and recent_form.last_10 and recent_form.last_10.accuracy is not none else 'Awaiting sample' }}</div>
+      </div>
+      <div class="eval-mini">
+        <div class="label">Last 20</div>
+        <div class="value">{{ (recent_form.last_20.accuracy ~ '%') if recent_form and recent_form.last_20 and recent_form.last_20.accuracy is not none else 'Awaiting sample' }}</div>
+      </div>
+      <div class="eval-mini">
+        <div class="label">Recent Sample</div>
+        <div class="value">{{ (recent_form.last_20.count if recent_form and recent_form.last_20 else 0) }} matches</div>
+      </div>
+      <div class="eval-mini">
+        <div class="label">Rolling Window</div>
+        <div class="value">{{ evaluation.rolling_window or 10 }}</div>
+      </div>
+    </div>
+  </article>
+
+  <article class="eval-card">
+    <h3>Failure Analysis</h3>
+    <div class="sub">Recent misses for debugging model blind spots and recommendation quality.</div>
+    <div class="eval-table-wrap">
+      <table class="eval-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Sport</th>
+            <th>Matchup</th>
+            <th>Predicted</th>
+            <th>Actual</th>
+            <th>Confidence</th>
+            <th>Recommendation</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if failure_rows %}
+            {% for row in failure_rows %}
+            <tr>
+              <td>{{ row.date }}</td>
+              <td>{{ row.sport }}</td>
+              <td>{{ row.matchup }}</td>
+              <td>{{ row.predicted_outcome }}</td>
+              <td>{{ row.actual_result }}</td>
+              <td>
+                {% set tone = 'warn' %}
+                {% if row.confidence_pct >= 80 %}{% set tone = 'good' %}{% endif %}
+                {% if row.confidence_pct < 60 %}{% set tone = 'risk' %}{% endif %}
+                <span class="eval-pill {{ tone }}">{{ row.confidence }} · {{ row.confidence_pct }}%</span>
+              </td>
+              <td>{{ row.recommendation }}</td>
+              <td>{{ row.notes or '—' }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="8">No recent failures available yet.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="eval-card">
+    <h3>Model / Version Comparison</h3>
+    <div class="sub">Current reference comparison with room to expand into versioned model experiments.</div>
+    <div class="eval-mini-grid">
+      <div class="eval-mini">
+        <div class="label">Current Model</div>
+        <div class="value">{{ ml_comparison.best_model_label or 'Current production blend' }}</div>
+      </div>
+      <div class="eval-mini">
+        <div class="label">Baseline Logistic</div>
+        <div class="value">{{ (ml_comparison.baseline_logistic_accuracy ~ '%') if ml_comparison.baseline_logistic_accuracy is not none else 'N/A' }}</div>
+      </div>
+      <div class="eval-mini">
+        <div class="label">Random Forest</div>
+        <div class="value">{{ (ml_comparison.random_forest_accuracy ~ '%') if ml_comparison.random_forest_accuracy is not none else 'N/A' }}</div>
+      </div>
+      <div class="eval-mini">
+        <div class="label">Combined Signal</div>
+        <div class="value">{{ (performance_comparison.combined_accuracy ~ '%') if performance_comparison and performance_comparison.combined_accuracy is not none else 'N/A' }}</div>
+      </div>
+      <div class="eval-mini">
+        <div class="label">Prior Baseline (Rule)</div>
+        <div class="value">{{ (performance_comparison.rule_accuracy ~ '%') if performance_comparison and performance_comparison.rule_accuracy is not none else 'N/A' }}</div>
+      </div>
+      <div class="eval-mini">
+        <div class="label">Evaluation Sample</div>
+        <div class="value">{{ performance_comparison.evaluation_matches if performance_comparison else 0 }} matches</div>
+      </div>
     </div>
   </article>
 </section>
-{% else %}
+{% endblock %}
 
-<!-- Tab Navigation -->
-<section class="section-stack">
-  <div class="tab-bar performance-tab-bar">
-    <a href="{{ url_for('model_performance', tab='overview', sport=sport_filter|default('')) }}" class="tab-btn {% if active_tab == 'overview' %}active{% endif %}">
-      Overview
-    </a>
-    <a href="{{ url_for('model_performance', tab='results', sport=sport_filter|default('')) }}" class="tab-btn {% if active_tab == 'results' %}active{% endif %}">
-      Results{% if completed_predictions %} ({{ completed_predictions | length }}){% endif %}
-    </a>
-  </div>
-</section>
+{% block scripts %}
+<script>
+(() => {
+  if (typeof Chart === 'undefined') return;
 
-<!-- ─── Overview Tab ─────────────────────────────────────────────────────── -->
-{% if active_tab == 'overview' %}
-<section class="section-stack">
-  <div class="performance-summary-grid">
-    <article class="performance-stat-card">
-      <span class="metric-label">Total Tracked</span>
-      <strong class="performance-stat-value">{{ metrics.total_predictions }}</strong>
-      <div class="performance-stat-meta">All predictions saved to the tracker</div>
-    </article>
+  const rollingByMatch = {{ (rolling_by_match | default([], true)) | tojson }};
+  const rollingByDay = {{ (rolling_by_day | default([], true)) | tojson }};
+  const cumulativeSeries = {{ (cumulative_points | default([], true)) | tojson }};
+  const calibration = {{ (confidence_calibration | default([], true)) | tojson }};
+  const strategyRows = {{ (strategy_rows | default([], true)) | tojson }};
+  const bySport = {{ (by_sport | default([], true)) | tojson }};
+  const byConfidenceTier = {{ (by_confidence_tier | default([], true)) | tojson }};
+  const byOutcome = {{ (by_predicted_outcome | default([], true)) | tojson }};
 
-    <article class="performance-stat-card">
-      <span class="metric-label">Wins</span>
-      <strong class="performance-stat-value performance-tone-good">{{ metrics.wins or 0 }}</strong>
-      <div class="performance-stat-meta">Resolved winner calls graded as correct</div>
-    </article>
+  const makeChart = (ctx, config) => new Chart(ctx, config);
 
-    <article class="performance-stat-card">
-      <span class="metric-label">Losses</span>
-      <strong class="performance-stat-value performance-tone-risk">{{ metrics.losses or 0 }}</strong>
-      <div class="performance-stat-meta">Resolved winner calls graded as incorrect</div>
-    </article>
+  const rollingCtx = document.getElementById('rollingWinRateChart');
+  let rollingChart;
+  const renderRollingChart = (mode) => {
+    const source = mode === 'day' ? rollingByDay : rollingByMatch;
+    const labels = source.map(p => p.label || p.match_index || p.day_index);
+    const values = source.map(p => p.rolling_accuracy || 0);
 
-    <article class="performance-stat-card gradient-border">
-      <span class="metric-label">Overall Accuracy</span>
-      <strong class="performance-stat-value performance-tone-{{ overall_tone }}">
-        {{ overall_accuracy ~ '%' if overall_accuracy is not none else 'Awaiting sample' }}
-      </strong>
-      <div class="performance-stat-meta">Finalized prediction hit rate</div>
-    </article>
-  </div>
-</section>
+    if (rollingChart) rollingChart.destroy();
+    rollingChart = makeChart(rollingCtx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Rolling Win %',
+          data: values,
+          borderColor: '#4ade80',
+          backgroundColor: 'rgba(74,222,128,.14)',
+          fill: true,
+          tension: .28,
+          pointRadius: 1.4,
+          pointHoverRadius: 3,
+        }],
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: {
+          y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } },
+        },
+      },
+    });
+  };
 
-{% if metrics.by_sport %}
-<section class="section-stack">
-  <div class="section-heading">
-    <div>
-      <span class="page-kicker">Sport Breakdown</span>
-      <h2 class="section-title">Where the tracked sample is strongest.</h2>
-    </div>
-  </div>
+  if (rollingCtx) {
+    renderRollingChart('match');
+    const byMatchBtn = document.getElementById('trendByMatch');
+    const byDayBtn = document.getElementById('trendByDay');
+    if (byMatchBtn) byMatchBtn.addEventListener('click', () => renderRollingChart('match'));
+    if (byDayBtn) byDayBtn.addEventListener('click', () => renderRollingChart('day'));
+  }
 
-  <div class="performance-grid">
-    {% for sport_key in ['soccer', 'nba'] %}
-      {% if metrics.by_sport.get(sport_key) %}
-      {% set sport_data = metrics.by_sport[sport_key] %}
-      {% set sport_tone = 'mid' %}
-      {% if sport_data.accuracy >= 55 %}
-        {% set sport_tone = 'good' %}
-      {% elif sport_data.accuracy < 45 %}
-        {% set sport_tone = 'risk' %}
-      {% endif %}
-      <a href="{{ url_for('model_performance', sport=sport_key) }}" class="performance-card">
-        <span class="metric-label">{{ 'Soccer' if sport_key == 'soccer' else 'NBA' }}</span>
-        <strong class="metric-value performance-tone-{{ sport_tone }}">{{ sport_data.accuracy }}%</strong>
-        <div class="metric-meta">{{ sport_data.count }} graded | {{ sport_data.wins }} wins | {{ sport_data.losses }} losses</div>
-      </a>
-      {% endif %}
-    {% endfor %}
-    <a href="{{ url_for('model_performance') }}" class="performance-card">
-      <span class="metric-label">All Sports</span>
-      <strong class="metric-value performance-tone-{{ overall_tone }}">{{ overall_accuracy ~ '%' if overall_accuracy is not none else '--' }}</strong>
-      <div class="metric-meta">{{ metrics.wins or 0 }} wins | {{ metrics.losses or 0 }} losses</div>
-    </a>
-  </div>
-</section>
-{% endif %}
+  const cumulativeCtx = document.getElementById('cumulativePerformanceChart');
+  if (cumulativeCtx) {
+    makeChart(cumulativeCtx, {
+      type: 'line',
+      data: {
+        labels: cumulativeSeries.map(p => p.label || p.match_index),
+        datasets: [{
+          label: 'Cumulative Points',
+          data: cumulativeSeries.map(p => p.cumulative_points || 0),
+          borderColor: '#f59e0b',
+          backgroundColor: 'rgba(245,158,11,.14)',
+          fill: true,
+          tension: .2,
+          pointRadius: 1.3,
+        }],
+      },
+      options: { maintainAspectRatio: false },
+    });
+  }
 
-{% if metrics.by_confidence %}
-<section class="section-stack">
-  <div class="section-heading">
-    <div>
-      <span class="page-kicker">Confidence Tiers</span>
-      <h2 class="section-title">How each confidence level is grading out.</h2>
-    </div>
-  </div>
+  const calibrationCtx = document.getElementById('confidenceCalibrationChart');
+  if (calibrationCtx) {
+    makeChart(calibrationCtx, {
+      type: 'bar',
+      data: {
+        labels: calibration.map(b => b.bucket),
+        datasets: [
+          {
+            label: 'Predicted Confidence',
+            data: calibration.map(b => b.avg_confidence || 0),
+            backgroundColor: 'rgba(59,130,246,.6)',
+            borderRadius: 6,
+          },
+          {
+            label: 'Actual Hit Rate',
+            data: calibration.map(b => b.actual_hit_rate || 0),
+            backgroundColor: 'rgba(34,197,94,.7)',
+            borderRadius: 6,
+          }
+        ],
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
+      },
+    });
+  }
 
-  <div class="performance-grid">
-    {% for conf_level in ['High', 'Medium', 'Low'] %}
-      {% if metrics.by_confidence.get(conf_level) %}
-      {% set cd = metrics.by_confidence[conf_level] %}
-      {% set conf_tone = 'mid' %}
-      {% if cd.accuracy >= 55 %}
-        {% set conf_tone = 'good' %}
-      {% elif cd.accuracy < 45 %}
-        {% set conf_tone = 'risk' %}
-      {% endif %}
-      <article class="performance-card">
-        <span class="confidence-badge conf-{{ conf_level | lower }}">{{ conf_level }}</span>
-        <strong class="metric-value performance-tone-{{ conf_tone }}">{{ cd.accuracy }}%</strong>
-        <div class="metric-meta">{{ cd.count }} graded | {{ cd.wins }} wins | {{ cd.losses }} losses</div>
-      </article>
-      {% endif %}
-    {% endfor %}
-  </div>
-</section>
-{% elif metrics.finalized_predictions == 0 %}
-<section class="section-stack">
-  <div class="empty-state">Awaiting finalized predictions. Confidence breakdowns will appear once results are resolved.</div>
-</section>
-{% endif %}
+  const strategyCtx = document.getElementById('strategyComparisonChart');
+  if (strategyCtx) {
+    makeChart(strategyCtx, {
+      type: 'bar',
+      data: {
+        labels: strategyRows.map(r => r.strategy),
+        datasets: [{
+          label: 'Accuracy %',
+          data: strategyRows.map(r => r.accuracy ?? null),
+          backgroundColor: ['#22c55e', '#3b82f6', '#14b8a6', '#f59e0b', '#a78bfa'],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
+      },
+    });
+  }
 
-{% if pending_predictions %}
-<section class="section-stack">
-  <div class="section-heading">
-    <div>
-      <span class="page-kicker">Pending Queue</span>
-      <h2 class="section-title">Predictions waiting for reconciliation.</h2>
-    </div>
-    <span class="filter-chip">Pending Sample</span>
-  </div>
+  const bySportCtx = document.getElementById('bySportChart');
+  if (bySportCtx) {
+    makeChart(bySportCtx, {
+      type: 'bar',
+      data: {
+        labels: bySport.map(r => (r.sport || '').toUpperCase()),
+        datasets: [{
+          data: bySport.map(r => r.accuracy ?? null),
+          backgroundColor: ['#06b6d4', '#f97316'],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
+      },
+    });
+  }
 
-  <div class="performance-table-wrap">
-    <table class="performance-table">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Sport</th>
-          <th>Matchup</th>
-          <th>Pick</th>
-          <th>Confidence</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for pred in pending_predictions %}
-        <tr>
-          <td>{{ pred.created_at[:10] if pred.created_at else '--' }}</td>
-          <td>{{ pred.sport }}</td>
-          <td>{{ pred.team_a }} vs {{ pred.team_b }}</td>
-          <td class="accent">{{ pred.predicted_winner }}</td>
-          <td><span class="confidence-badge conf-{{ pred.confidence | lower }}">{{ pred.confidence }}</span></td>
-          <td><span class="filter-chip">Pending</span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-{% endif %}
+  const byConfidenceCtx = document.getElementById('byConfidenceTierChart');
+  if (byConfidenceCtx) {
+    makeChart(byConfidenceCtx, {
+      type: 'bar',
+      data: {
+        labels: byConfidenceTier.map(r => r.tier),
+        datasets: [{
+          data: byConfidenceTier.map(r => r.accuracy ?? null),
+          backgroundColor: ['#22c55e', '#f59e0b', '#ef4444'],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
+      },
+    });
+  }
 
-<!-- ─── Results Tab ─────────────────────────────────────────────────────── -->
-{% elif active_tab == 'results' %}
-<section class="section-stack">
-  <div class="section-heading">
-    <div>
-      <span class="page-kicker">Filters</span>
-      <h2 class="section-title">Focus the results sample.</h2>
-    </div>
-    <div class="performance-toolbar">
-      <a href="{{ url_for('model_performance', tab='results') }}" class="filter-chip {% if not sport_filter %}source-api{% endif %}">All Sports</a>
-      <a href="{{ url_for('model_performance', tab='results', sport='soccer') }}" class="filter-chip {% if sport_filter == 'soccer' %}source-api{% endif %}">Soccer</a>
-      <a href="{{ url_for('model_performance', tab='results', sport='nba') }}" class="filter-chip {% if sport_filter == 'nba' %}source-api{% endif %}">NBA</a>
-    </div>
-  </div>
-</section>
-
-{% if completed_predictions %}
-<section class="section-stack">
-  <div class="section-heading">
-    <div>
-      <span class="page-kicker">Completed Results</span>
-      <h2 class="section-title">
-        Finalized prediction outcomes{% if sport_filter %} for {{ 'Soccer' if sport_filter == 'soccer' else 'NBA' }}{% endif %}.
-      </h2>
-    </div>
-  </div>
-
-  {% set ns = namespace(win=0, partial=0, loss=0) %}
-  {% for p in completed_predictions %}
-    {% if (p.overall_game_result or '') == 'Win' %}
-      {% set ns.win = ns.win + 1 %}
-    {% elif (p.overall_game_result or '') == 'Partial' %}
-      {% set ns.partial = ns.partial + 1 %}
-    {% else %}
-      {% set ns.loss = ns.loss + 1 %}
-    {% endif %}
-  {% endfor %}
-
-  <div class="performance-toolbar">
-    <span class="filter-chip">Completed: {{ completed_predictions | length }}</span>
-    <span class="source-badge source-api">Wins: {{ ns.win }}</span>
-    <span class="source-badge source-espn">Losses: {{ ns.loss }}</span>
-    {% if ns.partial %}<span class="filter-chip">Partials: {{ ns.partial }}</span>{% endif %}
-  </div>
-
-  <div class="results-grid">
-    {% for pred in completed_predictions %}
-    {% set overall = pred.overall_game_result or ('Win' if pred.winner_hit else 'Loss') %}
-    {% set winner_hit = pred.winner_hit is sameas(true) %}
-    {% set totals_hit = pred.totals_hit if pred.totals_hit is not none else pred.ou_hit %}
-    <article class="result-card performance-result-card">
-      <div class="result-row">
-        <div>
-          <div class="route-title">{{ pred.team_a }} vs {{ pred.team_b }}</div>
-          <div class="route-meta">{{ (pred.sport or 'sport') | upper }} · {{ pred.date or pred.game_date or 'Date pending' }}</div>
-        </div>
-        <span class="result-badge {% if overall == 'Win' %}source-api{% elif overall == 'Partial' %}filter-chip{% else %}source-espn{% endif %}">{{ overall }}</span>
-      </div>
-
-      <div class="performance-result-grid">
-        <div class="performance-result-stat">
-          <span class="performance-result-label">Final Score</span>
-          <strong class="performance-result-value">{{ pred.final_score_display or 'Pending' }}</strong>
-        </div>
-        <div class="performance-result-stat">
-          <span class="performance-result-label">Winner Pick</span>
-          <span class="result-badge {% if winner_hit %}source-api{% else %}source-espn{% endif %}">{{ 'Hit' if winner_hit else 'Miss' }}</span>
-        </div>
-        <div class="performance-result-stat">
-          <span class="performance-result-label">Totals Pick</span>
-          {% if totals_hit is sameas(true) %}
-          <span class="result-badge source-api">Hit</span>
-          {% elif totals_hit is sameas(false) %}
-          <span class="result-badge source-espn">Miss</span>
-          {% else %}
-          <span class="filter-chip">Not tracked</span>
-          {% endif %}
-        </div>
-        <div class="performance-result-stat">
-          <span class="performance-result-label">Confidence</span>
-          {% if pred.confidence %}
-          <span class="confidence-badge conf-{{ pred.confidence | lower }}">{{ pred.confidence }}</span>
-          {% else %}
-          <span class="filter-chip">Limited Data</span>
-          {% endif %}
-        </div>
-        <div class="performance-result-stat">
-          <span class="performance-result-label">Risk</span>
-          {% if pred.predicted_winner == 'avoid' %}
-          <span class="risk-badge is-warning">Avoid</span>
-          {% else %}
-          <span class="risk-badge {% if overall == 'Loss' %}is-danger{% elif overall == 'Partial' %}is-warning{% else %}is-info{% endif %}">{{ 'Elevated' if overall == 'Loss' else ('Watch' if overall == 'Partial' else 'Controlled') }}</span>
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="route-meta" style="margin-top:.85rem;">
-        Predicted lean: {{ pred.predicted_winner_normalized or pred.predicted_winner or '--' }} · Actual outcome: {{ pred.actual_winner or '--' }}
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-</section>
-{% else %}
-<section class="section-stack">
-  <article class="performance-empty">
-    <span class="page-kicker">No Results Yet</span>
-    <h2 class="section-title">No completed predictions to show.</h2>
-    <p>
-      Once game results are available and reconciled against your predictions, they will appear here.
-      Visit the fixture pages to generate more predictions.
-    </p>
-  </article>
-</section>
-{% endif %}
-
-{% endif %}
-
-{% endif %}
+  const outcomeCtx = document.getElementById('outcomeBreakdownChart');
+  if (outcomeCtx) {
+    makeChart(outcomeCtx, {
+      type: 'bar',
+      data: {
+        labels: byOutcome.map(r => r.label),
+        datasets: [{
+          data: byOutcome.map(r => r.accuracy ?? null),
+          backgroundColor: ['#22c55e', '#0ea5e9', '#a78bfa'],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
+      },
+    });
+  }
+})();
+</script>
 {% endblock %}

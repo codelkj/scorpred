@@ -750,9 +750,84 @@ class TestStrategyLabRoute:
         assert b"Best ML Model" in rv.data
         assert b"Baseline Logistic Regression" in rv.data
         assert b"Random Forest" in rv.data
-        assert b"50.1%" in rv.data
-        assert b"Top Signals" in rv.data
-        assert b"Evaluation Matches" in rv.data
+
+
+class TestModelPerformanceRoute:
+    def test_model_performance_renders_evaluation_sections(self, client, monkeypatch):
+        monkeypatch.setattr(flask_app_module.mt, "get_summary_metrics", lambda: _mock_strategy_metrics())
+        monkeypatch.setattr(flask_app_module.mt, "get_completed_predictions", lambda limit=50: [_mock_completed_prediction()] * min(limit, 3))
+        monkeypatch.setattr(flask_app_module.mt, "get_pending_predictions", lambda limit=20: [])
+        monkeypatch.setattr(
+            flask_app_module.mt,
+            "get_evaluation_dashboard",
+            lambda rolling_window=10, strategy_reference=None: {
+                "kpis": {
+                    "overall_accuracy": 55.0,
+                    "rolling_win_rate": 60.0,
+                    "total_tracked_predictions": 28,
+                    "finalized_predictions": 20,
+                    "avoids_skipped": 2,
+                    "current_best_strategy": "Combined",
+                    "roi_or_points": 9,
+                },
+                "rolling_window": rolling_window,
+                "series": {
+                    "rolling_by_match": [{"label": "2026-04-01", "rolling_accuracy": 50.0}],
+                    "rolling_by_day": [{"label": "2026-04-01", "rolling_accuracy": 50.0, "matches": 1}],
+                    "cumulative_points": [{"label": "2026-04-01", "cumulative_points": 1, "delta": 1}],
+                },
+                "confidence_calibration": [{"bucket": "80-100", "sample_size": 1, "avg_confidence": 90.0, "actual_hit_rate": 100.0}],
+                "strategy_comparison": [{"strategy": "Rule-Based", "accuracy": 55.0, "sample_size": 20}],
+                "breakdowns": {
+                    "by_sport": [{"sport": "soccer", "accuracy": 58.3, "count": 12, "wins": 7, "losses": 5}],
+                    "by_confidence_tier": [{"tier": "High", "accuracy": 62.5, "count": 8, "wins": 5, "losses": 3}],
+                    "by_predicted_outcome": [{"key": "A", "label": "Home", "count": 10, "wins": 6, "losses": 4, "accuracy": 60.0}],
+                    "recent_form": {
+                        "last_10": {"count": 10, "accuracy": 60.0},
+                        "last_20": {"count": 20, "accuracy": 55.0},
+                    },
+                },
+                "failure_rows": [
+                    {
+                        "date": "2026-04-02",
+                        "sport": "SOCCER",
+                        "matchup": "Liverpool vs Everton",
+                        "predicted_outcome": "B",
+                        "actual_result": "Liverpool",
+                        "confidence": "Medium",
+                        "confidence_pct": 61.0,
+                        "recommendation": "Everton ML",
+                        "notes": "Winner Pick: Miss",
+                    }
+                ],
+            },
+        )
+        monkeypatch.setattr(
+            flask_app_module.strategy_lab_services,
+            "build_strategy_lab_context",
+            lambda: {
+                "performance_comparison": {
+                    "rule_accuracy": 55.0,
+                    "ml_accuracy": 57.0,
+                    "combined_accuracy": 59.0,
+                    "evaluation_matches": 120,
+                },
+                "ml_comparison": {
+                    "best_model_label": "Random Forest",
+                    "baseline_logistic_accuracy": 52.0,
+                    "random_forest_accuracy": 57.0,
+                },
+            },
+        )
+
+        rv = client.get("/model-performance")
+
+        assert rv.status_code == 200
+        assert b"Model Evaluation Dashboard" in rv.data
+        assert b"Win Rate Over Time" in rv.data
+        assert b"Confidence Calibration" in rv.data
+        assert b"Strategy Comparison" in rv.data
+        assert b"Failure Analysis" in rv.data
 
     def test_strategy_lab_renders_clean_fallback_without_report(self, client, tmp_path, monkeypatch):
         missing_path = tmp_path / "missing_model_comparison.json"

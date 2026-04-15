@@ -293,3 +293,94 @@ def test_stale_completed_record_is_recomputed_on_load(tracking_file):
 
     reloaded = _load_predictions(tracking_file)
     assert reloaded[0]["is_correct"] is False
+
+
+def test_evaluation_dashboard_builds_series_breakdowns_and_failures(tracking_file):
+    # High-confidence home win (correct)
+    pred_a = mt.save_prediction(
+        sport="soccer",
+        team_a="Arsenal",
+        team_b="Chelsea",
+        predicted_winner="A",
+        win_probs={"a": 0.84, "draw": 0.08, "b": 0.08},
+        confidence="High",
+        game_date="2026-04-01",
+    )
+    mt.update_prediction_result(pred_a, "A", {"a": 2, "b": 1})
+
+    # Medium-confidence away win (incorrect)
+    pred_b = mt.save_prediction(
+        sport="soccer",
+        team_a="Liverpool",
+        team_b="Everton",
+        predicted_winner="B",
+        win_probs={"a": 0.25, "draw": 0.20, "b": 0.55},
+        confidence="Medium",
+        game_date="2026-04-02",
+    )
+    mt.update_prediction_result(pred_b, "A", {"a": 3, "b": 1})
+
+    # Draw call (correct)
+    pred_c = mt.save_prediction(
+        sport="soccer",
+        team_a="Tottenham",
+        team_b="West Ham",
+        predicted_winner="draw",
+        win_probs={"a": 0.31, "draw": 0.42, "b": 0.27},
+        confidence="Low",
+        game_date="2026-04-03",
+    )
+    mt.update_prediction_result(pred_c, "draw", {"a": 1, "b": 1})
+
+    # Pending avoid should count toward avoids_skipped but not finalized series
+    avoid_id = mt.save_prediction(
+        sport="soccer",
+        team_a="Leeds",
+        team_b="Brighton",
+        predicted_winner="avoid",
+        win_probs={"a": 0.34, "draw": 0.33, "b": 0.33},
+        confidence="Low",
+        game_date="2026-04-04",
+    )
+    assert avoid_id
+
+    evaluation = mt.get_evaluation_dashboard(
+        rolling_window=2,
+        strategy_reference={"ml_accuracy": 58.0, "combined_accuracy": 62.5, "evaluation_matches": 120},
+    )
+
+    assert evaluation["kpis"]["finalized_predictions"] == 3
+    assert evaluation["kpis"]["total_tracked_predictions"] == 4
+    assert evaluation["kpis"]["avoids_skipped"] == 1
+    assert evaluation["kpis"]["rolling_win_rate"] == 50.0
+
+    rolling_match = evaluation["series"]["rolling_by_match"]
+    cumulative = evaluation["series"]["cumulative_points"]
+    rolling_day = evaluation["series"]["rolling_by_day"]
+    assert len(rolling_match) == 3
+    assert len(cumulative) == 3
+    assert len(rolling_day) == 3
+    assert cumulative[-1]["cumulative_points"] == 1
+
+    calibration = {row["bucket"]: row for row in evaluation["confidence_calibration"]}
+    assert calibration["80-100"]["sample_size"] == 1
+    assert calibration["60-80"]["sample_size"] == 1
+    assert calibration["40-60"]["sample_size"] == 1
+    assert calibration["<40"]["sample_size"] == 0
+
+    breakdown = {row["key"]: row for row in evaluation["breakdowns"]["by_predicted_outcome"]}
+    assert breakdown["A"]["count"] == 1
+    assert breakdown["B"]["count"] == 1
+    assert breakdown["draw"]["count"] == 1
+    assert breakdown["A"]["accuracy"] == 100.0
+    assert breakdown["B"]["accuracy"] == 0.0
+
+    strategies = {row["strategy"]: row for row in evaluation["strategy_comparison"]}
+    assert strategies["ML"]["accuracy"] == 58.0
+    assert strategies["Combined"]["accuracy"] == 62.5
+    assert strategies["Rule-Based"]["sample_size"] == 3
+
+    failures = evaluation["failure_rows"]
+    assert failures
+    assert failures[0]["matchup"] == "Liverpool vs Everton"
+    assert failures[0]["recommendation"] == "Everton ML"

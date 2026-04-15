@@ -13,9 +13,10 @@ from datetime import UTC, datetime
 from typing import Any
 import uuid
 import re
+from runtime_paths import prediction_tracking_path
 from utils.parsing import normalize_date
 
-_TRACKING_FILE = os.path.join(os.path.dirname(__file__), "cache", "prediction_tracking.json")
+_TRACKING_FILE = str(prediction_tracking_path())
 
 
 def _utc_now() -> datetime:
@@ -116,6 +117,9 @@ def _canonical_outcome(value: Any, team_a: str, team_b: str) -> str:
     }
     if text in draw_aliases:
         return "draw"
+
+    if text in {"avoid", "skip", "pass", "no bet", "nobet"}:
+        return "avoid"
 
     if text in {"a", "home", "home win", "homewin", "1", "team a", "teama"}:
         return "A"
@@ -565,3 +569,392 @@ def get_completed_predictions(limit: int = 50) -> list[dict]:
         _apply_grading(pred)
     
     return completed
+
+
+def _prediction_timestamp(pred: dict[str, Any]) -> datetime:
+    """Best-effort timestamp parser for stable chronological ordering."""
+    for key in ("updated_at", "created_at", "game_date", "date"):
+        raw = str(pred.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            if raw.endswith("Z"):
+                raw = raw.replace("Z", "+00:00")
+            return datetime.fromisoformat(raw)
+        except Exception:
+            continue
+    return datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _is_win(pred: dict[str, Any]) -> bool:
+    value = pred.get("is_correct")
+    if value is not None:
+        return bool(value)
+    return bool(pred.get("winner_hit"))
+
+
+def _predicted_outcome(pred: dict[str, Any]) -> str:
+    outcome = _canonical_outcome(
+        pred.get("predicted_winner_normalized") or pred.get("predicted_winner"),
+        pred.get("team_a") or "",
+        pred.get("team_b") or "",
+    )
+    if outcome:
+        return outcome
+    return ""
+
+
+def _confidence_percent(pred: dict[str, Any]) -> float:
+    probs = [pred.get("prob_a"), pred.get("prob_b"), pred.get("prob_draw")]
+    numeric_probs = []
+    for value in probs:
+        if isinstance(value, (int, float)):
+            numeric_probs.append(float(value))
+    if numeric_probs:
+        top_prob = max(numeric_probs)
+        if top_prob <= 1.0:
+            top_prob *= 100.0
+        return max(0.0, min(100.0, round(top_prob, 1)))
+
+    tier = str(pred.get("confidence") or "").lower()
+    mapped = {"high": 85.0, "medium": 70.0, "low": 55.0}
+    return mapped.get(tier, 50.0)
+
+
+def _confidence_bucket(conf_pct: float) -> str:
+    if conf_pct >= 80.0:
+        return "80-100"
+    if conf_pct >= 60.0:
+        return "60-80"
+    if conf_pct >= 40.0:
+        return "40-60"
+    return "<40"
+
+
+def _finalized_predictions(predictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    finalized = [
+        pred for pred in predictions
+        if pred.get("status") == "completed" and pred.get("is_correct") is not None
+    ]
+    finalized.sort(key=_prediction_timestamp)
+    return finalized
+
+
+def _build_rolling_accuracy_series(finalized: list[dict[str, Any]], rolling_window: int) -> list[dict[str, Any]]:
+    window_size = max(1, int(rolling_window))
+    rolling_points: list[dict[str, Any]] = []
+    recent_binary: list[int] = []
+
+    for idx, pred in enumerate(finalized, start=1):
+        is_win = _is_win(pred)
+        recent_binary.append(1 if is_win else 0)
+        window = recent_binary[max(0, len(recent_binary) - window_size) :]
+        rolling_acc = round((sum(window) / len(window)) * 100.0, 1) if window else 0.0
+
+        label = pred.get("date") or pred.get("game_date") or pred.get("updated_at") or ""
+        rolling_points.append(
+            {
+                "match_index": idx,
+                "label": str(label)[:10] if label else f"#{idx}",
+                "rolling_accuracy": rolling_acc,
+                "is_win": is_win,
+            }
+        )
+
+    return rolling_points
+
+
+def _build_daily_rolling_accuracy_series(finalized: list[dict[str, Any]], rolling_window: int) -> list[dict[str, Any]]:
+    window_size = max(1, int(rolling_window))
+    daily_buckets: dict[str, dict[str, int]] = {}
+    for pred in finalized:
+        day = normalize_date(pred.get("date") or pred.get("game_date")) or "unknown"
+        bucket = daily_buckets.setdefault(day, {"wins": 0, "count": 0})
+        bucket["count"] += 1
+        bucket["wins"] += 1 if _is_win(pred) else 0
+
+    daily_points: list[dict[str, Any]] = []
+    rolling_daily: list[float] = []
+    for idx, day in enumerate(sorted(daily_buckets.keys()), start=1):
+        bucket = daily_buckets[day]
+        day_acc = round((bucket["wins"] / bucket["count"]) * 100.0, 1) if bucket["count"] else 0.0
+        rolling_daily.append(day_acc)
+        day_window = rolling_daily[max(0, len(rolling_daily) - window_size) :]
+        daily_points.append(
+            {
+                "day_index": idx,
+                "label": day,
+                "daily_accuracy": day_acc,
+                "rolling_accuracy": round(sum(day_window) / len(day_window), 1) if day_window else 0.0,
+                "matches": bucket["count"],
+            }
+        )
+
+    return daily_points
+
+
+def _build_cumulative_performance_series(finalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cumulative_points: list[dict[str, Any]] = []
+    cumulative_value = 0
+
+    for idx, pred in enumerate(finalized, start=1):
+        is_win = _is_win(pred)
+        outcome = _predicted_outcome(pred)
+        delta = 0 if outcome == "avoid" else (1 if is_win else -1)
+        cumulative_value += delta
+
+        label = pred.get("date") or pred.get("game_date") or pred.get("updated_at") or ""
+        cumulative_points.append(
+            {
+                "match_index": idx,
+                "label": str(label)[:10] if label else f"#{idx}",
+                "cumulative_points": cumulative_value,
+                "delta": delta,
+            }
+        )
+
+    return cumulative_points
+
+
+def _build_confidence_bucket_stats(finalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    calibration_counts = {
+        "80-100": {"count": 0, "wins": 0},
+        "60-80": {"count": 0, "wins": 0},
+        "40-60": {"count": 0, "wins": 0},
+        "<40": {"count": 0, "wins": 0},
+    }
+    for pred in finalized:
+        conf_pct = _confidence_percent(pred)
+        bucket_key = _confidence_bucket(conf_pct)
+        calibration_counts[bucket_key]["count"] += 1
+        calibration_counts[bucket_key]["wins"] += 1 if _is_win(pred) else 0
+
+    confidence_calibration = []
+    for bucket_key in ("80-100", "60-80", "40-60", "<40"):
+        bucket = calibration_counts[bucket_key]
+        hit_rate = round((bucket["wins"] / bucket["count"]) * 100.0, 1) if bucket["count"] else 0.0
+        confidence_calibration.append(
+            {
+                "bucket": bucket_key,
+                "sample_size": bucket["count"],
+                "avg_confidence": {
+                    "80-100": 90.0,
+                    "60-80": 70.0,
+                    "40-60": 50.0,
+                    "<40": 30.0,
+                }[bucket_key],
+                "actual_hit_rate": hit_rate,
+            }
+        )
+
+    return confidence_calibration
+
+
+def _build_outcome_breakdown(finalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    outcome_breakdown = []
+    for key, label in (("A", "Home"), ("B", "Away"), ("draw", "Draw")):
+        subset = [pred for pred in finalized if _predicted_outcome(pred) == key]
+        wins = sum(1 for pred in subset if _is_win(pred))
+        count = len(subset)
+        outcome_breakdown.append(
+            {
+                "key": key,
+                "label": label,
+                "count": count,
+                "wins": wins,
+                "losses": count - wins,
+                "accuracy": round((wins / count) * 100.0, 1) if count else None,
+            }
+        )
+    return outcome_breakdown
+
+
+def _build_recent_form(finalized: list[dict[str, Any]]) -> dict[str, dict[str, int | float | None]]:
+    recent_10 = finalized[-10:]
+    recent_20 = finalized[-20:]
+    return {
+        "last_10": {
+            "count": len(recent_10),
+            "accuracy": round((sum(1 for pred in recent_10 if _is_win(pred)) / len(recent_10)) * 100.0, 1)
+            if recent_10 else None,
+        },
+        "last_20": {
+            "count": len(recent_20),
+            "accuracy": round((sum(1 for pred in recent_20 if _is_win(pred)) / len(recent_20)) * 100.0, 1)
+            if recent_20 else None,
+        },
+    }
+
+
+def _recommendation_label(pred: dict[str, Any]) -> str:
+    existing = str(pred.get("play_type") or pred.get("recommendation") or "").strip()
+    if existing:
+        return existing
+
+    outcome = _predicted_outcome(pred)
+    if outcome == "A":
+        return f"{pred.get('team_a') or 'Team A'} ML"
+    if outcome == "B":
+        return f"{pred.get('team_b') or 'Team B'} ML"
+    if outcome == "draw":
+        return "Draw"
+    if outcome == "avoid":
+        return "Avoid"
+    return "--"
+
+
+def _build_failure_rows(finalized: list[dict[str, Any]], failure_limit: int) -> list[dict[str, Any]]:
+    failures = [pred for pred in finalized if not _is_win(pred)]
+    failures.sort(key=_prediction_timestamp, reverse=True)
+    failure_rows = []
+    for pred in failures[: max(1, failure_limit)]:
+        failure_rows.append(
+            {
+                "date": normalize_date(pred.get("date") or pred.get("game_date")) or (str(pred.get("updated_at") or "")[:10]),
+                "sport": str(pred.get("sport") or "").upper(),
+                "matchup": f"{pred.get('team_a', 'Team A')} vs {pred.get('team_b', 'Team B')}",
+                "predicted_outcome": pred.get("predicted_winner") or _predicted_outcome(pred) or "--",
+                "actual_result": pred.get("actual_winner") or pred.get("actual_result") or pred.get("actual_result_normalized") or "--",
+                "confidence": pred.get("confidence") or "Low",
+                "confidence_pct": _confidence_percent(pred),
+                "recommendation": _recommendation_label(pred),
+                "notes": pred.get("reasoning") or pred.get("winner_display") or "",
+            }
+        )
+    return failure_rows
+
+
+def _build_strategy_comparison(
+    metrics: dict[str, Any],
+    finalized: list[dict[str, Any]],
+    all_predictions: list[dict[str, Any]],
+    strategy_reference: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tracker_accuracy = metrics.get("overall_accuracy")
+    edge_filtered_subset = [
+        pred for pred in finalized
+        if _predicted_outcome(pred) != "avoid" and _confidence_percent(pred) >= 60.0
+    ]
+    edge_filtered_accuracy = (
+        round((sum(1 for pred in edge_filtered_subset if _is_win(pred)) / len(edge_filtered_subset)) * 100.0, 1)
+        if edge_filtered_subset else None
+    )
+    avoid_aware_score = (
+        round(
+            ((sum(1 for pred in all_predictions if _predicted_outcome(pred) == "avoid") + metrics.get("wins", 0))
+             / max(1, len(all_predictions))) * 100.0,
+            1,
+        )
+        if all_predictions else None
+    )
+
+    ml_accuracy = strategy_reference.get("ml_accuracy")
+    combined_accuracy = strategy_reference.get("combined_accuracy")
+
+    return [
+        {"strategy": "Rule-Based", "accuracy": tracker_accuracy, "sample_size": metrics.get("finalized_predictions", 0)},
+        {"strategy": "ML", "accuracy": ml_accuracy, "sample_size": strategy_reference.get("evaluation_matches")},
+        {"strategy": "Combined", "accuracy": combined_accuracy, "sample_size": strategy_reference.get("evaluation_matches")},
+        {"strategy": "Edge-Filtered", "accuracy": edge_filtered_accuracy, "sample_size": len(edge_filtered_subset)},
+        {"strategy": "Avoid-Aware", "accuracy": avoid_aware_score, "sample_size": len(all_predictions)},
+    ]
+
+
+def get_evaluation_dashboard(
+    rolling_window: int = 10,
+    failure_limit: int = 12,
+    strategy_reference: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a full evaluation payload for the model performance dashboard."""
+    all_predictions = _load_predictions()
+    metrics = get_summary_metrics()
+    finalized = _finalized_predictions(all_predictions)
+
+    avoids_skipped = sum(1 for pred in all_predictions if _predicted_outcome(pred) == "avoid")
+
+    rolling_points = _build_rolling_accuracy_series(finalized, rolling_window)
+    daily_points = _build_daily_rolling_accuracy_series(finalized, rolling_window)
+    cumulative_points = _build_cumulative_performance_series(finalized)
+    confidence_calibration = _build_confidence_bucket_stats(finalized)
+    outcome_breakdown = _build_outcome_breakdown(finalized)
+    recent_form = _build_recent_form(finalized)
+    failure_rows = _build_failure_rows(finalized, failure_limit)
+
+    strategy_reference = strategy_reference or {}
+    strategy_comparison = _build_strategy_comparison(
+        metrics,
+        finalized,
+        all_predictions,
+        strategy_reference,
+    )
+    tracker_accuracy = metrics.get("overall_accuracy")
+
+    valid_strategies = [item for item in strategy_comparison if isinstance(item.get("accuracy"), (int, float))]
+    best_strategy = max(valid_strategies, key=lambda item: item.get("accuracy", -1))["strategy"] if valid_strategies else "Awaiting sample"
+
+    roi_fields = ["profit", "roi", "points_won"]
+    roi_values = [
+        float(pred.get(field))
+        for pred in finalized
+        for field in roi_fields
+        if isinstance(pred.get(field), (int, float))
+    ]
+    cumulative_value = cumulative_points[-1]["cumulative_points"] if cumulative_points else 0
+    roi_or_points = round(sum(roi_values), 2) if roi_values else cumulative_value
+
+    kpis = {
+        "overall_accuracy": tracker_accuracy,
+        "rolling_win_rate": rolling_points[-1]["rolling_accuracy"] if rolling_points else None,
+        "total_tracked_predictions": metrics.get("total_predictions", 0),
+        "finalized_predictions": metrics.get("finalized_predictions", 0),
+        "avoids_skipped": avoids_skipped,
+        "current_best_strategy": best_strategy,
+        "roi_or_points": roi_or_points,
+    }
+
+    by_confidence_tier = []
+    for tier in ("High", "Medium", "Low"):
+        row = (metrics.get("by_confidence") or {}).get(tier)
+        if row:
+            by_confidence_tier.append(
+                {
+                    "tier": tier,
+                    "accuracy": row.get("accuracy"),
+                    "count": row.get("count", 0),
+                    "wins": row.get("wins", 0),
+                    "losses": row.get("losses", 0),
+                }
+            )
+
+    by_sport = []
+    for sport_key in ("soccer", "nba"):
+        row = (metrics.get("by_sport") or {}).get(sport_key)
+        if row:
+            by_sport.append(
+                {
+                    "sport": sport_key,
+                    "accuracy": row.get("accuracy"),
+                    "count": row.get("count", 0),
+                    "wins": row.get("wins", 0),
+                    "losses": row.get("losses", 0),
+                }
+            )
+
+    return {
+        "kpis": kpis,
+        "rolling_window": max(1, int(rolling_window)),
+        "series": {
+            "rolling_by_match": rolling_points,
+            "rolling_by_day": daily_points,
+            "cumulative_points": cumulative_points,
+        },
+        "confidence_calibration": confidence_calibration,
+        "strategy_comparison": strategy_comparison,
+        "breakdowns": {
+            "by_sport": by_sport,
+            "by_confidence_tier": by_confidence_tier,
+            "by_predicted_outcome": outcome_breakdown,
+            "recent_form": recent_form,
+        },
+        "failure_rows": failure_rows,
+    }
