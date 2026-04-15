@@ -6,8 +6,11 @@ from pathlib import Path
 from typing import Any
 
 import generate_ml_report as report_generator
+import ml_service
 import ml_pipeline as mlp
 import model_tracker as mt
+from runtime_paths import clean_soccer_dataset_path, clean_soccer_model_path, ml_report_path
+from train_model import FEATURE_COLUMNS
 
 _EMPTY_METRICS = {
     "total_predictions": 0,
@@ -26,15 +29,90 @@ _SPORT_LABELS = {
 }
 
 _DEFAULT_DATASET = Path(__file__).resolve().parent.parent / "data" / "historical_matches.csv"
+_CLEAN_DATASET = clean_soccer_dataset_path()
+_DEFAULT_MATCH_DATASET = clean_soccer_dataset_path()
 _DEFAULT_FEATURES = "form,goals_scored,goals_conceded,goal_diff"
 _DEFAULT_LABEL = "result"
 _DEFAULT_DATE_KEY = "date"
 
 
+def _as_percent(value: Any) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    numeric = float(value)
+    if 0.0 <= numeric <= 1.0:
+        numeric *= 100.0
+    return round(numeric, 1)
+
+
+def _is_report_stale(report_path: Path) -> bool:
+    payload = mlp.load_comparison_report(report_path)
+    if not payload:
+        return True
+
+    workflow = payload.get("workflow") or {}
+    report_features = workflow.get("feature_keys") or []
+    if report_features != FEATURE_COLUMNS:
+        return True
+
+    clean_dataset = Path(_CLEAN_DATASET)
+    expected_model = clean_soccer_model_path()
+    expected_dataset = clean_dataset if clean_dataset.exists() else Path(_DEFAULT_DATASET)
+
+    workflow_dataset = Path(str(workflow.get("dataset_path") or "")) if workflow.get("dataset_path") else None
+    workflow_model = Path(str(workflow.get("model_path") or "")) if workflow.get("model_path") else None
+
+    if clean_dataset.exists() and expected_model.exists():
+        if workflow_dataset != clean_dataset or workflow_model != expected_model:
+            return True
+
+    if not report_path.exists():
+        return True
+
+    report_mtime = report_path.stat().st_mtime
+    newest_sources = [expected_dataset.stat().st_mtime]
+    if expected_model.exists():
+        newest_sources.append(expected_model.stat().st_mtime)
+    newest_input = max(newest_sources)
+    return report_mtime < newest_input
+
+
 def _ensure_ml_report_exists(ml_module: Any) -> bool:
     report_path = Path(ml_module.DEFAULT_REPORT_PATH)
+    canonical_report_path = Path(ml_report_path())
+
+    if report_path != canonical_report_path:
+        if report_path.exists():
+            return True
+        if not _DEFAULT_DATASET.exists():
+            return False
+        try:
+            report_generator.generate_report(
+                input_path=_DEFAULT_DATASET,
+                features=_DEFAULT_FEATURES,
+                label=_DEFAULT_LABEL,
+                date_key=_DEFAULT_DATE_KEY,
+                output=report_path,
+            )
+        except Exception:
+            return False
+        return report_path.exists()
+
     if report_path.exists():
-        return True
+        if not _is_report_stale(report_path):
+            return True
+
+    if _CLEAN_DATASET.exists() and clean_soccer_model_path().exists():
+        try:
+            report_generator.generate_clean_soccer_report(
+                dataset_path=_CLEAN_DATASET,
+                model_path=clean_soccer_model_path(),
+                output=report_path,
+            )
+            return report_path.exists()
+        except Exception:
+            pass
+
     if not _DEFAULT_DATASET.exists():
         return False
 
@@ -151,6 +229,7 @@ def _key_insights(
     sport_rows: list[dict[str, Any]],
     confidence_rows: list[dict[str, Any]],
     ml_summary: dict[str, Any],
+    performance_comparison: dict[str, Any],
 ) -> list[str]:
     insights: list[str] = []
     overall_accuracy = metrics.get("overall_accuracy")
@@ -185,7 +264,13 @@ def _key_insights(
             "Confidence-level segmentation is available, but it still needs more finalized outcomes to become informative."
         )
 
-    if ml_summary.get("available"):
+    combined_accuracy = performance_comparison.get("combined_accuracy")
+    ml_accuracy = performance_comparison.get("ml_accuracy")
+    if combined_accuracy is not None and ml_accuracy is not None:
+        insights.append(
+            f"Combined rule + ML signal currently evaluates at {combined_accuracy:.1f}% vs standalone ML at {ml_accuracy:.1f}%."
+        )
+    elif ml_summary.get("available"):
         insights.append(ml_summary.get("summary"))
     else:
         insights.append(
@@ -195,10 +280,52 @@ def _key_insights(
     return insights[:4]
 
 
+def _performance_comparison(metrics: dict[str, Any]) -> dict[str, Any]:
+    report = mlp.load_comparison_report()
+    if report:
+        workflow = report.get("workflow") or {}
+        performance = report.get("performance") or {}
+        saved_ml_accuracy = _as_percent(performance.get("ml_accuracy"))
+        saved_combined_accuracy = _as_percent(performance.get("combined_accuracy"))
+        saved_rule_accuracy = _as_percent(performance.get("rule_accuracy"))
+        if saved_ml_accuracy is not None and saved_combined_accuracy is not None:
+            rule_accuracy = metrics.get("overall_accuracy")
+            if rule_accuracy is None:
+                rule_accuracy = saved_rule_accuracy
+
+            evaluation_matches = performance.get("evaluation_matches")
+            if not isinstance(evaluation_matches, int):
+                evaluation_matches = workflow.get("test_size") or 0
+
+            return {
+                "available": True,
+                "message": None,
+                "rule_accuracy": rule_accuracy,
+                "ml_accuracy": saved_ml_accuracy,
+                "combined_accuracy": saved_combined_accuracy,
+                "evaluation_matches": evaluation_matches,
+            }
+
+    comparison = ml_service.evaluate_model_comparison(dataset_path=_DEFAULT_MATCH_DATASET)
+    rule_accuracy = metrics.get("overall_accuracy")
+    if rule_accuracy is None:
+        rule_accuracy = comparison.get("rule_accuracy")
+
+    return {
+        "available": bool(comparison.get("available")),
+        "message": comparison.get("message"),
+        "rule_accuracy": rule_accuracy,
+        "ml_accuracy": comparison.get("ml_accuracy"),
+        "combined_accuracy": comparison.get("combined_accuracy"),
+        "evaluation_matches": comparison.get("evaluation_matches") or 0,
+    }
+
+
 def empty_strategy_lab_context() -> dict[str, Any]:
     """Return a safe empty Strategy Lab context."""
     metrics = dict(_EMPTY_METRICS)
     ml_summary = mlp.build_strategy_lab_summary(report={})
+    comparison = _performance_comparison(metrics)
     return {
         "metrics": metrics,
         "hero_cards": _hero_cards(metrics, []),
@@ -214,8 +341,9 @@ def empty_strategy_lab_context() -> dict[str, Any]:
         },
         "sport_breakdown": [],
         "confidence_breakdown": [],
-        "key_insights": _key_insights(metrics, [], [], ml_summary),
+        "key_insights": _key_insights(metrics, [], [], ml_summary, comparison),
         "ml_comparison": ml_summary,
+        "performance_comparison": comparison,
         "recent_completed_predictions": [],
     }
 
@@ -224,9 +352,26 @@ def _ml_vs_rule_insights(
     metrics: dict[str, Any],
     confidence_rows: list[dict[str, Any]],
     ml_summary: dict[str, Any],
+    performance_comparison: dict[str, Any],
 ) -> list[str]:
     insights: list[str] = []
     live_accuracy = metrics.get("overall_accuracy")
+    ml_accuracy = performance_comparison.get("ml_accuracy")
+    combined_accuracy = performance_comparison.get("combined_accuracy")
+
+    if ml_accuracy is not None and combined_accuracy is not None:
+        if combined_accuracy > ml_accuracy:
+            insights.append(
+                f"Combined rule + ML signal is outperforming standalone ML ({combined_accuracy:.1f}% vs {ml_accuracy:.1f}%)."
+            )
+        elif combined_accuracy < ml_accuracy:
+            insights.append(
+                f"Standalone ML is currently stronger than the combined signal ({ml_accuracy:.1f}% vs {combined_accuracy:.1f}%)."
+            )
+        else:
+            insights.append(
+                f"Combined and standalone ML are currently tied at {combined_accuracy:.1f}%."
+            )
 
     if ml_summary.get("available") and live_accuracy is not None:
         rf_accuracy = ml_summary.get("random_forest_accuracy")
@@ -278,6 +423,7 @@ def build_strategy_lab_context(
         ["High", "Medium", "Low"],
     )
     _ensure_ml_report_exists(ml_module)
+    comparison = _performance_comparison(metrics)
     ml_summary = ml_module.build_strategy_lab_summary()
 
     pending_count = max(
@@ -302,9 +448,10 @@ def build_strategy_lab_context(
         },
         "sport_breakdown": sport_rows,
         "confidence_breakdown": confidence_rows,
-        "key_insights": _key_insights(metrics, sport_rows, confidence_rows, ml_summary),
+        "key_insights": _key_insights(metrics, sport_rows, confidence_rows, ml_summary, comparison),
         "ml_comparison": ml_summary,
-        "ml_rule_insights": _ml_vs_rule_insights(metrics, confidence_rows, ml_summary),
+        "ml_rule_insights": _ml_vs_rule_insights(metrics, confidence_rows, ml_summary, comparison),
+        "performance_comparison": comparison,
         "recent_completed_predictions": completed_predictions,
         "avoid_impact_predictions": avoid_impact_predictions,
     }
