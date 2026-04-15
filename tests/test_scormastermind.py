@@ -59,3 +59,22 @@ def test_strong_matchup_keeps_real_pick():
     assert ui["best_pick"]["prediction"] == "Chelsea Win"
     assert ui["best_pick"]["tracking_team"] == "A"
     assert ui["win_probabilities"]["a"] >= 70.0
+
+
+def test_supported_side_edge_beats_default_draw():
+    context = _context_with_rule_probs(38.0, 34.0, 28.0, data_quality="Strong")
+    context["form_a"] = [{"result": "W"}] * 4 + [{"result": "D"}]
+    context["form_b"] = [{"result": "L"}] * 3 + [{"result": "D"}] * 2
+    context["ml_outputs"] = {
+        "prob_a": 0.61,
+        "prob_draw": 0.16,
+        "prob_b": 0.23,
+    }
+
+    result = sm.predict_match(context)
+    ui = result["ui_prediction"]
+
+    assert ui["best_pick"]["prediction"] == "Chelsea Win"
+    assert ui["best_pick"]["team"] == "A"
+    assert ui["recommended_play"] != "Avoid"
+    assert ui["win_probabilities"]["a"] > ui["win_probabilities"]["draw"]
