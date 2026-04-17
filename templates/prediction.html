@@ -162,7 +162,14 @@
         </div>
         {% endfor %}
       </div>
-      <div class="sp-slip__footer">Validate injuries, lineups, and market context before acting.</div>
+      <div class="sp-slip__footer">
+        Validate injuries, lineups, and market context before acting.<br>
+        {% if is_guest %}
+          <span class="sp-badge sp-badge--muted" style="margin-top:.5rem;display:inline-block">Guest Mode: <a href="/login">Login to save your picks</a></span>
+        {% else %}
+          <span class="sp-badge sp-badge--strong" style="margin-top:.5rem;display:inline-block">Logged in: picks can be saved</span>
+        {% endif %}
+      </div>
     </div>
     <div style="display:flex; gap:.5rem; margin-top:.75rem">
       <a href="/" class="btn btn-secondary btn-sm">New Matchup</a>

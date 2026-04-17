@@ -12,7 +12,7 @@ try:
 except Exception:  # pragma: no cover
     def load_dotenv(*_args, **_kwargs):
         return False
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import api_client as ac
@@ -21,6 +21,7 @@ import props_engine as pe
 import scorpred_engine as se
 import scormastermind as sm
 import model_tracker as mt
+import user_auth
 import odds_fetcher
 import result_updater as ru
 from runtime_paths import ensure_runtime_dirs
@@ -53,12 +54,24 @@ except Exception:  # pragma: no cover
 load_dotenv()
 ensure_runtime_dirs()
 
+
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 configure_security(app, os.getenv("SECRET_KEY", "").strip())
 
 # ── Blueprints ─────────────────────────────────────────────────────────────────
 app.register_blueprint(nba_bp)
+app.register_blueprint(user_auth.user_auth_bp)
+@app.before_request
+def inject_user():
+    g.current_user = user_auth.current_user()
+
+@app.context_processor
+def inject_auth_context():
+    return {
+        "current_user": user_auth.current_user(),
+        "is_guest": user_auth.current_user() is None,
+    }
 
 LEAGUE = DEFAULT_LEAGUE_ID
 SEASON = CURRENT_SEASON

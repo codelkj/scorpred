@@ -10,9 +10,17 @@ services:
         value: "3.12.3"
       - key: SECRET_KEY
         generateValue: true
+      - key: SCORPRED_DATA_ROOT
+        value: /persistent
       - key: API_FOOTBALL_KEY
+        sync: false
+      - key: NBA_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ODDS_API_KEY
         sync: false
+    disk:
+      name: persistent
+      mountPath: /persistent
+      sizeGB: 1

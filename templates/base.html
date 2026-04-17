@@ -39,7 +39,12 @@
         <a href="/strategy-lab" class="{% if request.path == '/strategy-lab' %}active{% endif %}"><span class="sp-nav__icon">▲</span> Strategy Lab</a>
       </nav>
       <div class="sp-sidebar__footer">
-        Explainable analytics &amp; decision signals.
+        Explainable analytics &amp; decision signals.<br>
+        {% if is_guest %}
+          <span class="sp-badge sp-badge--muted" style="margin-top:.5rem;display:inline-block">Guest Mode</span>
+        {% else %}
+          <span class="sp-badge sp-badge--strong" style="margin-top:.5rem;display:inline-block">Logged in</span>
+        {% endif %}
       </div>
     </aside>
 
@@ -50,6 +55,16 @@
         <div class="sp-topbar__pills">
           {% if data_source %}<span class="sp-topbar__pill">{{ data_source }}</span>{% endif %}
           {% if last_updated %}<span class="sp-topbar__pill">{{ last_updated }}</span>{% endif %}
+        </div>
+        <div class="sp-topbar__auth">
+          {% if is_guest %}
+            <span class="sp-badge sp-badge--muted">Guest</span>
+            <a href="/login" class="btn btn-link btn-sm">Login</a>
+            <a href="/signup" class="btn btn-link btn-sm">Sign up</a>
+          {% else %}
+            <span class="sp-badge sp-badge--strong">{{ current_user.email }}</span>
+            <a href="/logout" class="btn btn-link btn-sm">Logout</a>
+          {% endif %}
         </div>
       </header>
 

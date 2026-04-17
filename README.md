@@ -180,21 +180,26 @@ tracked outcomes and writes it to `cache/ml/prediction_policy.json`.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-## Local Runtime Files
 
-The app creates these folders automatically when it starts:
+## Local & Persistent Runtime Files
 
-- `cache/football`
-- `cache/props`
-- `cache/nba`
-- `cache/nba_public`
-- `cache/ml`
+All tracked predictions, results, strategy artifacts, mistake analysis, and user accounts are stored under the runtime root.
 
-The main generated runtime files are:
+By default, this is `<repo>/cache/` for local/dev. For production (Render, etc), set `SCORPRED_DATA_ROOT` to a persistent disk path (e.g. `/persistent`).
 
-- `cache/prediction_tracking.json`
+The app creates these folders automatically:
+
+- `cache/football`, `cache/props`, `cache/nba`, `cache/nba_public`, `cache/ml`
+- `user_data/` (for user accounts and saved picks)
+- `data/processed`, `data/models`, `data/backtests`, `data/analysis`, `data/logs`
+
+Main generated files:
+- `cache/prediction_tracking.json` (system-level tracked predictions)
 - `cache/prediction_history.json`
 - `cache/ml/model_comparison.json`
+- `data/analysis/mistake_report.json`
+- `data/backtests/walk_forward_report.json`
+- `user_data/*.json` (per-user data)
 
 ## Testing + CI
 
@@ -211,6 +216,7 @@ The main generated runtime files are:
 - Strategy conclusions are only as strong as the tracked sample size
 - This project is an engineering portfolio piece and local decision-support tool, not financial advice
 
+
 ## Deploy in One Command
 
 The app ships a `Procfile` and is ready for [Render](https://render.com), [Railway](https://railway.app), and [Fly.io](https://fly.io) with no extra configuration files beyond what is already in the repo.
@@ -220,9 +226,9 @@ The app ships a `Procfile` and is ready for [Render](https://render.com), [Railw
 1. Push the repo to GitHub.
 2. In Render → **New Web Service** → connect the repo.
 3. Render auto-detects the `Procfile`. Confirm the start command is:
-   ```
-   gunicorn app:app --workers 2 --threads 2 --timeout 60 --bind 0.0.0.0:$PORT
-   ```
+    ```
+    gunicorn app:app --workers 2 --threads 2 --timeout 60 --bind 0.0.0.0:$PORT
+    ```
 4. Set environment variables under **Environment → Secret Files or Env Vars**:
 
 | Variable | Required | Value / notes |
@@ -231,6 +237,7 @@ The app ships a `Procfile` and is ready for [Render](https://render.com), [Railw
 | `API_FOOTBALL_KEY` | Yes for soccer | RapidAPI key for api-football-v1 |
 | `NBA_API_KEY` | Yes for NBA | RapidAPI key for nba-api-free-data |
 | `ANTHROPIC_API_KEY` | Optional | Enables Claude-backed chat; falls back gracefully without it |
+| `SCORPRED_DATA_ROOT` | Yes for persistence | Set to `/persistent` or your Render disk mount path |
 | `FLASK_DEBUG` | Never in prod | Leave unset (defaults to `0`) |
 | `PORT` | Auto-injected by Render | Do not set manually |
 | `EXTERNAL_API_TIMEOUT_SECONDS` | Optional | Default `20`; raise if your API plan is slow |
@@ -239,6 +246,13 @@ The app ships a `Procfile` and is ready for [Render](https://render.com), [Railw
 5. Click **Deploy**. Health check passes when the root `/` returns HTTP 200.
 
 **Startup health check** — Render pings `/` before routing traffic. The app returns 200 on `/` with no external API calls, so it boots even without keys configured.
+
+### Persistence & Auth
+
+- All tracked predictions, results, and user accounts are stored under the persistent root (`SCORPRED_DATA_ROOT`).
+- Guest/demo mode: anyone can use the app without logging in. Only login is required to save picks/history.
+- User accounts and saved picks are stored in `user_data/` under the persistent root.
+- No forced signup wall; public demo is always available.
 
 ### Railway
 
