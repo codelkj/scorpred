@@ -154,36 +154,7 @@ def load_upcoming_fixtures(upcoming, engine, predictor, season, deep_limit, opp_
                 opp_strengths=opp_strengths,
             )
         fixtures_with_pred.append({**fixture, "prediction": prediction})
-            try:
-                fixtures_home = _cached_team_fixtures(home_id)
-            except Exception:
-                logger.debug("Upcoming fixture home team form missing for %s", home_name)
-            try:
-                fixtures_away = _cached_team_fixtures(away_id)
-            except Exception:
-                logger.debug("Upcoming fixture away team form missing for %s", away_name)
-            try:
-                injuries_home = _cached_injuries(home_id)
-            except Exception:
-                logger.debug("Upcoming fixture home injuries missing for %s", home_name)
-            try:
-                injuries_away = _cached_injuries(away_id)
-            except Exception:
-                logger.debug("Upcoming fixture away injuries missing for %s", away_name)
-
-            h2h_raw = predictor.filter_recent_completed_fixtures(
-                h2h_raw,
-                current_season=season,
-                seasons_back=5,
-            )
-            fixtures_home = predictor.filter_recent_completed_fixtures(
-                fixtures_home,
-                current_season=season,
-            )
-            fixtures_away = predictor.filter_recent_completed_fixtures(
-                fixtures_away,
-                current_season=season,
-            )
+    # ...existing code continues...
 
             form_home = predictor.extract_form(fixtures_home, home_id)[:5]
             form_away = predictor.extract_form(fixtures_away, away_id)[:5]
