@@ -33,12 +33,16 @@ Data Quality:
 from __future__ import annotations
 from datetime import datetime, UTC
 import json
+import logging
 import os
 import re
 from typing import Any
 
+import model_tracker as mt
+
+logger = logging.getLogger(__name__)
+
 _RECENCY_WEIGHTS = [0.40, 0.25, 0.15, 0.10, 0.10]
-_PREDICTION_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "cache", "prediction_history.json")
 
 
 # ── Name normalisation (for opp-strength lookups) ─────────────────────────────
@@ -477,6 +481,72 @@ def _score_to_confidence_level(gap: float, sport: str = "soccer") -> str:
             return "Low"
 
 
+# ── Top Lean & Decision Status layer ─────────────────────────────────────────
+
+def compute_top_lean(
+    home_pct: float,
+    draw_pct: float,
+    away_pct: float,
+    home_name: str,
+    away_name: str,
+) -> dict:
+    """Determine the top lean from 1X2 probabilities (0-100 scale).
+
+    Returns ``{"outcome": str, "label": str, "prob": float}``.
+
+    Draw is only returned as the lean when:
+    * ``draw_pct`` is the highest probability,
+    * ``draw_pct >= 34``, **and**
+    * ``abs(home_pct - away_pct) <= 6``.
+
+    Otherwise the lean goes to the stronger side (Home / Away) or, when
+    the home/away probs are within 2 pp of each other and neither exceeds
+    draw, the outcome is ``"Toss-Up"``.
+    """
+    probs = {"home": home_pct, "draw": draw_pct, "away": away_pct}
+    ranked = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+    top_key, top_val = ranked[0]
+
+    # Draw gating: only allow draw as lean under strict conditions
+    if top_key == "draw":
+        if draw_pct >= 34 and abs(home_pct - away_pct) <= 6:
+            return {"outcome": "Draw", "label": "Draw", "prob": round(draw_pct, 1)}
+        # Fall through: pick the stronger side instead
+        if home_pct >= away_pct:
+            return {"outcome": "Home", "label": home_name, "prob": round(home_pct, 1)}
+        return {"outcome": "Away", "label": away_name, "prob": round(away_pct, 1)}
+
+    if top_key == "home":
+        return {"outcome": "Home", "label": home_name, "prob": round(home_pct, 1)}
+    return {"outcome": "Away", "label": away_name, "prob": round(away_pct, 1)}
+
+
+def compute_decision_status(home_pct: float, draw_pct: float, away_pct: float) -> str:
+    """Map 1X2 probabilities (0-100 scale) to a human-readable decision tag.
+
+    Possible returns: ``"Strong Lean"`` | ``"Lean"`` | ``"Too Close"`` |
+    ``"No Edge"``.
+    """
+    probs = sorted([home_pct, draw_pct, away_pct], reverse=True)
+    top = probs[0]
+    second = probs[1]
+    gap = top - second
+
+    if top < 42:
+        return "No Edge"
+
+    if gap < 4:
+        return "Too Close"
+
+    if top >= 55 and gap >= 8:
+        return "Strong Lean"
+
+    if gap >= 5:
+        return "Lean"
+
+    return "No Edge"
+
+
 def _win_probabilities(score_a: float, score_b: float, sport: str = "soccer") -> dict[str, float]:
     """
     Convert two normalized scores (0-10) into a probability distribution.
@@ -500,7 +570,7 @@ def _win_probabilities(score_a: float, score_b: float, sport: str = "soccer") ->
         # For soccer, allocate a draw probability based on score gap
         # Close scores favor draws; distant scores favor decisive outcomes
         gap_abs = abs(gap)
-        draw_pct = max(10.0, min(45.0, 35.0 - gap_abs * 3.0))
+        draw_pct = max(8.0, min(32.0, 26.0 - gap_abs * 3.5))
         
         # Remaining probability split between A and B
         remaining = 100.0 - draw_pct
@@ -522,80 +592,23 @@ def _win_probabilities(score_a: float, score_b: float, sport: str = "soccer") ->
         return {"a": win_a, "b": win_b}
 
 
-def _prediction_history_path() -> str:
-    return _PREDICTION_HISTORY_FILE
-
-
-def _load_prediction_history() -> list[dict]:
-    try:
-        with open(_prediction_history_path(), "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data.get("predictions", []) if isinstance(data, dict) else []
-    except Exception:
-        return []
-
-
-def _save_prediction_history(predictions: list[dict]) -> None:
-    try:
-        path = _prediction_history_path()
-        folder = os.path.dirname(path)
-        if folder and not os.path.isdir(folder):
-            os.makedirs(folder, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"predictions": predictions}, fh, indent=2)
-    except Exception:
-        pass
-
-
-def track_prediction(
-    predicted_winner: str,
-    confidence: str,
-    team_a_name: str,
-    team_b_name: str,
-    score_gap: float,
-    team_a_score: float,
-    team_b_score: float,
-    actual_result: str | None = None,
-) -> None:
-    record = {
-        "timestamp": datetime.now(UTC).isoformat(),
-        "predicted_winner": predicted_winner,
-        "confidence": confidence,
-        "team_a_name": team_a_name,
-        "team_b_name": team_b_name,
-        "score_gap": score_gap,
-        "team_a_score": team_a_score,
-        "team_b_score": team_b_score,
-        "actual_result": actual_result,
-    }
-    history = _load_prediction_history()
-    history.append(record)
-    _save_prediction_history(history)
-
-
 def summarize_prediction_history() -> dict[str, Any]:
-    predictions = _load_prediction_history()
-    tracked = [p for p in predictions if p.get("actual_result")]
-    total = len(tracked)
-    correct = 0
-    confidence_stats = {"High": {"total": 0, "correct": 0}, "Medium": {"total": 0, "correct": 0}, "Low": {"total": 0, "correct": 0}}
-    for p in tracked:
-        if p.get("predicted_winner") == p.get("actual_result"):
-            correct += 1
-            if p.get("confidence") in confidence_stats:
-                confidence_stats[p["confidence"]]["correct"] += 1
-        if p.get("confidence") in confidence_stats:
-            confidence_stats[p["confidence"]]["total"] += 1
+    """Bridge to model_tracker.get_summary_metrics(), returning legacy-shaped dict."""
+    try:
+        metrics = mt.get_summary_metrics(exclude_seeded=True)
+    except Exception:
+        return {"total_tracked": 0, "total_verified": 0, "accuracy": None, "confidence": {}}
+    by_conf = metrics.get("by_confidence") or {}
     return {
-        "total_tracked": len(predictions),
-        "total_verified": total,
-        "accuracy": round((correct / total * 100.0), 1) if total else None,
+        "total_tracked": metrics.get("total_predictions", 0),
+        "total_verified": metrics.get("finalized_predictions", 0),
+        "accuracy": round(metrics["overall_accuracy"], 1) if metrics.get("overall_accuracy") is not None else None,
         "confidence": {
             level: {
-                "total": data["total"],
-                "accuracy": round((data["correct"] / data["total"] * 100.0), 1) if data["total"] else None,
+                "total": (by_conf.get(level) or {}).get("count", 0),
+                "accuracy": (by_conf.get(level) or {}).get("accuracy"),
             }
-            for level, data in confidence_stats.items()
+            for level in ("High", "Medium", "Low")
         },
     }
 
@@ -974,6 +987,13 @@ def scorpred_predict(
     score_a = max(0.0, min(10.0, float(score_a or 5.0)))
     score_b = max(0.0, min(10.0, float(score_b or 5.0)))
 
+    # If both teams land on exactly 5.0 (neutral), no meaningful signal exists.
+    # Downgrade to Limited so the UI shows "no data" instead of fake 37/26/37.
+    if score_a == 5.0 and score_b == 5.0:
+        _data_quality_label = "Limited"
+        debug_info["data_quality"] = "Limited"
+        debug_info["fallbacks_used"].append("Both teams scored neutral 5.0 — no differentiating signal")
+
     def _edge(a: float, b: float) -> str:
         if a > b + 0.3:
             return "A"
@@ -1012,16 +1032,25 @@ def scorpred_predict(
     gap = abs(score_a - score_b)
     confidence = _score_to_confidence_level(gap, sport)
 
-    if score_a > score_b + 0.5:
+    if score_a > score_b + 0.2:
         prediction = f"{team_a_name} Win"
         pick_team = "A"
-    elif score_b > score_a + 0.5:
+    elif score_b > score_a + 0.2:
         prediction = f"{team_b_name} Win"
         pick_team = "B"
     else:
         if sport == "soccer":
-            prediction = "Draw"
-            pick_team = "draw"
+            # Within the close zone, only call a draw when scores are nearly identical;
+            # otherwise pick the team with the slight edge.
+            if gap < 0.06:
+                prediction = "Draw"
+                pick_team = "draw"
+            elif score_a > score_b:
+                prediction = f"{team_a_name} Win"
+                pick_team = "A"
+            else:
+                prediction = f"{team_b_name} Win"
+                pick_team = "B"
         else:
             prediction = f"{team_a_name} Win" if score_a >= score_b else f"{team_b_name} Win"
             pick_team = "A" if score_a >= score_b else "B"
@@ -1071,17 +1100,28 @@ def scorpred_predict(
         debug_info["fallbacks_used"].append(f"Optional picks failed: {exc}")
         optional = []
 
+    # ── Decision layer: top lean + decision status ────────────────────
+    _hp = round(win_probs.get("a", 0.0), 1)
+    _dp = round(win_probs.get("draw", 0.0), 1)
+    _ap = round(win_probs.get("b", 0.0), 1)
+    if sport == "soccer":
+        top_lean = compute_top_lean(_hp, _dp, _ap, team_a_name, team_b_name)
+        decision_status = compute_decision_status(_hp, _dp, _ap)
+    else:
+        top_lean = {"outcome": "", "label": "", "prob": 0.0}
+        decision_status = ""
+
     return {
         "team_a_score":   round(score_a, 2),
         "team_b_score":   round(score_b, 2),
         "score_gap":      round(gap, 2),
         "win_probabilities": win_probs,
-        "prob_a":         round(win_probs.get("a", 0.0), 1),
-        "prob_b":         round(win_probs.get("b", 0.0), 1),
-        "prob_draw":      round(win_probs.get("draw", 0.0), 1),
-        "home_pct":       round(win_probs.get("a", 0.0), 1),
-        "draw_pct":       round(win_probs.get("draw", 0.0), 1),
-        "away_pct":       round(win_probs.get("b", 0.0), 1),
+        "prob_a":         _hp,
+        "prob_b":         _ap,
+        "prob_draw":      _dp,
+        "home_pct":       _hp,
+        "draw_pct":       _dp,
+        "away_pct":       _ap,
         "confidence":     confidence,
         "winner_label":   prediction,
         "components_a":   comp_a_clean,
@@ -1099,6 +1139,8 @@ def scorpred_predict(
         "optional_picks": optional,
         "debug_info": debug_info,
         "data_quality": _data_quality_label,
+        "top_lean": top_lean,
+        "decision_status": decision_status,
     }
 
 

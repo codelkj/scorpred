@@ -17,6 +17,7 @@ from typing import Any
 import random
 
 import model_tracker as mt
+from runtime_paths import prediction_tracking_path
 
 
 # Real EPL teams
@@ -163,6 +164,7 @@ def _generate_realistic_soccer_predictions(days_back: int = 90, count: int = 25)
             "league_id": league_id,
             "season": season,
             "final_score": final_score,
+            "is_seeded": True,
         }
         predictions.append(prediction)
     
@@ -272,6 +274,7 @@ def _generate_realistic_nba_predictions(days_back: int = 90, count: int = 15) ->
             "league_id": 12408,  # NBA league ID
             "season": 2026,
             "final_score": final_score,
+            "is_seeded": True,
         }
         predictions.append(prediction)
     
@@ -284,7 +287,7 @@ def seed_tracking_data() -> None:
     """
     print("🌱 Seeding tracking data...")
     
-    tracking_file = os.path.join(os.path.dirname(__file__), "cache", "prediction_tracking.json")
+    tracking_file = str(prediction_tracking_path())
     
     # Load existing predictions
     mt._ensure_tracking_file()
@@ -333,7 +336,7 @@ def reset_tracking_data(keep_non_seeded: bool = True) -> None:
     Args:
         keep_non_seeded: If True, keep non-seeded predictions; if False, clear all
     """
-    tracking_file = os.path.join(os.path.dirname(__file__), "cache", "prediction_tracking.json")
+    tracking_file = str(prediction_tracking_path())
     
     if keep_non_seeded:
         mt._ensure_tracking_file()

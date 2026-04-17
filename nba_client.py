@@ -9,23 +9,29 @@ Cache location: cache/nba/
 import os
 import json
 import hashlib
+import time
 import requests
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
+from runtime_paths import cache_dir
 from utils.parsing import safe_float as _safe_float, safe_int as _safe_int
 
 load_dotenv()
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
-NBA_CACHE_DIR = Path("cache/nba")
+NBA_CACHE_DIR = cache_dir("nba")
 NBA_CACHE_HOURS = 6           # hours for historical data
 NBA_LIVE_TTL_SECONDS = 60     # seconds for live/today data
 
 NBA_API_KEY  = os.getenv("NBA_API_KEY", "").strip()
 NBA_API_HOST = os.getenv("NBA_API_HOST", "nba-api-free-data.p.rapidapi.com").strip()
 NBA_BASE_URL = os.getenv("NBA_API_BASE_URL", "https://nba-api-free-data.p.rapidapi.com").rstrip("/")
+EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "20"))
+EXTERNAL_API_RETRY_ATTEMPTS = max(1, int(os.getenv("EXTERNAL_API_RETRY_ATTEMPTS", "3")))
+EXTERNAL_API_RETRY_BACKOFF_SECONDS = float(os.getenv("EXTERNAL_API_RETRY_BACKOFF_SECONDS", "1.2"))
+RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 
 NBA_SEASON = 2024             # current season year
 
@@ -78,13 +84,29 @@ def nba_get(endpoint: str, params: dict = None, ttl_seconds: int = None) -> dict
 
     headers = {
         "x-rapidapi-host": NBA_API_HOST,
-        "x-rapidapi-key":  NBA_API_KEY,
-        "Content-Type":    "application/json",
+        "x-rapidapi-key": NBA_API_KEY,
+        "Content-Type": "application/json",
     }
     url = f"{NBA_BASE_URL}/{endpoint.lstrip('/')}"
-    resp = requests.get(url, headers=headers, params=params, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
+    last_exc: Exception | None = None
+    for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=EXTERNAL_API_TIMEOUT_SECONDS)
+            if resp.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
+                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            if attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
+                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
+                continue
+    else:
+        if path.exists():
+            return _load_cache(path)
+        raise RuntimeError(f"API-NBA request failed for {endpoint}") from last_exc
 
     errors = data.get("errors", [])
     if errors and errors != [] and errors != {}:
@@ -528,19 +550,30 @@ def _request_json(
         raise RuntimeError("NBA_API_KEY is not set in .env")
 
     url = f"{NBA_BASE_URL}/{endpoint.lstrip('/')}"
-    try:
-        response = requests.get(
-            url,
-            headers=_request_headers(),
-            params=params,
-            timeout=20,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except Exception:
+    last_exc: Exception | None = None
+    for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
+        try:
+            response = requests.get(
+                url,
+                headers=_request_headers(),
+                params=params,
+                timeout=EXTERNAL_API_TIMEOUT_SECONDS,
+            )
+            if response.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
+                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            break
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            if attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
+                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
+                continue
+    else:
         if path.exists():
             return _load_cache(path)
-        raise
+        raise RuntimeError(f"NBA provider request failed for {endpoint}") from last_exc
 
     if isinstance(payload, dict):
         message = str(payload.get("message", ""))

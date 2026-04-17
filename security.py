@@ -22,7 +22,11 @@ def configure_security(app, secret_key: str | None = None) -> None:
     app.config.setdefault("CHAT_RATE_LIMIT_WINDOW_SECONDS", 60)
 
     if not (secret_key or "").strip():
-        app.logger.warning("SECRET_KEY not set; using an ephemeral secret for this process.")
+        app.logger.warning(
+            "SECRET_KEY not set — using an ephemeral key. "
+            "Sessions will NOT persist across restarts or Gunicorn workers. "
+            "Set the SECRET_KEY environment variable for production."
+        )
 
     @app.context_processor
     def _inject_csrf_token():
@@ -91,3 +95,16 @@ def check_chat_rate_limit(limit: int, window_seconds: int) -> int:
 def reset_chat_rate_limits() -> None:
     """Clear in-memory rate-limit state, primarily for tests."""
     _CHAT_RATE_STATE.clear()
+
+
+def sanitize_error(exc: Exception) -> str:
+    """Return a safe error string that never leaks internal paths or secrets."""
+    msg = str(exc)
+    # Strip filesystem paths (Windows + Unix)
+    import re
+    msg = re.sub(r'[A-Za-z]:\\[^\s\'"]+', '<path>', msg)
+    msg = re.sub(r'/(?:home|var|tmp|usr|opt|etc|srv)/[^\s\'"]+', '<path>', msg)
+    # Truncate to prevent oversized error payloads
+    if len(msg) > 200:
+        msg = msg[:200] + '…'
+    return msg

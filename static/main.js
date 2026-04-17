@@ -1,4 +1,21 @@
-/* ── ScorPred — Magic UI Interactions ───────────────────────────────────────── */
+/* ── ScorPred — UI Interactions ─────────────────────────────────────────────── */
+
+/* ── Universal tab system ──────────────────────────────────────────────────── */
+document.querySelectorAll('[data-sp-tabs]').forEach(tabGroup => {
+  const tabs   = tabGroup.querySelectorAll('.sp-tab');
+  const panels = tabGroup.querySelectorAll(':scope > .sp-tab-panel');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      panels.forEach(p => {
+        p.classList.toggle('active', p.dataset.panel === target);
+      });
+    });
+  });
+});
 
 /* Guard: only run when GSAP is available */
 if (typeof gsap !== 'undefined') {
@@ -6,56 +23,16 @@ if (typeof gsap !== 'undefined') {
   gsap.registerPlugin(ScrollTrigger);
 
   /* ── Card entrance animations ─────────────────────────────────────────────── */
-  gsap.utils.toArray('.glow-card').forEach((card, i) => {
+  const cardSelectors = '.glow-card, .sp-panel, .sp-fixture, .sp-kpi, .sp-model-card, .sp-action-card, .sp-why-card';
+  gsap.utils.toArray(cardSelectors).forEach((card, i) => {
     gsap.fromTo(card,
-      { opacity: 0, y: 30 },
+      { opacity: 0, y: 24 },
       {
         opacity: 1,
-        y: 0,
-        duration: 0.6,
-        delay: i * 0.08,           /* stagger each card slightly */
-        ease: 'power3.out',
-        scrollTrigger: {
-          trigger: card,
-          start: 'top 90%',
-          once: true
-        }
-      }
-    );
-  });
-
-  /* ── NBA card entrance (gold accent pages) ─────────────────────────────────── */
-  gsap.utils.toArray('.nba-card').forEach((card, i) => {
-    if (!card.classList.contains('glow-card')) {
-      gsap.fromTo(card,
-        { opacity: 0, y: 24 },
-        {
-          opacity: 1,
-          y: 0,
-          duration: 0.55,
-          delay: i * 0.07,
-          ease: 'power3.out',
-          scrollTrigger: {
-            trigger: card,
-            start: 'top 92%',
-            once: true
-          }
-        }
-      );
-    }
-  });
-
-  /* ── Feature card entrance (home page grid) ─────────────────────────────────── */
-  gsap.utils.toArray('.feature-card').forEach((card, i) => {
-    gsap.fromTo(card,
-      { opacity: 0, scale: 0.96, y: 20 },
-      {
-        opacity: 1,
-        scale: 1,
         y: 0,
         duration: 0.5,
-        delay: i * 0.06,
-        ease: 'back.out(1.4)',
+        delay: Math.min(i * 0.04, 0.6),
+        ease: 'power3.out',
         scrollTrigger: {
           trigger: card,
           start: 'top 92%',
@@ -147,14 +124,37 @@ document.querySelectorAll('.shimmer-wrap').forEach(wrap => {
 
 /* ── Mobile nav toggle ───────────────────────────────────────────────────────── */
 const navToggle = document.getElementById('navToggle');
-const navLinks  = document.querySelector('.nav-links');
-if (navToggle && navLinks) {
+const sidebar   = document.querySelector('.sp-sidebar');
+if (navToggle && sidebar) {
+  /* Create overlay backdrop */
+  const overlay = document.createElement('div');
+  overlay.className = 'sp-sidebar-overlay';
+  document.body.appendChild(overlay);
+
+  const openSidebar = () => {
+    sidebar.classList.add('open');
+    overlay.classList.add('visible');
+    navToggle.setAttribute('aria-expanded', 'true');
+  };
+  const closeSidebar = () => {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('visible');
+    navToggle.setAttribute('aria-expanded', 'false');
+  };
+
   navToggle.addEventListener('click', () => {
-    navLinks.classList.toggle('open');
+    sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+  });
+  overlay.addEventListener('click', closeSidebar);
+  /* Close sidebar on outside click (mobile) */
+  document.addEventListener('click', e => {
+    if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && e.target !== navToggle) {
+      closeSidebar();
+    }
   });
 }
 
-/* ── Tab buttons: add tab-active class to active tab ────────────────────────── */
+/* ── Legacy tab compat (old .tab-btn / .nba-tab) ────────────────────────────── */
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     btn.closest('.tab-bar')
@@ -162,13 +162,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
        .forEach(b => b.classList.remove('tab-active'));
     btn.classList.add('tab-active');
   });
-  /* Mark initial active tab */
-  if (btn.classList.contains('active')) {
-    btn.classList.add('tab-active');
-  }
 });
-
-/* NBA tabs */
 document.querySelectorAll('.nba-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     btn.closest('.nba-tabs')
@@ -176,9 +170,6 @@ document.querySelectorAll('.nba-tab').forEach(btn => {
        .forEach(b => b.classList.remove('tab-active'));
     btn.classList.add('tab-active');
   });
-  if (btn.classList.contains('active')) {
-    btn.classList.add('tab-active');
-  }
 });
 
 /* Chat bubble */
@@ -214,7 +205,7 @@ document.querySelectorAll('form').forEach(form => {
 function appendChatMessage(role, text) {
   if (!chatMessages || !text) return;
   const row = document.createElement('div');
-  row.className = `chat-message ${role}`;
+  row.className = `sp-chat-message ${role}`;
   row.textContent = text;
   chatMessages.appendChild(row);
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -262,7 +253,7 @@ if (chatClear) {
       console.error(error);
     }
     if (chatMessages) {
-      chatMessages.innerHTML = '<div class="chat-message assistant">Ask about predictions, props, injuries, or where to find a page.</div>';
+      chatMessages.innerHTML = '<div class="sp-chat-message assistant">Ask about predictions, props, injuries, or where to find a page.</div>';
     }
   });
 }

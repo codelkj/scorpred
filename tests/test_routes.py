@@ -597,14 +597,21 @@ class TestNbaPredictionRoute:
             "streak": "L1",
         }
 
+        # Dispatch by team ID instead of call-order side_effect lists
+        # so ThreadPoolExecutor scheduling cannot cause flaky mismatches.
+        id_a = "1610612747"  # Lakers
+        id_b = "1610612738"  # Celtics
+        form_by_team = {
+            id_a: {"current_games": [home_game, away_game], "historical_games": [], "using_historical_context": False},
+            id_b: {"current_games": [away_game, home_game], "historical_games": [], "using_historical_context": False},
+        }
+        stats_by_team = {id_a: stats_a, id_b: stats_b}
+
         with patch("nba_live_client.get_event_snapshot", return_value=home_game), \
              patch("nba_live_client.get_h2h", return_value=[home_game, away_game]), \
-             patch("nba_live_client.get_team_recent_form_context", side_effect=[
-                 {"current_games": [home_game, away_game], "historical_games": [], "using_historical_context": False},
-                 {"current_games": [away_game, home_game], "historical_games": [], "using_historical_context": False},
-             ]), \
-             patch("nba_live_client.get_team_injuries", side_effect=[[], []]), \
-             patch("nba_live_client.get_team_season_stats", side_effect=[stats_a, stats_b]), \
+             patch("nba_live_client.get_team_recent_form_context", side_effect=lambda tid, *a, **kw: form_by_team[tid]), \
+             patch("nba_live_client.get_team_injuries", return_value=[]), \
+             patch("nba_live_client.get_team_season_stats", side_effect=lambda tid, *a, **kw: stats_by_team[tid]), \
              patch("nba_live_client.get_standings", return_value={"west": [{"team": {"name": "Lakers"}, "rank": 3}], "east": [{"team": {"name": "Celtics"}, "rank": 1}]}), \
              patch("scormastermind.predict_match", return_value={"ui_prediction": _mock_nba_scorpred()}), \
              patch("model_tracker.save_prediction") as mock_save:
@@ -746,9 +753,11 @@ class TestStrategyLabRoute:
         rv = client.get("/strategy-lab")
 
         assert rv.status_code == 200
-        assert b"ML Model Comparison" in rv.data
-        assert b"Best ML Model" in rv.data
-        assert b"Baseline Logistic Regression" in rv.data
+        # Structural markers (data-testid) — stable across copy rewrites
+        assert b'data-testid="ml-comparison-section"' in rv.data
+        # Content assertions — verify report data is rendered
+        assert b"BEST" in rv.data
+        assert b"Logistic Regression" in rv.data
         assert b"Random Forest" in rv.data
 
 
@@ -819,15 +828,48 @@ class TestModelPerformanceRoute:
                 },
             },
         )
+        monkeypatch.setattr(
+            flask_app_module.strategy_lab_services,
+            "walk_forward_summary",
+            lambda: {"available": False},
+        )
 
         rv = client.get("/model-performance")
 
         assert rv.status_code == 200
-        assert b"Model Evaluation Dashboard" in rv.data
-        assert b"Win Rate Over Time" in rv.data
-        assert b"Confidence Calibration" in rv.data
-        assert b"Strategy Comparison" in rv.data
+        assert b"Model Evaluation" in rv.data
         assert b"Failure Analysis" in rv.data
+        assert b"Win Rate Over Time" not in rv.data
+
+    def test_pass_analysis_renders(self, client, monkeypatch):
+        monkeypatch.setattr(
+            flask_app_module.mt,
+            "get_evaluation_dashboard",
+            lambda **kwargs: {
+                "kpis": {"overall_accuracy": 57.1},
+                "rolling_window": 10,
+                "pass_rows": [
+                    {
+                        "date": "2026-04-03",
+                        "sport": "SOCCER",
+                        "matchup": "Arsenal vs Chelsea",
+                        "predicted_outcome": "A",
+                        "actual_result": "Arsenal",
+                        "confidence": "High",
+                        "confidence_pct": 83.0,
+                        "recommendation": "Arsenal ML",
+                        "notes": "Winner Pick: Hit",
+                    }
+                ],
+            },
+        )
+
+        rv = client.get("/pass-analysis")
+
+        assert rv.status_code == 200
+        assert b"Pass Analysis" in rv.data
+        assert b"Winning Prediction Log" in rv.data
+        assert b"Arsenal vs Chelsea" in rv.data
 
     def test_strategy_lab_renders_clean_fallback_without_report(self, client, tmp_path, monkeypatch):
         missing_path = tmp_path / "missing_model_comparison.json"
@@ -845,11 +887,14 @@ class TestModelPerformanceRoute:
         rv = client.get("/strategy-lab")
 
         assert rv.status_code == 200
-        assert b"ML comparison is not available yet" in rv.data
+        # Structural marker — stable regardless of display copy wording
+        assert b'data-testid="ml-comparison-fallback"' in rv.data
+        # Content assertions — fallback message and report path are rendered
         assert b"Generating ML insights..." in rv.data
         assert str(missing_path).encode("utf-8") in rv.data
 
     def test_strategy_lab_auto_generates_ml_report_from_dataset(self, client, tmp_path, monkeypatch):
+        """Report generation is now offline-only; page renders without a report."""
         report_path = tmp_path / "model_comparison.json"
         dataset_path = tmp_path / "historical_matches.csv"
         dataset_path.write_text(
@@ -885,10 +930,8 @@ class TestModelPerformanceRoute:
         rv = client.get("/strategy-lab")
 
         assert rv.status_code == 200
-        assert report_path.exists()
-        assert b"Best ML Model" in rv.data
-        assert b"Baseline Logistic Regression" in rv.data
-        assert b"Random Forest" in rv.data
+        # Report is no longer auto-generated at request time (offline pipeline)
+        assert not report_path.exists()
 
 
 # ── Chat API ──────────────────────────────────────────────────────────────────

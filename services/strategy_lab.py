@@ -9,7 +9,7 @@ import generate_ml_report as report_generator
 import ml_service
 import ml_pipeline as mlp
 import model_tracker as mt
-from runtime_paths import clean_soccer_dataset_path, clean_soccer_model_path, ml_report_path
+from runtime_paths import clean_soccer_dataset_path, clean_soccer_model_path, ensemble_soccer_model_path, ml_report_path, walk_forward_report_path
 from train_model import FEATURE_COLUMNS
 
 _EMPTY_METRICS = {
@@ -56,7 +56,8 @@ def _is_report_stale(report_path: Path) -> bool:
         return True
 
     clean_dataset = Path(_CLEAN_DATASET)
-    expected_model = clean_soccer_model_path()
+    # Prefer ensemble model, fall back to standalone RF
+    expected_model = ensemble_soccer_model_path() if ensemble_soccer_model_path().exists() else clean_soccer_model_path()
     expected_dataset = clean_dataset if clean_dataset.exists() else Path(_DEFAULT_DATASET)
 
     workflow_dataset = Path(str(workflow.get("dataset_path") or "")) if workflow.get("dataset_path") else None
@@ -78,56 +79,28 @@ def _is_report_stale(report_path: Path) -> bool:
 
 
 def _ensure_ml_report_exists(ml_module: Any) -> bool:
+    """Return True if a usable ML report file is available on disk.
+
+    This function is intentionally READ-ONLY at request time.  Report
+    generation is handled offline by ``daily_refresh.py`` / ``weekly_retrain.py``
+    so that page loads never block on expensive model evaluation.
+    """
     report_path = Path(ml_module.DEFAULT_REPORT_PATH)
     canonical_report_path = Path(ml_report_path())
 
-    if report_path != canonical_report_path:
-        if report_path.exists():
-            return True
-        if not _DEFAULT_DATASET.exists():
-            return False
-        try:
-            report_generator.generate_report(
-                input_path=_DEFAULT_DATASET,
-                features=_DEFAULT_FEATURES,
-                label=_DEFAULT_LABEL,
-                date_key=_DEFAULT_DATE_KEY,
-                output=report_path,
-            )
-        except Exception:
-            return False
-        return report_path.exists()
-
+    # Always accept any existing file at the configured path — the pipeline
+    # is responsible for keeping it fresh; the app just reads it.
     if report_path.exists():
-        if not _is_report_stale(report_path):
-            return True
+        return True
 
-    if _CLEAN_DATASET.exists() and clean_soccer_model_path().exists():
-        try:
-            report_generator.generate_clean_soccer_report(
-                dataset_path=_CLEAN_DATASET,
-                model_path=clean_soccer_model_path(),
-                output=report_path,
-            )
-            return report_path.exists()
-        except Exception:
-            pass
+    # Fallback: canonical path differs (legacy config) — accept that too.
+    if report_path != canonical_report_path and canonical_report_path.exists():
+        return True
 
-    if not _DEFAULT_DATASET.exists():
-        return False
-
-    try:
-        report_generator.generate_report(
-            input_path=_DEFAULT_DATASET,
-            features=_DEFAULT_FEATURES,
-            label=_DEFAULT_LABEL,
-            date_key=_DEFAULT_DATE_KEY,
-            output=report_path,
-        )
-    except Exception:
-        return False
-
-    return report_path.exists()
+    # Report not found — pipeline has not run yet.  Return False so the
+    # Strategy Lab page shows an appropriate "awaiting pipeline" message
+    # rather than triggering an on-demand expensive computation.
+    return False
 
 
 def _tone_for_accuracy(value: float | None) -> str:
@@ -281,6 +254,13 @@ def _key_insights(
 
 
 def _performance_comparison(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Build an offline model-comparison summary.
+
+    All three accuracy figures (rule / ml / combined) MUST come from the same
+    offline evaluation population.  ``metrics`` (the live tracker) is accepted
+    for signature compatibility but is intentionally NOT mixed into the offline
+    numbers any more — doing so would compare apples to oranges.
+    """
     report = mlp.load_comparison_report()
     if report:
         workflow = report.get("workflow") or {}
@@ -289,10 +269,6 @@ def _performance_comparison(metrics: dict[str, Any]) -> dict[str, Any]:
         saved_combined_accuracy = _as_percent(performance.get("combined_accuracy"))
         saved_rule_accuracy = _as_percent(performance.get("rule_accuracy"))
         if saved_ml_accuracy is not None and saved_combined_accuracy is not None:
-            rule_accuracy = metrics.get("overall_accuracy")
-            if rule_accuracy is None:
-                rule_accuracy = saved_rule_accuracy
-
             evaluation_matches = performance.get("evaluation_matches")
             if not isinstance(evaluation_matches, int):
                 evaluation_matches = workflow.get("test_size") or 0
@@ -300,24 +276,69 @@ def _performance_comparison(metrics: dict[str, Any]) -> dict[str, Any]:
             return {
                 "available": True,
                 "message": None,
-                "rule_accuracy": rule_accuracy,
+                "rule_accuracy": saved_rule_accuracy,
                 "ml_accuracy": saved_ml_accuracy,
                 "combined_accuracy": saved_combined_accuracy,
                 "evaluation_matches": evaluation_matches,
             }
 
     comparison = ml_service.evaluate_model_comparison(dataset_path=_DEFAULT_MATCH_DATASET)
-    rule_accuracy = metrics.get("overall_accuracy")
-    if rule_accuracy is None:
-        rule_accuracy = comparison.get("rule_accuracy")
 
     return {
         "available": bool(comparison.get("available")),
         "message": comparison.get("message"),
-        "rule_accuracy": rule_accuracy,
+        "rule_accuracy": comparison.get("rule_accuracy"),
         "ml_accuracy": comparison.get("ml_accuracy"),
         "combined_accuracy": comparison.get("combined_accuracy"),
         "evaluation_matches": comparison.get("evaluation_matches") or 0,
+    }
+
+
+def walk_forward_summary() -> dict[str, Any]:
+    """Load walk-forward backtest report and build a display-ready summary."""
+    path = walk_forward_report_path()
+    if not path.exists():
+        return {"available": False}
+    try:
+        import json
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {"available": False}
+
+    agg = report.get("aggregate")
+    if not agg:
+        return {"available": False}
+
+    combined = agg.get("combined", {})
+    policy = agg.get("policy", {})
+    models = agg.get("base_models", {})
+
+    # Best base model by mean accuracy
+    best_model_name = None
+    best_model_acc = 0.0
+    for name, m in models.items():
+        acc = m.get("mean_accuracy") or 0.0
+        if acc > best_model_acc:
+            best_model_acc = acc
+            best_model_name = name
+
+    return {
+        "available": True,
+        "n_folds": agg.get("n_folds", 0),
+        "total_test_matches": agg.get("total_test_matches", 0),
+        "mean_combined_accuracy": combined.get("mean_combined_accuracy"),
+        "std_combined_accuracy": combined.get("std_combined_accuracy"),
+        "mean_rule_accuracy": combined.get("mean_rule_accuracy"),
+        "mean_ml_accuracy": combined.get("mean_ml_accuracy"),
+        "mean_avg_confidence_pct": combined.get("mean_avg_confidence_pct"),
+        "policy_hit_rate_pct": policy.get("aggregate_hit_rate_pct"),
+        "policy_coverage_pct": policy.get("aggregate_coverage_pct"),
+        "policy_total_placed": policy.get("total_placed", 0),
+        "trend": agg.get("trend", "N/A"),
+        "trend_delta": agg.get("trend_delta", 0.0),
+        "best_model": best_model_name,
+        "best_model_accuracy": best_model_acc,
+        "generated_at": report.get("generated_at"),
     }
 
 
@@ -328,15 +349,22 @@ def empty_strategy_lab_context() -> dict[str, Any]:
     comparison = _performance_comparison(metrics)
     return {
         "metrics": metrics,
+        # Explicit source-labelled accuracy fields (both None when no data yet).
+        "live_hit_rate": None,
+        "live_sample_size": 0,
+        "offline_accuracy": None,
         "hero_cards": _hero_cards(metrics, []),
         "backtest_summary": {
-            "overall_accuracy_display": _display_accuracy(metrics.get("overall_accuracy")),
+            "overall_accuracy_display": _display_accuracy(None),
             "finalized_predictions": 0,
             "pending_predictions": 0,
             "best_sport": None,
             "best_confidence": None,
             "blurb": (
-                "Tracked winner predictions are graded from finalized real-world results, while the ML section reads from the saved offline comparison report."
+                "Live hit rate comes from real tracked + graded predictions. "
+                "Offline accuracy comes from a held-out evaluation set that was "
+                "never seen during training. These two numbers measure different "
+                "things and must not be averaged."
             ),
         },
         "sport_breakdown": [],
@@ -345,6 +373,7 @@ def empty_strategy_lab_context() -> dict[str, Any]:
         "ml_comparison": ml_summary,
         "performance_comparison": comparison,
         "recent_completed_predictions": [],
+        "walk_forward": {"available": False},
     }
 
 
@@ -376,18 +405,14 @@ def _ml_vs_rule_insights(
     if ml_summary.get("available") and live_accuracy is not None:
         rf_accuracy = ml_summary.get("random_forest_accuracy")
         if isinstance(rf_accuracy, (int, float)):
-            if rf_accuracy > live_accuracy:
-                insights.append(
-                    f"ML currently leads in offline evaluation ({rf_accuracy:.1f}% vs live tracked {live_accuracy:.1f}%)."
-                )
-            elif rf_accuracy < live_accuracy:
-                insights.append(
-                    f"Rule workflow is currently stronger in tracked outcomes ({live_accuracy:.1f}% vs ML {rf_accuracy:.1f}%)."
-                )
-            else:
-                insights.append(
-                    f"ML and tracked rule workflow are currently aligned at {live_accuracy:.1f}%."
-                )
+            # NOTE: rf_accuracy is from an offline holdout; live_accuracy is
+            # from real tracked predictions.  Report them side-by-side but
+            # do NOT frame one as "beating" the other — they are different
+            # evaluation populations.
+            insights.append(
+                f"Offline ML holdout accuracy: {rf_accuracy:.1f}%.  "
+                f"Live tracked hit rate: {live_accuracy:.1f}% (different evaluation populations)."
+            )
 
     best_confidence = _best_row(confidence_rows)
     if best_confidence:
@@ -409,10 +434,29 @@ def build_strategy_lab_context(
     tracker_module: Any = mt,
     ml_module: Any = mlp,
 ) -> dict[str, Any]:
-    """Build the view model for the Strategy Lab page."""
+    """Build the view model for the Strategy Lab page.
+
+    Data-source contract — NEVER mix these two numbers:
+    ┌──────────────────────┬──────────────────────────────────────────────────┐
+    │ offline_accuracy     │ Holdout / backtest accuracy from model_comparison │
+    │                      │ .json or walk_forward_report.json.  These rows    │
+    │                      │ were never seen during training.                  │
+    ├──────────────────────┼──────────────────────────────────────────────────┤
+    │ live_hit_rate        │ Hit rate from *real* finalized tracked predictions │
+    │ live_sample_size     │ (model_tracker.json, excluding seeded demo data). │
+    └──────────────────────┴──────────────────────────────────────────────────┘
+    """
+    # ── Live tracking (model_tracker) ─────────────────────────────────────────
+    # Source: cache/prediction_tracking.json — real predictions graded against
+    # actual results.  This is what the model does in production.
     metrics = _safe_metrics(tracker_module.get_summary_metrics())
     completed_predictions = tracker_module.get_completed_predictions(limit=6)
     avoid_impact_predictions = tracker_module.get_completed_predictions(limit=50)
+
+    # live_hit_rate and live_sample_size are the authoritative live numbers.
+    live_hit_rate: float | None = metrics.get("overall_accuracy")
+    live_sample_size: int = int(metrics.get("finalized_predictions") or 0)
+
     sport_rows = _format_breakdown_rows(
         metrics.get("by_sport") or {},
         ["soccer", "nba"],
@@ -422,12 +466,23 @@ def build_strategy_lab_context(
         metrics.get("by_confidence") or {},
         ["High", "Medium", "Low"],
     )
+
+    # ── Offline evaluation (holdout / backtest) ────────────────────────────────
+    # Source: cache/ml/model_comparison.json written by generate_ml_report.py /
+    # daily_refresh.py.  Accuracy figures here come from a chronological holdout
+    # split that was never seen during training — they are NOT live predictions.
     _ensure_ml_report_exists(ml_module)
     comparison = _performance_comparison(metrics)
     ml_summary = ml_module.build_strategy_lab_summary()
 
+    # offline_accuracy: best available holdout figure (combined signal > ensemble > None)
+    offline_accuracy: float | None = (
+        comparison.get("combined_accuracy")
+        or (ml_summary.get("ensemble_accuracy") if ml_summary.get("available") else None)
+    )
+
     pending_count = max(
-        int(metrics.get("total_predictions") or 0) - int(metrics.get("finalized_predictions") or 0),
+        int(metrics.get("total_predictions") or 0) - live_sample_size,
         0,
     )
     best_sport = _best_row(sport_rows)
@@ -435,15 +490,24 @@ def build_strategy_lab_context(
 
     return {
         "metrics": metrics,
+        # ── Explicit source-labelled accuracy fields ──────────────────────────
+        # Use these in templates instead of deriving from nested dicts.
+        "live_hit_rate": live_hit_rate,
+        "live_sample_size": live_sample_size,
+        "offline_accuracy": offline_accuracy,
+        # ─────────────────────────────────────────────────────────────────────
         "hero_cards": _hero_cards(metrics, completed_predictions),
         "backtest_summary": {
-            "overall_accuracy_display": _display_accuracy(metrics.get("overall_accuracy")),
-            "finalized_predictions": metrics.get("finalized_predictions") or 0,
+            "overall_accuracy_display": _display_accuracy(live_hit_rate),
+            "finalized_predictions": live_sample_size,
             "pending_predictions": pending_count,
             "best_sport": best_sport,
             "best_confidence": best_confidence,
             "blurb": (
-                "Use this page to compare live tracked outcomes with the saved leakage-safe ML evaluation without mixing the two measurement windows together."
+                "Live hit rate comes from real tracked + graded predictions. "
+                "Offline accuracy comes from a held-out evaluation set that was "
+                "never seen during training. These two numbers measure different "
+                "things and must not be averaged."
             ),
         },
         "sport_breakdown": sport_rows,
@@ -454,4 +518,5 @@ def build_strategy_lab_context(
         "performance_comparison": comparison,
         "recent_completed_predictions": completed_predictions,
         "avoid_impact_predictions": avoid_impact_predictions,
+        "walk_forward": walk_forward_summary(),
     }

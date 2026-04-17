@@ -2,216 +2,127 @@
 {% block title %}NBA Key Threats — {{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='nba/nba.css') }}" />
 <style>
-  .threats-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:2rem; }
-  .threat-col   { display:flex; flex-direction:column; gap:1rem; }
-  .threat-team-hdr {
-    display:flex; align-items:center; gap:.75rem;
-    padding:.75rem 1rem;
-    background:rgba(245,158,11,.07);
-    border:1px solid rgba(245,158,11,.2);
-    border-radius:14px;
-  }
-  .threat-team-hdr img { width:30px; height:30px; object-fit:contain; }
-  .threat-team-hdr h2 { margin:0; font-size:1rem; font-weight:600; color:var(--nba-text); }
-
-  .threat-card {
-    background:rgba(9,18,31,.92);
-    border:1px solid rgba(148,163,184,.14);
-    border-radius:16px;
-    padding:1rem 1.1rem;
-    display:flex; gap:.9rem; align-items:flex-start;
-    transition:border-color .2s;
-  }
-  .threat-card:hover { border-color:rgba(245,158,11,.3); }
-  .threat-card.top-threat { border-color:rgba(245,158,11,.4); background:rgba(245,158,11,.04); }
-  .threat-card.featured   { border-color:rgba(34,197,94,.3); background:rgba(34,197,94,.03); }
-
-  .threat-rank { font-size:1.25rem; font-weight:700; color:rgba(148,163,184,.3); min-width:1.5rem; padding-top:.1rem; }
-  .threat-card.top-threat .threat-rank { color:#f59e0b; }
-  .threat-card.featured   .threat-rank { color:#22c55e; }
-
-  .threat-photo { width:50px; height:50px; border-radius:50%; object-fit:cover; background:rgba(148,163,184,.1); flex-shrink:0; }
-  .threat-info  { flex:1; min-width:0; }
-  .threat-name  { font-weight:600; font-size:.97rem; margin-bottom:.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .threat-badges { display:flex; flex-wrap:wrap; gap:.3rem; margin-bottom:.35rem; }
-  .tbadge { font-size:.7rem; padding:.18rem .5rem; border-radius:999px; font-weight:500; }
-  .tbadge-pos      { background:rgba(245,158,11,.12); color:#fbbf24; border:1px solid rgba(245,158,11,.22); }
-  .tbadge-label    { background:rgba(14,165,233,.12); color:#38bdf8; border:1px solid rgba(14,165,233,.22); }
-  .tbadge-injured  { background:rgba(239,68,68,.12); color:#f87171; border:1px solid rgba(239,68,68,.22); }
-  .tbadge-ok       { background:rgba(34,197,94,.1); color:#4ade80; border:1px solid rgba(34,197,94,.2); }
-  .tbadge-live     { background:rgba(34,197,94,.15); color:#22c55e; border:1px solid rgba(34,197,94,.3); }
-  .threat-contrib  { font-size:.79rem; color:rgba(226,232,240,.5); }
-  .threat-contrib strong { color:rgba(226,232,240,.8); }
-  .live-stat       { font-size:.78rem; color:#22c55e; margin-top:.2rem; font-weight:600; }
-
-  .roster-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; }
-  .roster-player {
-    display:flex; align-items:center; gap:.6rem;
-    padding:.45rem .7rem;
-    background:rgba(15,23,42,.7);
-    border:1px solid rgba(148,163,184,.1);
-    border-radius:10px;
-    font-size:.85rem;
-  }
-  .roster-player img { width:26px; height:26px; border-radius:50%; object-fit:cover; }
-  .roster-player-name { flex:1; }
-  .inj-badge { font-size:.72rem; }
-  .pos-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.07em; color:rgba(148,163,184,.45); margin:.6rem 0 .35rem; padding-left:.2rem; }
-  .no-data { color:rgba(148,163,184,.4); font-size:.85rem; }
-
-  @media(max-width:640px){ .threats-grid,.roster-grid{grid-template-columns:1fr;} }
+  .sp-threats{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}
+  .sp-threat-col{display:flex;flex-direction:column;gap:.6rem}
+  .sp-threat-hdr{display:flex;align-items:center;gap:.6rem;padding:.6rem .8rem;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.18);border-radius:var(--radius)}
+  .sp-threat-hdr img{width:28px;height:28px;object-fit:contain}
+  .sp-threat-hdr h2{margin:0;font-size:.95rem;font-weight:600}
+  .sp-threat{display:flex;gap:.75rem;align-items:flex-start;padding:.75rem;border:1px solid var(--border);border-radius:var(--radius);transition:border-color .2s}
+  .sp-threat:hover{border-color:var(--c-caution)}
+  .sp-threat--top{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.04)}
+  .sp-threat--feat{border-color:rgba(60,242,164,.25);background:rgba(60,242,164,.03)}
+  .sp-threat__rank{font-size:1.15rem;font-weight:700;color:var(--text-3);min-width:1.3rem}
+  .sp-threat--top .sp-threat__rank{color:var(--c-caution)}
+  .sp-threat--feat .sp-threat__rank{color:var(--c-strong)}
+  .sp-threat__photo{width:44px;height:44px;border-radius:50%;object-fit:cover;background:rgba(148,163,184,.08);flex-shrink:0}
+  .sp-threat__info{flex:1;min-width:0}
+  .sp-threat__name{font-weight:600;font-size:.92rem;margin-bottom:.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sp-threat__contrib{font-size:.78rem;color:var(--text-3)}
+  .sp-threat__contrib strong{color:var(--text-2)}
+  .sp-threat__live{font-size:.76rem;color:var(--c-strong);margin-top:.15rem;font-weight:600}
+  .sp-rosters{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}
+  .sp-roster-player{display:flex;align-items:center;gap:.5rem;padding:.35rem .6rem;border:1px solid var(--border);border-radius:var(--radius);font-size:.82rem;margin-bottom:.25rem}
+  .sp-roster-player img{width:24px;height:24px;border-radius:50%;object-fit:cover}
+  .sp-pos-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin:.5rem 0 .25rem;padding-left:.15rem}
+  @media(max-width:640px){.sp-threats,.sp-rosters{grid-template-columns:1fr}}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="nba-page">
-
-  <!-- Header -->
-  <div class="nba-matchup-header glow-card">
-    <div class="nba-team-block">
-      {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="nba-team-logo team-badge" onerror="this.style.display='none'"/>{% endif %}
-      <span class="nba-team-name">{{ team_a.nickname or team_a.name }}</span>
+{# ── Header ── #}
+<section class="sp-hero sp-nba" style="text-align:center">
+  <div style="display:flex; align-items:center; justify-content:center; gap:1rem; flex-wrap:wrap">
+    <div style="display:flex; align-items:center; gap:.4rem">
+      {% if team_a.logo %}<img src="{{ team_a.logo }}" style="width:32px;height:32px;object-fit:contain" alt="{{ team_a.name }}" />{% endif %}
+      <strong>{{ team_a.nickname or team_a.name }}</strong>
     </div>
-    <div class="nba-vs-badge">🏀</div>
-    <div class="nba-team-block">
-      {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="nba-team-logo team-badge" onerror="this.style.display='none'"/>{% endif %}
-      <span class="nba-team-name">{{ team_b.nickname or team_b.name }}</span>
-    </div>
-  </div>
-
-  <!-- Nav -->
-  <div style="display:flex; gap:.75rem; margin-bottom:1.5rem; flex-wrap:wrap;">
-    <a href="{{ url_for('nba.index') }}"      class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Back to games</a>
-    <a href="{{ url_for('nba.matchup') }}"    class="nba-btn nba-btn-secondary" style="font-size:.85rem;padding:.4rem .9rem;">Matchup</a>
-    <a href="{{ url_for('nba.prediction') }}" class="nba-btn nba-btn-primary btn-glow" style="font-size:.85rem;padding:.4rem .9rem;">Full prediction</a>
-  </div>
-
-  {% if error %}
-  <div class="system-notice is-danger" style="margin-bottom:1rem;">
-    <div class="system-notice-icon">x</div>
-    <div class="system-notice-body">
-      <div class="system-notice-title">System Notice</div>
-      <div class="system-notice-copy">{{ error }}</div>
+    <span style="color:var(--text-3)">vs</span>
+    <div style="display:flex; align-items:center; gap:.4rem">
+      {% if team_b.logo %}<img src="{{ team_b.logo }}" style="width:32px;height:32px;object-fit:contain" alt="{{ team_b.name }}" />{% endif %}
+      <strong>{{ team_b.nickname or team_b.name }}</strong>
     </div>
   </div>
+  <div style="display:flex; gap:.5rem; justify-content:center; margin-top:.5rem">
+    <a href="{{ url_for('nba.index') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Back to games</a>
+    <a href="{{ url_for('nba.matchup') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Matchup</a>
+    <a href="{{ url_for('nba.prediction') }}" class="sp-badge sp-badge--strong" style="text-decoration:none">Full prediction</a>
+  </div>
+</section>
+
+{% if error %}
+<div class="sp-notice sp-notice--error">{{ error }}</div>
+{% endif %}
+
+{% set tipoff = game_snapshot.date.start if game_snapshot and game_snapshot.date else (selected_game.date if selected_game else '') %}
+{% set venue_name = game_snapshot.venue.name if game_snapshot and game_snapshot.venue else (selected_game.venue_name if selected_game else '') %}
+{% if selected_game or game_snapshot %}
+<div class="sp-panel sp-panel--tight sp-meta-strip" style="margin-bottom:1rem">
+  {% if tipoff %}<span>{{ tipoff[:10] }}{% if tipoff|length > 10 %} {{ tipoff[11:16] }} UTC{% endif %}</span>{% endif %}
+  {% if venue_name %}<span>{{ venue_name }}</span>{% endif %}
+  {% if game_snapshot and game_snapshot.scores %}
+  <span style="color:var(--c-caution); font-weight:700">{{ game_snapshot.scores.home.points }} – {{ game_snapshot.scores.visitors.points }}</span>
   {% endif %}
+</div>
+{% endif %}
 
-  <!-- Game context -->
-  {% set tipoff = game_snapshot.date.start if game_snapshot and game_snapshot.date else (selected_game.date if selected_game else '') %}
-  {% set venue_name = game_snapshot.venue.name if game_snapshot and game_snapshot.venue else (selected_game.venue_name if selected_game else '') %}
-  {% if selected_game or game_snapshot %}
-  <div class="nba-card glow-card" style="padding:.85rem 1.1rem; margin-bottom:1.25rem;">
-    <div style="display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center; font-size:.88rem; color:rgba(226,232,240,.65);">
-      {% if tipoff %}<span>{{ tipoff[:10] }}{% if tipoff|length > 10 %} {{ tipoff[11:16] }} UTC{% endif %}</span>{% endif %}
-      {% if venue_name %}<span>{{ venue_name }}</span>{% endif %}
-      {% if game_snapshot and game_snapshot.scores %}
-      <span style="color:var(--nba-gold); font-weight:700;">
-        {{ game_snapshot.scores.home.points }} – {{ game_snapshot.scores.visitors.points }}
-      </span>
-      {% endif %}
-    </div>
-  </div>
-  {% endif %}
+{# ── Key Threats ── #}
+<div class="sp-panel">
+  <span class="sp-kicker">Key Threats</span>
+  <p style="font-size:.82rem; color:var(--text-2); margin-bottom:.75rem">Players expected to make the biggest impact in this matchup</p>
 
-  <!-- ── Key Threats ──────────────────────────────────────────────────────── -->
-  <div style="margin-bottom:.5rem;">
-    <h2 style="font-size:1.1rem; margin:0 0 .25rem;">Key <span style="color:var(--nba-gold);">Threats</span></h2>
-    <p style="font-size:.82rem; color:var(--nba-muted); margin:0 0 1rem;">Players expected to make the biggest impact in this matchup</p>
-  </div>
-
-  <div class="threats-grid">
-
-    <!-- Team A -->
-    <div class="threat-col">
-      <div class="threat-team-hdr">
-        {% if team_a.logo %}<img src="{{ team_a.logo }}" alt="" class="team-badge" onerror="this.style.display='none'"/>{% endif %}
-        <h2>{{ team_a.nickname or team_a.name }}</h2>
+  <div class="sp-threats">
+    {% for team, threats in [(team_a, threats_a), (team_b, threats_b)] %}
+    <div class="sp-threat-col">
+      <div class="sp-threat-hdr">
+        {% if team.logo %}<img src="{{ team.logo }}" alt="" />{% endif %}
+        <h2>{{ team.nickname or team.name }}</h2>
       </div>
-      {% if threats_a %}
-        {% for p in threats_a %}
-        <div class="threat-card glow-card {% if loop.index == 1 %}top-threat{% elif p.is_featured %}featured{% endif %}">
-          <div class="threat-rank">{{ loop.index }}</div>
+      {% if threats %}
+        {% for p in threats %}
+        <div class="sp-threat {% if loop.index == 1 %}sp-threat--top{% elif p.is_featured %}sp-threat--feat{% endif %}">
+          <div class="sp-threat__rank">{{ loop.index }}</div>
           {% if p.photo %}
-            <img src="{{ p.photo }}" alt="{{ p.name }}" class="threat-photo team-badge" onerror="this.style.display='none'" />
+          <img src="{{ p.photo }}" alt="{{ p.name }}" class="sp-threat__photo" onerror="this.style.display='none'" />
           {% else %}
-            <div class="threat-photo" style="display:flex;align-items:center;justify-content:center;font-size:1.4rem;">🏀</div>
+          <div class="sp-threat__photo" style="display:flex;align-items:center;justify-content:center;font-size:1.2rem">🏀</div>
           {% endif %}
-          <div class="threat-info">
-            <div class="threat-name">{{ p.name }}</div>
-            <div class="threat-badges">
-              <span class="tbadge tbadge-pos">{{ p.position }}</span>
-              <span class="tbadge tbadge-label">{{ p.threat_label }}</span>
-              {% if p.is_featured %}<span class="tbadge tbadge-live">Live Leader</span>{% endif %}
+          <div class="sp-threat__info">
+            <div class="sp-threat__name">{{ p.name }}</div>
+            <div style="display:flex; flex-wrap:wrap; gap:.25rem; margin-bottom:.25rem">
+              <span class="sp-badge sp-badge--caution">{{ p.position }}</span>
+              <span class="sp-badge sp-badge--active">{{ p.threat_label }}</span>
+              {% if p.is_featured %}<span class="sp-badge sp-badge--strong">Live Leader</span>{% endif %}
               {% if p.injured %}
-                <span class="tbadge tbadge-injured">Injured</span>
+              <span class="sp-badge sp-badge--danger">Injured</span>
               {% else %}
-                <span class="tbadge tbadge-ok">Active</span>
+              <span class="sp-badge sp-badge--strong">Active</span>
               {% endif %}
             </div>
-            <div class="threat-contrib">Expect: <strong>{{ p.contribution }}</strong></div>
-            {% if p.live_stat %}<div class="live-stat">{{ p.live_stat }}</div>{% endif %}
+            <div class="sp-threat__contrib">Expect: <strong>{{ p.contribution }}</strong></div>
+            {% if p.live_stat %}<div class="sp-threat__live">{{ p.live_stat }}</div>{% endif %}
           </div>
         </div>
         {% endfor %}
       {% else %}
-        <p class="no-data">No roster data available.</p>
+        <p style="color:var(--text-3); font-size:.85rem">No roster data available.</p>
       {% endif %}
     </div>
-
-    <!-- Team B -->
-    <div class="threat-col">
-      <div class="threat-team-hdr">
-        {% if team_b.logo %}<img src="{{ team_b.logo }}" alt="" class="team-badge" onerror="this.style.display='none'"/>{% endif %}
-        <h2>{{ team_b.nickname or team_b.name }}</h2>
-      </div>
-      {% if threats_b %}
-        {% for p in threats_b %}
-        <div class="threat-card glow-card {% if loop.index == 1 %}top-threat{% elif p.is_featured %}featured{% endif %}">
-          <div class="threat-rank">{{ loop.index }}</div>
-          {% if p.photo %}
-            <img src="{{ p.photo }}" alt="{{ p.name }}" class="threat-photo team-badge" onerror="this.style.display='none'" />
-          {% else %}
-            <div class="threat-photo" style="display:flex;align-items:center;justify-content:center;font-size:1.4rem;">🏀</div>
-          {% endif %}
-          <div class="threat-info">
-            <div class="threat-name">{{ p.name }}</div>
-            <div class="threat-badges">
-              <span class="tbadge tbadge-pos">{{ p.position }}</span>
-              <span class="tbadge tbadge-label">{{ p.threat_label }}</span>
-              {% if p.is_featured %}<span class="tbadge tbadge-live">Live Leader</span>{% endif %}
-              {% if p.injured %}
-                <span class="tbadge tbadge-injured">Injured</span>
-              {% else %}
-                <span class="tbadge tbadge-ok">Active</span>
-              {% endif %}
-            </div>
-            <div class="threat-contrib">Expect: <strong>{{ p.contribution }}</strong></div>
-            {% if p.live_stat %}<div class="live-stat">{{ p.live_stat }}</div>{% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      {% else %}
-        <p class="no-data">No roster data available.</p>
-      {% endif %}
-    </div>
-
+    {% endfor %}
   </div>
+</div>
 
-  <!-- ── Full Rosters ─────────────────────────────────────────────────────── -->
-  <div style="margin-bottom:.5rem; margin-top:1rem;">
-    <h2 style="font-size:.9rem; text-transform:uppercase; letter-spacing:.07em; color:rgba(226,232,240,.5); margin:0 0 1rem;">Full Rosters</h2>
-  </div>
-  <div class="roster-grid">
+{# ── Full Rosters ── #}
+<div class="sp-panel">
+  <span class="sp-kicker">Full Rosters</span>
+  <div class="sp-rosters" style="margin-top:.5rem">
     {% for team, roster in [(team_a, roster_a), (team_b, roster_b)] %}
     <div>
-      <div style="font-weight:600; font-size:.95rem; margin-bottom:.5rem;">{{ team.nickname or team.name }}</div>
+      <strong style="font-size:.92rem">{{ team.nickname or team.name }}</strong>
       {% if roster %}
         {% set positions = [('PG','Point Guards'),('SG','Shooting Guards'),('SF','Small Forwards'),('PF','Power Forwards'),('C','Centers'),('G','Guards'),('F','Forwards')] %}
         {% set seen = namespace(pos=[]) %}
         {% for pos_key, pos_name in positions %}
-          {% set group = roster | selectattr('leagues', 'defined') | list %}
           {% set pos_players = [] %}
           {% for p in roster %}
             {% set player_pos = (p.leagues.standard.pos if p.leagues and p.leagues.standard else p.get('position','')) %}
@@ -221,39 +132,35 @@
           {% endfor %}
           {% if pos_players %}
             {% if seen.pos.append(pos_key) %}{% endif %}
-            <div class="pos-label">{{ pos_name }}</div>
+            <div class="sp-pos-label">{{ pos_name }}</div>
             {% for p in pos_players %}
-            <div class="roster-player">
-              {% if p.photo %}<img src="{{ p.photo }}" alt="" class="team-badge" onerror="this.style.display='none'" />
-              {% else %}<div style="width:26px;height:26px;border-radius:50%;background:rgba(148,163,184,.12);flex-shrink:0;"></div>{% endif %}
-              <span class="roster-player-name">{{ p.firstname }} {{ p.lastname }}</span>
+            <div class="sp-roster-player">
+              {% if p.photo %}<img src="{{ p.photo }}" alt="" onerror="this.style.display='none'" />
+              {% else %}<div style="width:24px;height:24px;border-radius:50%;background:rgba(148,163,184,.1);flex-shrink:0"></div>{% endif %}
+              <span style="flex:1">{{ p.firstname }} {{ p.lastname }}</span>
               {% if p.injuries %}
                 {% set inj = p.injuries[0] %}
-                <span class="inj-badge" style="color:{% if (inj.status or '')|lower == 'out' %}#ef4444{% else %}#f59e0b{% endif %};">
-                  {{ inj.status or 'Inj' }}
-                </span>
+                <span style="font-size:.7rem; color:{% if (inj.status or '')|lower == 'out' %}var(--c-danger){% else %}var(--c-caution){% endif %}">{{ inj.status or 'Inj' }}</span>
               {% endif %}
             </div>
             {% endfor %}
           {% endif %}
         {% endfor %}
-        {# Any remaining players not in explicit position groups #}
         {% for p in roster %}
           {% set player_pos = (p.leagues.standard.pos if p.leagues and p.leagues.standard else '') %}
           {% if player_pos not in ['PG','SG','SF','PF','C','G','F'] %}
-          <div class="roster-player">
-            {% if p.photo %}<img src="{{ p.photo }}" alt="" class="team-badge" onerror="this.style.display='none'" />
-            {% else %}<div style="width:26px;height:26px;border-radius:50%;background:rgba(148,163,184,.12);flex-shrink:0;"></div>{% endif %}
-            <span class="roster-player-name">{{ p.firstname }} {{ p.lastname }}</span>
+          <div class="sp-roster-player">
+            {% if p.photo %}<img src="{{ p.photo }}" alt="" onerror="this.style.display='none'" />
+            {% else %}<div style="width:24px;height:24px;border-radius:50%;background:rgba(148,163,184,.1);flex-shrink:0"></div>{% endif %}
+            <span style="flex:1">{{ p.firstname }} {{ p.lastname }}</span>
           </div>
           {% endif %}
         {% endfor %}
       {% else %}
-        <p class="no-data">Roster unavailable.</p>
+        <p style="color:var(--text-3); font-size:.85rem">Roster unavailable.</p>
       {% endif %}
     </div>
     {% endfor %}
   </div>
-
 </div>
 {% endblock %}

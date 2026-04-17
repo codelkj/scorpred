@@ -10,9 +10,14 @@ Session keys use the nba_ prefix to avoid collisions with the football section.
 """
 
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, UTC
 from pathlib import Path
+import hashlib
+import json
+import os
 import re
+import time
 import traceback
 
 import requests
@@ -25,6 +30,7 @@ import nba_predictor as np_nba
 import scorpred_engine as se
 import scormastermind as sm
 import model_tracker as mt
+from runtime_paths import cache_dir
 
 nba_bp = Blueprint(
     "nba",
@@ -365,6 +371,25 @@ def _log_err(msg: str, exc: Exception = None) -> None:
         current_app.logger.debug(traceback.format_exc())
 
 
+class _route_timer:
+    """Context manager that logs route execution time."""
+
+    def __init__(self, route_name: str):
+        self.route_name = route_name
+        self.start: float = 0
+
+    def __enter__(self):
+        self.start = time.perf_counter()
+        return self
+
+    def __exit__(self, *_exc):
+        elapsed_ms = (time.perf_counter() - self.start) * 1000
+        current_app.logger.info(
+            "NBA %-25s rendered in %7.0f ms", self.route_name, elapsed_ms,
+        )
+        return False
+
+
 def _support(route_name: str) -> dict:
     """Return route_support dict for the given route name."""
     return nc.get_route_support(route_name)
@@ -381,6 +406,95 @@ def _page_context(**kwargs) -> dict:
     }
     context.update(kwargs)
     return context
+
+
+def _game_side(game: dict, side: str) -> dict:
+    teams = game.get("teams") or {}
+    if side == "away":
+        return teams.get("visitors") or teams.get("away") or {}
+    return teams.get("home") or {}
+
+
+def _build_nba_opp_strengths(nba_standings: dict | list | None) -> dict:
+    flat = []
+    if isinstance(nba_standings, dict):
+        for conf_teams in nba_standings.values():
+            flat.extend(conf_teams)
+    elif nba_standings:
+        flat = list(nba_standings)
+
+    ranked = []
+    for index, entry in enumerate(flat):
+        team_info = entry.get("team") or entry
+        name = team_info.get("name") or team_info.get("nickname", "")
+        rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (index + 1)
+        if name:
+            ranked.append({"team": {"name": name}, "rank": rank})
+
+    return se.build_opp_strengths_from_standings(ranked) if ranked else {}
+
+
+def _build_upcoming_prediction_card(game: dict, team_map: dict[str, dict], nba_opp_strengths: dict) -> dict:
+    home_id = str(_game_side(game, "home").get("id") or "")
+    away_id = str(_game_side(game, "away").get("id") or "")
+    home_team = team_map.get(home_id)
+    away_team = team_map.get(away_id)
+
+    if not home_team or not away_team:
+        return {**game, "prediction": None}
+
+    form_home = []
+    form_away = []
+    form_home_context = {"using_historical_context": False}
+    form_away_context = {"using_historical_context": False}
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_map = {
+            "form_home": executor.submit(nc.get_team_recent_form_context, home_id, nc.NBA_SEASON, 10, 0, "page"),
+            "form_away": executor.submit(nc.get_team_recent_form_context, away_id, nc.NBA_SEASON, 10, 0, "page"),
+        }
+
+        for key, future in future_map.items():
+            try:
+                result = future.result()
+            except Exception:
+                continue
+
+            if key == "form_home":
+                form_home_context = result or form_home_context
+                form_home_raw = form_home_context.get("current_games") or []
+                form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
+            elif key == "form_away":
+                form_away_context = result or form_away_context
+                form_away_raw = form_away_context.get("current_games") or []
+                form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
+
+    prediction = se.scorpred_predict(
+        form_a=form_home,
+        form_b=form_away,
+        h2h_form_a=[],
+        h2h_form_b=[],
+        injuries_a=[],
+        injuries_b=[],
+        team_a_is_home=True,
+        team_a_name=home_team.get("nickname") or home_team["name"],
+        team_b_name=away_team.get("nickname") or away_team["name"],
+        sport="nba",
+        opp_strengths=nba_opp_strengths,
+    )
+    prediction = _apply_nba_confidence_profile(
+        prediction,
+        form_a_games=len(form_home),
+        form_b_games=len(form_away),
+        stats_a_available=True,
+        stats_b_available=True,
+        used_historical_context=bool(
+            form_home_context.get("using_historical_context")
+            or form_away_context.get("using_historical_context")
+        ),
+        data_limited=(len(form_home) < 2 or len(form_away) < 2),
+    )
+    return {**game, "prediction": prediction}
 
 
 def _confidence_display_label(conf_key: str) -> str:
@@ -450,7 +564,7 @@ def _refresh_requested() -> bool:
 
 
 def _clear_nba_cache() -> None:
-    for folder in (Path("cache/nba"), Path("cache/nba_public")):
+    for folder in (cache_dir("nba"), cache_dir("nba_public")):
         if not folder.exists():
             continue
         for path in folder.glob("*.json"):
@@ -465,13 +579,61 @@ def _apply_refresh() -> None:
         _clear_nba_cache()
 
 
+_ESPN_NBA_OVERVIEW_CACHE = cache_dir("nba")
+_ESPN_NBA_OVERVIEW_TTL = 1800       # 30 minutes
+_ESPN_TIMEOUT    = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "20"))
+_ESPN_RETRIES    = max(1, int(os.getenv("EXTERNAL_API_RETRY_ATTEMPTS", "3")))
+_ESPN_BACKOFF    = float(os.getenv("EXTERNAL_API_RETRY_BACKOFF_SECONDS", "1.2"))
+_ESPN_RETRY_CODES = {429, 500, 502, 503, 504}
+
+
 def _espn_player_overview(player_id: str) -> dict:
-    url = f"https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{player_id}/overview"
-    with requests.Session() as session:
-        session.trust_env = False
-        response = session.get(url, timeout=20)
-    response.raise_for_status()
-    return response.json()
+    """Fetch ESPN player overview with retry, cache, and stale-cache fallback."""
+    url = (
+        f"https://site.web.api.espn.com/apis/common/v3/sports"
+        f"/basketball/nba/athletes/{player_id}/overview"
+    )
+    cache_key = hashlib.md5(f"nba_espn_overview:{player_id}".encode()).hexdigest()
+    path = _ESPN_NBA_OVERVIEW_CACHE / f"espn_ov_{cache_key}.json"
+
+    if path.exists():
+        age = (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)).total_seconds()
+        if age < _ESPN_NBA_OVERVIEW_TTL:
+            with open(path, encoding="utf-8") as fh:
+                return json.load(fh)
+
+    last_exc: Exception | None = None
+    for attempt in range(_ESPN_RETRIES):
+        try:
+            with requests.Session() as sess:
+                sess.trust_env = False
+                resp = sess.get(
+                    url,
+                    timeout=_ESPN_TIMEOUT,
+                    headers={"Accept": "application/json"},
+                )
+            if resp.status_code in _ESPN_RETRY_CODES and attempt < _ESPN_RETRIES - 1:
+                time.sleep(_ESPN_BACKOFF * (2 ** attempt))
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            _ESPN_NBA_OVERVIEW_CACHE.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh)
+            return data
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            if attempt < _ESPN_RETRIES - 1:
+                time.sleep(_ESPN_BACKOFF * (2 ** attempt))
+
+    # Stale cache is better than a hard failure
+    if path.exists():
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    raise RuntimeError(
+        f"ESPN NBA player overview unavailable for player_id={player_id}"
+    ) from last_exc
 
 
 def _season_split_map(overview: dict) -> dict:
@@ -681,6 +843,11 @@ def _build_player_analysis(player_id: str, player_name: str = "") -> dict:
 
 @nba_bp.route("/", methods=["GET"])
 def index():
+    with _route_timer("index"):
+      return _index_inner()
+
+
+def _index_inner():
     _apply_refresh()
     load_error = None
     teams = []
@@ -689,126 +856,54 @@ def index():
     upcoming_games_with_predictions = []
 
     try:
-        teams = nc.get_teams()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            fut_teams = pool.submit(nc.get_teams)
+            fut_today = pool.submit(nc.get_today_games, "page")
+            fut_upcoming = pool.submit(nc.get_upcoming_games, 12, 5, "page")
+            fut_standings = pool.submit(nc.get_standings)
+
+        teams = fut_teams.result()
     except Exception as e:
         load_error = str(e)
         _log_err("NBA teams fetch failed", e)
 
     try:
-        today_games = nc.get_today_games()
+        today_games = fut_today.result()
     except Exception as e:
         _log_err("NBA today games fetch failed", e)
 
     try:
-        upcoming_games = nc.get_upcoming_games(next_n=12)
+        upcoming_games = fut_upcoming.result()
     except Exception as e:
         _log_err("NBA upcoming games fetch failed", e)
 
     # ── Generate Scorpred predictions for each upcoming game ──────────────────
     team_map = {str(t["id"]): t for t in teams} if teams else {}
-    
-    for game in upcoming_games or []:
-        try:
-            home_id = str(game.get("teams", {}).get("home", {}).get("id") or "")
-            away_id = str(game.get("teams", {}).get("away", {}).get("id") or "")
-            home_team = team_map.get(home_id)
-            away_team = team_map.get(away_id)
-            
-            if not home_team or not away_team:
-                upcoming_games_with_predictions.append({**game, "prediction": None})
-                continue
-            
-            # Fetch form and H2H data for prediction
-            h2h_raw = []
-            form_home = []
-            form_away = []
-            injuries_home = []
-            injuries_away = []
-            
-            try:
-                h2h_raw = nc.get_h2h(home_id, away_id)
-            except Exception:
-                pass
-            
-            try:
-                form_home_context = nc.get_team_recent_form_context(home_id, season=nc.NBA_SEASON, n=10)
-                form_home_raw = form_home_context.get("current_games") or []
-                form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
-            except Exception:
-                form_home_context = {"using_historical_context": False}
-                pass
-            
-            try:
-                form_away_context = nc.get_team_recent_form_context(away_id, season=nc.NBA_SEASON, n=10)
-                form_away_raw = form_away_context.get("current_games") or []
-                form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
-            except Exception:
-                form_away_context = {"using_historical_context": False}
-                pass
-            
-            try:
-                injuries_home = nc.get_team_injuries(home_id)
-            except Exception:
-                pass
-            
-            try:
-                injuries_away = nc.get_team_injuries(away_id)
-            except Exception:
-                pass
-            
-            # H2H form
-            h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
-            h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
-            
-            # Build opponent strength lookup
-            nba_opp_strengths = {}
-            try:
-                nba_standings = nc.get_standings()
-                flat = []
-                if isinstance(nba_standings, dict):
-                    for conf_teams in nba_standings.values():
-                        flat.extend(conf_teams)
-                else:
-                    flat = list(nba_standings)
-                ranked = []
-                for i, entry in enumerate(flat):
-                    team_info = entry.get("team") or entry
-                    name = team_info.get("name") or team_info.get("nickname", "")
-                    rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
-                    if name:
-                        ranked.append({"team": {"name": name}, "rank": rank})
-                nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
-            except Exception:
-                pass
-            
-            # Run Scorpred prediction
-            prediction = se.scorpred_predict(
-                form_a=form_home,
-                form_b=form_away,
-                h2h_form_a=h2h_form_home,
-                h2h_form_b=h2h_form_away,
-                injuries_a=injuries_home,
-                injuries_b=injuries_away,
-                team_a_is_home=True,
-                team_a_name=home_team.get("nickname") or home_team["name"],
-                team_b_name=away_team.get("nickname") or away_team["name"],
-                sport="nba",
-                opp_strengths=nba_opp_strengths,
-            )
-            prediction = _apply_nba_confidence_profile(
-                prediction,
-                form_a_games=len(form_home),
-                form_b_games=len(form_away),
-                stats_a_available=True,
-                stats_b_available=True,
-                used_historical_context=bool(form_home_context.get("using_historical_context") or form_away_context.get("using_historical_context")),
-                data_limited=(len(form_home) < 2 or len(form_away) < 2),
-            )
-            
-            upcoming_games_with_predictions.append({**game, "prediction": prediction})
-        except Exception as e:
-            _log_err(f"Prediction for NBA game {game.get('id')}", e)
-            upcoming_games_with_predictions.append({**game, "prediction": None})
+    nba_opp_strengths = {}
+    try:
+        nba_opp_strengths = _build_nba_opp_strengths(fut_standings.result())
+    except Exception as e:
+        _log_err("NBA standings fetch failed for index predictions", e)
+
+    if upcoming_games:
+        indexed_games = list(enumerate(upcoming_games))
+        ordered_results: list[dict | None] = [None] * len(indexed_games)
+        max_workers = min(6, len(indexed_games)) or 1
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(_build_upcoming_prediction_card, game, team_map, nba_opp_strengths): index
+                for index, game in indexed_games
+            }
+            for future in as_completed(future_map):
+                index = future_map[future]
+                game = indexed_games[index][1]
+                try:
+                    ordered_results[index] = future.result()
+                except Exception as e:
+                    _log_err(f"Prediction for NBA game {game.get('id')}", e)
+                    ordered_results[index] = {**game, "prediction": None}
+
+        upcoming_games_with_predictions = [result for result in ordered_results if result is not None]
 
     return render_template(
         "nba/index.html",
@@ -911,6 +1006,11 @@ def select_game():
 
 @nba_bp.route("/matchup")
 def matchup():
+    with _route_timer("matchup"):
+      return _matchup_inner()
+
+
+def _matchup_inner():
     _apply_refresh()
     team_a, team_b = _require_nba_teams()
     if not team_a:
@@ -943,23 +1043,37 @@ def matchup():
     form_context_a = {"current_season": nc.NBA_SEASON, "current_games": [], "historical_games": [], "using_historical_context": False}
     form_context_b = {"current_season": nc.NBA_SEASON, "current_games": [], "historical_games": [], "using_historical_context": False}
 
-    if selected_game and selected_game.get("event_id"):
-        try:
-            game_snapshot = nc.get_event_snapshot(
-                selected_game["event_id"], selected_game.get("date")
+    # ── Parallel data fetching ────────────────────────────────────────────────
+    _fetch_tasks: dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=8) as _pool:
+        if selected_game and selected_game.get("event_id"):
+            _fetch_tasks["snapshot"] = _pool.submit(
+                nc.get_event_snapshot, selected_game["event_id"], selected_game.get("date"), "page",
             )
+        _fetch_tasks["h2h"] = _pool.submit(nc.get_h2h, id_a, id_b, nc.NBA_SEASON, "page")
+        _fetch_tasks["form_a"] = _pool.submit(nc.get_team_recent_form_context, id_a, nc.NBA_SEASON, 10, 2, "page")
+        _fetch_tasks["form_b"] = _pool.submit(nc.get_team_recent_form_context, id_b, nc.NBA_SEASON, 10, 2, "page")
+        _fetch_tasks["stats_a"] = _pool.submit(nc.get_team_season_stats, id_a)
+        _fetch_tasks["stats_b"] = _pool.submit(nc.get_team_season_stats, id_b)
+        _fetch_tasks["roster_a"] = _pool.submit(nc.get_team_roster, id_a, nc.NBA_SEASON, "page")
+        _fetch_tasks["roster_b"] = _pool.submit(nc.get_team_roster, id_b, nc.NBA_SEASON, "page")
+        _fetch_tasks["standings"] = _pool.submit(nc.get_standings)
+
+    if "snapshot" in _fetch_tasks:
+        try:
+            game_snapshot = _fetch_tasks["snapshot"].result()
         except Exception as e:
             _log_err("Selected game snapshot", e)
 
     try:
-        raw_h2h = nc.get_h2h(id_a, id_b)
+        raw_h2h = _fetch_tasks["h2h"].result()
         h2h_rows = np_nba.h2h_display(raw_h2h, id_a, id_b)
         h2h_summary = np_nba.build_h2h_summary(raw_h2h, id_a, id_b, n=5)
     except Exception as e:
         _log_err("H2H fetch", e)
 
     try:
-        form_context_a = nc.get_team_recent_form_context(id_a, season=nc.NBA_SEASON, n=10)
+        form_context_a = _fetch_tasks["form_a"].result()
         recent_a = form_context_a.get("current_games") or []
         form_a = np_nba.extract_form_for_display(recent_a, id_a)
         recent_form_a = np_nba.extract_recent_form(recent_a, id_a, n=5)
@@ -967,7 +1081,7 @@ def matchup():
         _log_err("Form A fetch", e)
 
     try:
-        form_context_b = nc.get_team_recent_form_context(id_b, season=nc.NBA_SEASON, n=10)
+        form_context_b = _fetch_tasks["form_b"].result()
         recent_b = form_context_b.get("current_games") or []
         form_b = np_nba.extract_form_for_display(recent_b, id_b)
         recent_form_b = np_nba.extract_recent_form(recent_b, id_b, n=5)
@@ -975,40 +1089,28 @@ def matchup():
         _log_err("Form B fetch", e)
 
     try:
-        stats_a = nc.get_team_season_stats(id_a)
+        stats_a = _fetch_tasks["stats_a"].result()
     except Exception as e:
         _log_err("Stats A", e)
 
     try:
-        stats_b = nc.get_team_season_stats(id_b)
+        stats_b = _fetch_tasks["stats_b"].result()
     except Exception as e:
         _log_err("Stats B", e)
 
     try:
-        injuries_a = nc.get_team_injuries(id_a)
-        injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
-    except Exception as e:
-        _log_err("Injuries A", e)
-
-    try:
-        injuries_b = nc.get_team_injuries(id_b)
-        injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
-    except Exception as e:
-        _log_err("Injuries B", e)
-
-    try:
-        roster_a = nc.get_team_roster(id_a)
+        roster_a = _fetch_tasks["roster_a"].result()
+        injuries_a = nc.get_injuries_from_roster(roster_a)
         key_players_a = np_nba.build_key_player_stats_summary(roster_a, limit=5)
-        if injuries_a:
-            injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
+        injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
     except Exception as e:
         _log_err("Roster A", e)
 
     try:
-        roster_b = nc.get_team_roster(id_b)
+        roster_b = _fetch_tasks["roster_b"].result()
+        injuries_b = nc.get_injuries_from_roster(roster_b)
         key_players_b = np_nba.build_key_player_stats_summary(roster_b, limit=5)
-        if injuries_b:
-            injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
+        injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
     except Exception as e:
         _log_err("Roster B", e)
 
@@ -1037,27 +1139,10 @@ def matchup():
         h2h_form_a = np_nba.extract_recent_form(raw_h2h, id_a, n=10)
         h2h_form_b = np_nba.extract_recent_form(raw_h2h, id_b, n=10)
 
-        # Build opponent-strength lookup from NBA standings
+        # Build opponent-strength lookup from NBA standings (pre-fetched in parallel)
         nba_opp_strengths = {}
         try:
-            nba_standings = nc.get_standings()
-            # Standings are typically a list of team-stat dicts with 'team' and 'conference rank'
-            # Build a flat list with rank derived from position in the list
-            flat = []
-            if isinstance(nba_standings, dict):
-                for conf_teams in nba_standings.values():
-                    flat.extend(conf_teams)
-            else:
-                flat = list(nba_standings)
-            # Assign rank by position if no explicit rank key
-            ranked = []
-            for i, entry in enumerate(flat):
-                team_info = entry.get("team") or entry
-                name = team_info.get("name") or team_info.get("nickname", "")
-                rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
-                if name:
-                    ranked.append({"team": {"name": name}, "rank": rank})
-            nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+            nba_opp_strengths = _build_nba_opp_strengths(_fetch_tasks["standings"].result())
         except Exception:
             pass
 
@@ -1229,6 +1314,11 @@ def player_analysis_api():
 
 @nba_bp.route("/prediction")
 def prediction():
+    with _route_timer("prediction"):
+      return _prediction_inner()
+
+
+def _prediction_inner():
     _apply_refresh()
     team_a, team_b = _require_nba_teams()
     if not team_a:
@@ -1253,16 +1343,30 @@ def prediction():
     form_context_a = {"current_season": nc.NBA_SEASON, "current_games": [], "historical_games": [], "using_historical_context": False}
     form_context_b = {"current_season": nc.NBA_SEASON, "current_games": [], "historical_games": [], "using_historical_context": False}
 
-    if selected_game and selected_game.get("event_id"):
-        try:
-            game_snapshot = nc.get_event_snapshot(
-                selected_game["event_id"], selected_game.get("date")
+    # ── Parallel data fetching ────────────────────────────────────────────────
+    _fetch_tasks: dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=9) as _pool:
+        if selected_game and selected_game.get("event_id"):
+            _fetch_tasks["snapshot"] = _pool.submit(
+                nc.get_event_snapshot, selected_game["event_id"], selected_game.get("date"), "page",
             )
+        _fetch_tasks["h2h"] = _pool.submit(nc.get_h2h, id_a, id_b, nc.NBA_SEASON, "page")
+        _fetch_tasks["form_a"] = _pool.submit(nc.get_team_recent_form_context, id_a, nc.NBA_SEASON, 10, 2, "page")
+        _fetch_tasks["form_b"] = _pool.submit(nc.get_team_recent_form_context, id_b, nc.NBA_SEASON, 10, 2, "page")
+        _fetch_tasks["inj_a"] = _pool.submit(nc.get_team_injuries, id_a, nc.NBA_SEASON, "page")
+        _fetch_tasks["inj_b"] = _pool.submit(nc.get_team_injuries, id_b, nc.NBA_SEASON, "page")
+        _fetch_tasks["stats_a"] = _pool.submit(nc.get_team_season_stats, id_a)
+        _fetch_tasks["stats_b"] = _pool.submit(nc.get_team_season_stats, id_b)
+        _fetch_tasks["standings"] = _pool.submit(nc.get_standings)
+
+    if "snapshot" in _fetch_tasks:
+        try:
+            game_snapshot = _fetch_tasks["snapshot"].result()
         except Exception as e:
             _log_err("Selected game snapshot for prediction", e)
 
     try:
-        h2h_games = nc.get_h2h(id_a, id_b)
+        h2h_games = _fetch_tasks["h2h"].result()
         h2h_games_filtered = np_nba.filter_completed_nba_games(h2h_games)
         h2h_rows = np_nba.h2h_display(h2h_games_filtered, id_a, id_b)
         h2h_summary = np_nba.build_h2h_summary(h2h_games_filtered, id_a, id_b, n=5)
@@ -1270,36 +1374,36 @@ def prediction():
         _log_err("H2H for prediction", e)
 
     try:
-        form_context_a = nc.get_team_recent_form_context(id_a, season=nc.NBA_SEASON, n=10)
+        form_context_a = _fetch_tasks["form_a"].result()
         form_a_raw = form_context_a.get("current_games") or []
         form_a_filtered = np_nba.filter_completed_nba_games(form_a_raw)
     except Exception as e:
         _log_err("Form A for prediction", e)
 
     try:
-        form_context_b = nc.get_team_recent_form_context(id_b, season=nc.NBA_SEASON, n=10)
+        form_context_b = _fetch_tasks["form_b"].result()
         form_b_raw = form_context_b.get("current_games") or []
         form_b_filtered = np_nba.filter_completed_nba_games(form_b_raw)
     except Exception as e:
         _log_err("Form B for prediction", e)
 
     try:
-        injuries_a = nc.get_team_injuries(id_a)
+        injuries_a = _fetch_tasks["inj_a"].result()
     except Exception as e:
         _log_err("Injuries A for prediction", e)
 
     try:
-        injuries_b = nc.get_team_injuries(id_b)
+        injuries_b = _fetch_tasks["inj_b"].result()
     except Exception as e:
         _log_err("Injuries B for prediction", e)
 
     try:
-        stats_a = nc.get_team_season_stats(id_a)
+        stats_a = _fetch_tasks["stats_a"].result()
     except Exception as e:
         _log_err("Stats A for prediction", e)
 
     try:
-        stats_b = nc.get_team_season_stats(id_b)
+        stats_b = _fetch_tasks["stats_b"].result()
     except Exception as e:
         _log_err("Stats B for prediction", e)
 
@@ -1317,27 +1421,10 @@ def prediction():
         h2h_form_a = np_nba.extract_recent_form(h2h_games_filtered, id_a, n=5)
         h2h_form_b = np_nba.extract_recent_form(h2h_games_filtered, id_b, n=5)
 
-        # Build opponent-strength lookup from NBA standings
+        # Build opponent-strength lookup from NBA standings (pre-fetched in parallel)
         nba_opp_strengths = {}
         try:
-            nba_standings = nc.get_standings()
-            # Standings are typically a list of team-stat dicts with 'team' and 'conference rank'
-            # Build a flat list with rank derived from position in the list
-            flat = []
-            if isinstance(nba_standings, dict):
-                for conf_teams in nba_standings.values():
-                    flat.extend(conf_teams)
-            else:
-                flat = list(nba_standings)
-            # Assign rank by position if no explicit rank key
-            ranked = []
-            for i, entry in enumerate(flat):
-                team_info = entry.get("team") or entry
-                name = team_info.get("name") or team_info.get("nickname", "")
-                rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
-                if name:
-                    ranked.append({"team": {"name": name}, "rank": rank})
-            nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+            nba_opp_strengths = _build_nba_opp_strengths(_fetch_tasks["standings"].result())
         except Exception:
             pass
 
@@ -1417,7 +1504,7 @@ def prediction():
                 team_b_id=team_b["id"],
             )
     except Exception:
-        pass  # Silent fail if tracking fails
+        current_app.logger.warning("Prediction tracking failed (nba)", exc_info=True)
 
     return render_template(
         "nba/prediction.html",
@@ -1445,8 +1532,126 @@ def prediction():
     )
 
 
+def _build_today_prediction_card(
+    game: dict, team_map: dict[str, dict], nba_opp_strengths: dict,
+) -> dict | None:
+    """Build a single prediction card for the today-predictions dashboard.
+
+    Runs all per-game fetches (H2H, form, injuries) in parallel.
+    Designed to be called from a ThreadPoolExecutor so multiple games
+    are processed concurrently.
+    """
+    teams_block = game.get("teams") or {}
+    home_raw = teams_block.get("home") or {}
+    away_raw = teams_block.get("visitors") or {}
+    home_id = str(home_raw.get("id") or "")
+    away_id = str(away_raw.get("id") or "")
+
+    if not home_id or not away_id:
+        return None
+
+    home_team = team_map.get(home_id) or home_raw
+    away_team = team_map.get(away_id) or away_raw
+
+    game_date_start = (game.get("date") or {}).get("start") or ""
+    game_date = game_date_start[:10] if game_date_start else ""
+    game_time = game_date_start[11:16] if len(game_date_start) > 10 else ""
+
+    # ── Parallel per-game data fetches ─────────────────────────────────────
+    h2h_raw: list = []
+    form_home: list = []
+    form_away: list = []
+    injuries_home: list = []
+    injuries_away: list = []
+    form_home_context: dict = {"using_historical_context": False}
+    form_away_context: dict = {"using_historical_context": False}
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        fut_h2h = pool.submit(nc.get_h2h, home_id, away_id)
+        fut_form_h = pool.submit(nc.get_team_recent_form_context, home_id, nc.NBA_SEASON, 10)
+        fut_form_a = pool.submit(nc.get_team_recent_form_context, away_id, nc.NBA_SEASON, 10)
+        fut_inj_h = pool.submit(nc.get_team_injuries, home_id)
+        fut_inj_a = pool.submit(nc.get_team_injuries, away_id)
+
+    try:
+        h2h_raw = fut_h2h.result()
+    except Exception:
+        pass
+    try:
+        form_home_context = fut_form_h.result()
+        form_home_raw = form_home_context.get("current_games") or []
+        form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
+    except Exception:
+        pass
+    try:
+        form_away_context = fut_form_a.result()
+        form_away_raw = form_away_context.get("current_games") or []
+        form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
+    except Exception:
+        pass
+    try:
+        injuries_home = fut_inj_h.result()
+    except Exception:
+        pass
+    try:
+        injuries_away = fut_inj_a.result()
+    except Exception:
+        pass
+
+    h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
+    h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
+
+    prediction = se.scorpred_predict(
+        form_a=form_home,
+        form_b=form_away,
+        h2h_form_a=h2h_form_home,
+        h2h_form_b=h2h_form_away,
+        injuries_a=injuries_home,
+        injuries_b=injuries_away,
+        team_a_is_home=True,
+        team_a_name=home_team.get("nickname") or home_team.get("name") or "Home",
+        team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
+        sport="nba",
+        opp_strengths=nba_opp_strengths,
+    )
+    prediction = _apply_nba_confidence_profile(
+        prediction,
+        form_a_games=len(form_home),
+        form_b_games=len(form_away),
+        stats_a_available=True,
+        stats_b_available=True,
+        used_historical_context=bool(
+            form_home_context.get("using_historical_context")
+            or form_away_context.get("using_historical_context")
+        ),
+        data_limited=(len(form_home) < 2 or len(form_away) < 2),
+    )
+
+    best_pick = prediction.get("best_pick", {})
+    probs = prediction.get("win_probabilities", {})
+
+    return {
+        "game": game,
+        "game_date": game_date,
+        "game_time": game_time,
+        "home_team": home_team,
+        "away_team": away_team,
+        "prediction": prediction,
+        "predicted_winner": best_pick.get("prediction", "—"),
+        "confidence": best_pick.get("confidence", "Low"),
+        "prob_home": probs.get("a", 50),
+        "prob_away": probs.get("b", 50),
+        "reasoning": best_pick.get("reasoning", ""),
+    }
+
+
 @nba_bp.route("/today-predictions")
 def today_predictions():
+    with _route_timer("today_predictions"):
+      return _today_predictions_inner()
+
+
+def _today_predictions_inner():
     """
     Show NBA predictions for today's games (or next available games if none today).
     """
@@ -1509,125 +1714,27 @@ def today_predictions():
     except Exception:
         pass
 
-    # Build predictions for each game
+    # Build predictions for each game — parallelized across games
     predictions_for_games = []
-    for game in today_games or []:
-        try:
-            # ── Fix: normalized games use game["teams"]["home"] / ["visitors"],
-            #         NOT game["home"] / game["away"] ──────────────────────────
-            teams_block = game.get("teams") or {}
-            home_raw = teams_block.get("home") or {}
-            away_raw = teams_block.get("visitors") or {}
+    if today_games:
+        max_workers = min(6, len(today_games)) or 1
+        indexed_games = list(enumerate(today_games))
+        ordered_results: list[dict | None] = [None] * len(indexed_games)
 
-            home_id = str(home_raw.get("id") or "")
-            away_id = str(away_raw.get("id") or "")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(_build_today_prediction_card, game, team_map, nba_opp_strengths): idx
+                for idx, game in indexed_games
+            }
+            for future in as_completed(future_map):
+                idx = future_map[future]
+                try:
+                    result = future.result()
+                    ordered_results[idx] = result
+                except Exception as e:
+                    _log_err(f"Prediction for game {indexed_games[idx][1].get('id')}", e)
 
-            if not home_id or not away_id:
-                current_app.logger.debug(
-                    "today_predictions: skipping game %s — missing team IDs (home=%r away=%r)",
-                    game.get("id"), home_id, away_id,
-                )
-                continue
-
-            # Prefer team_map entry (has logo/nickname from directory); fall back to game data
-            home_team = team_map.get(home_id) or home_raw
-            away_team = team_map.get(away_id) or away_raw
-
-            # Normalise game start time for the template
-            game_date_start = (game.get("date") or {}).get("start") or ""
-            game_date = game_date_start[:10] if game_date_start else ""
-            game_time = game_date_start[11:16] if len(game_date_start) > 10 else ""
-
-            current_app.logger.debug(
-                "today_predictions: processing %s vs %s on %s",
-                home_team.get("name") or home_team.get("nickname"),
-                away_team.get("name") or away_team.get("nickname"),
-                game_date or "unknown date",
-            )
-
-            # Fetch form and H2H for prediction
-            h2h_raw = []
-            form_home = []
-            form_away = []
-            injuries_home = []
-            injuries_away = []
-
-            try:
-                h2h_raw = nc.get_h2h(home_id, away_id)
-            except Exception:
-                pass
-
-            try:
-                form_home_context = nc.get_team_recent_form_context(home_id, season=nc.NBA_SEASON, n=10)
-                form_home_raw = form_home_context.get("current_games") or []
-                form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
-            except Exception:
-                form_home_context = {"using_historical_context": False}
-                pass
-
-            try:
-                form_away_context = nc.get_team_recent_form_context(away_id, season=nc.NBA_SEASON, n=10)
-                form_away_raw = form_away_context.get("current_games") or []
-                form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
-            except Exception:
-                form_away_context = {"using_historical_context": False}
-                pass
-
-            try:
-                injuries_home = nc.get_team_injuries(home_id)
-            except Exception:
-                pass
-
-            try:
-                injuries_away = nc.get_team_injuries(away_id)
-            except Exception:
-                pass
-
-            h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
-            h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
-
-            prediction = se.scorpred_predict(
-                form_a=form_home,
-                form_b=form_away,
-                h2h_form_a=h2h_form_home,
-                h2h_form_b=h2h_form_away,
-                injuries_a=injuries_home,
-                injuries_b=injuries_away,
-                team_a_is_home=True,
-                team_a_name=home_team.get("nickname") or home_team.get("name") or "Home",
-                team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
-                sport="nba",
-                opp_strengths=nba_opp_strengths,
-            )
-            prediction = _apply_nba_confidence_profile(
-                prediction,
-                form_a_games=len(form_home),
-                form_b_games=len(form_away),
-                stats_a_available=True,
-                stats_b_available=True,
-                used_historical_context=bool(form_home_context.get("using_historical_context") or form_away_context.get("using_historical_context")),
-                data_limited=(len(form_home) < 2 or len(form_away) < 2),
-            )
-
-            best_pick = prediction.get("best_pick", {})
-            probs = prediction.get("win_probabilities", {})
-
-            predictions_for_games.append({
-                "game": game,
-                "game_date": game_date,
-                "game_time": game_time,
-                "home_team": home_team,
-                "away_team": away_team,
-                "prediction": prediction,
-                "predicted_winner": best_pick.get("prediction", "—"),
-                "confidence": best_pick.get("confidence", "Low"),
-                "prob_home": probs.get("a", 50),
-                "prob_away": probs.get("b", 50),
-                "reasoning": best_pick.get("reasoning", ""),
-            })
-        except Exception as e:
-            _log_err(f"Prediction for game {game.get('id')}", e)
-            continue
+        predictions_for_games = [r for r in ordered_results if r is not None]
 
     current_app.logger.info(
         "today_predictions: built %d predictions from %d games",

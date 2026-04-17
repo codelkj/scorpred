@@ -45,6 +45,10 @@ def ml_report_path() -> Path:
     return cache_dir("ml") / "model_comparison.json"
 
 
+def prediction_policy_path() -> Path:
+    return cache_dir("ml") / "prediction_policy.json"
+
+
 def matches_dataset_path() -> Path:
     return data_dir() / "matches.csv"
 
@@ -67,9 +71,34 @@ def clean_soccer_model_path() -> Path:
     return data_dir() / "models" / "soccer_random_forest_clean.pkl"
 
 
+def ensemble_soccer_model_path() -> Path:
+    """Stacking ensemble (LR + RF + XGBoost + LightGBM) trained on clean pre-match features."""
+    return data_dir() / "models" / "soccer_ensemble_stack.pkl"
+
+
+def nba_model_path() -> Path:
+    """Calibrated Random Forest model for NBA home/away win prediction."""
+    return data_dir() / "models" / "nba_random_forest.pkl"
+
+
 def elo_state_path() -> Path:
     """Final ELO ratings for all teams, saved after training (used at runtime)."""
     return data_dir() / "processed" / "soccer_elo_state.json"
+
+
+def walk_forward_report_path() -> Path:
+    """Walk-forward backtest report JSON."""
+    return data_dir() / "backtests" / "walk_forward_report.json"
+
+
+def mistake_report_path() -> Path:
+    """Mistake analysis report JSON."""
+    return data_dir() / "analysis" / "mistake_report.json"
+
+
+def policy_adjustments_path() -> Path:
+    """Learned policy adjustments JSON."""
+    return data_dir() / "analysis" / "policy_adjustments.json"
 
 
 def ensure_runtime_dirs() -> None:
@@ -84,5 +113,8 @@ def ensure_runtime_dirs() -> None:
         cache_dir("ml"),
         data_dir() / "processed",
         data_dir() / "models",
+        data_dir() / "backtests",
+        data_dir() / "analysis",
+        data_dir() / "logs",
     ):
         folder.mkdir(parents=True, exist_ok=True)

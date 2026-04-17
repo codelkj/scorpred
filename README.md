@@ -87,59 +87,114 @@ flowchart LR
 | --- | --- | --- |
 | ![Match Analysis placeholder](docs/screenshots/match-analysis-placeholder.svg) | ![Strategy Lab placeholder](docs/screenshots/strategy-lab-placeholder.svg) | ![ML comparison placeholder](docs/screenshots/ml-comparison-placeholder.svg) |
 
-## Setup
+## Run Locally
 
-### Install dependencies
+Tested locally with Python 3.12 on Windows.
+
+### 1. Create the virtual environment
+
+```powershell
+py -3.12 -m venv .venv
+```
+
+If `py` is not available:
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+```
+
+### 2. Install dependencies
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### 3. Create your local env file
+
+```powershell
 Copy-Item .env.example .env
 ```
 
-### Configure environment
+### 4. Fill in `.env`
 
-| Variable | Required | Purpose |
+| Variable | Required to boot | Purpose |
 | --- | --- | --- |
-| `API_FOOTBALL_KEY` | Yes | Soccer data access |
-| `NBA_API_KEY` | Yes | NBA data access for current legacy/props integrations |
-| `SECRET_KEY` | Yes | Flask session security |
-| `ANTHROPIC_API_KEY` | No | Enables enhanced chat assistant responses |
-| `PORT` | No | Local app port, default `5000` |
+| `SECRET_KEY` | Recommended | Flask session/CSRF secret. If omitted, the app still starts with an ephemeral secret for the current process only. |
+| `API_FOOTBALL_KEY` | Needed for live soccer data | RapidAPI key for soccer fixtures, teams, injuries, and player data. |
+| `NBA_API_KEY` | Needed for legacy NBA/team/props data | RapidAPI key for NBA endpoints used by parts of the app. |
+| `ANTHROPIC_API_KEY` | Optional | Enables Claude-backed chat responses. Without it, chat falls back to the built-in responder. |
+| `PORT` | Optional | Local port, defaults to `5000`. |
+| `FLASK_DEBUG` | Optional | Set to `1` to enable Flask debug mode. |
+| `FLASK_USE_RELOADER` | Optional | Set to `1` to enable the Flask reloader. |
+| `SCORPRED_DATA_ROOT` | Optional | Overrides where generated runtime files are stored. Default is the repo root, which writes to `cache/`. |
 
-### Run the app
+### 5. Start the app
 
 ```powershell
-python app.py
+.\.venv\Scripts\python.exe app.py
 ```
 
 Then open [http://localhost:5000](http://localhost:5000).
 
+### Optional: seed local demo data
+
+This populates Performance and Strategy Lab immediately on a new clone.
+
+```powershell
+.\.venv\Scripts\python.exe seed_tracking_data.py
+.\.venv\Scripts\python.exe generate_ml_report.py --input data\historical_matches.csv --features form,goals_scored,goals_conceded,goal_diff --label result --date-key date
+```
+
+### Optional: train the real Random Forest model
+
+This trains a 3-class match outcome model and saves it to `data/model.pkl`.
+
+```powershell
+.\.venv\Scripts\python.exe train_model.py
+```
+
+To retrain later with updated data:
+
+```powershell
+.\.venv\Scripts\python.exe retrain_model.py
+```
+
+### Optional: refresh tracked results
+
+```powershell
+.\.venv\Scripts\python.exe -c "import result_updater as ru; print(ru.update_pending_predictions())"
+```
+
+### Optional: tune live confidence policy from backtests
+
+This fits a data-driven decision policy (avoid/lean/bet thresholds) from finalized
+tracked outcomes and writes it to `cache/ml/prediction_policy.json`.
+
+```powershell
+.\.venv\Scripts\python.exe optimize_prediction_policy.py
+```
+
 ### Run tests
 
 ```powershell
-pytest tests -q
+.\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-### Generate the ML report
+## Local Runtime Files
 
-```powershell
-python generate_ml_report.py --input path\to\matches.json --features form_gap,xg_gap,home_edge,injuries_gap --label label --date-key date
-```
+The app creates these folders automatically when it starts:
 
-The saved report feeds Strategy Lab from `cache/ml/model_comparison.json`.
+- `cache/football`
+- `cache/props`
+- `cache/nba`
+- `cache/nba_public`
+- `cache/ml`
 
-### Refresh tracked results / backtesting data
+The main generated runtime files are:
 
-```powershell
-python -c "import result_updater as ru; print(ru.update_pending_predictions())"
-```
-
-Then review:
-
-- `/model-performance` for tracked outcomes
-- `/strategy-lab` for the portfolio-facing strategy and ML summary
+- `cache/prediction_tracking.json`
+- `cache/prediction_history.json`
+- `cache/ml/model_comparison.json`
 
 ## Testing + CI
 
@@ -155,6 +210,77 @@ Then review:
 - The ML models are baseline comparators, not production-grade forecasting systems
 - Strategy conclusions are only as strong as the tracked sample size
 - This project is an engineering portfolio piece and local decision-support tool, not financial advice
+
+## Deploy in One Command
+
+The app ships a `Procfile` and is ready for [Render](https://render.com), [Railway](https://railway.app), and [Fly.io](https://fly.io) with no extra configuration files beyond what is already in the repo.
+
+### Render (recommended for new deployments)
+
+1. Push the repo to GitHub.
+2. In Render → **New Web Service** → connect the repo.
+3. Render auto-detects the `Procfile`. Confirm the start command is:
+   ```
+   gunicorn app:app --workers 2 --threads 2 --timeout 60 --bind 0.0.0.0:$PORT
+   ```
+4. Set environment variables under **Environment → Secret Files or Env Vars**:
+
+| Variable | Required | Value / notes |
+|---|---|---|
+| `SECRET_KEY` | Yes | Any long random string (e.g. `openssl rand -hex 32`) |
+| `API_FOOTBALL_KEY` | Yes for soccer | RapidAPI key for api-football-v1 |
+| `NBA_API_KEY` | Yes for NBA | RapidAPI key for nba-api-free-data |
+| `ANTHROPIC_API_KEY` | Optional | Enables Claude-backed chat; falls back gracefully without it |
+| `FLASK_DEBUG` | Never in prod | Leave unset (defaults to `0`) |
+| `PORT` | Auto-injected by Render | Do not set manually |
+| `EXTERNAL_API_TIMEOUT_SECONDS` | Optional | Default `20`; raise if your API plan is slow |
+| `EXTERNAL_API_RETRY_ATTEMPTS` | Optional | Default `3`; safe as-is |
+
+5. Click **Deploy**. Health check passes when the root `/` returns HTTP 200.
+
+**Startup health check** — Render pings `/` before routing traffic. The app returns 200 on `/` with no external API calls, so it boots even without keys configured.
+
+### Railway
+
+```bash
+# From the repo root, logged into the Railway CLI:
+railway login
+railway init          # link or create project
+railway up            # deploys from the Procfile automatically
+```
+
+Then set vars in the Railway dashboard (Project → Variables) using the same table above. Railway injects `$PORT` automatically.
+
+### Fly.io
+
+```bash
+# One-time setup (only needed on first deploy):
+fly launch --no-deploy          # generates fly.toml; accept defaults
+fly secrets set SECRET_KEY="$(openssl rand -hex 32)"
+fly secrets set API_FOOTBALL_KEY="your_key"
+fly secrets set NBA_API_KEY="your_key"
+
+# Deploy:
+fly deploy
+```
+
+`fly launch` will detect the `Procfile` and configure the internal port correctly. The generated `fly.toml` works as-is; no edits required for a basic deployment.
+
+### Post-deploy checks
+
+```bash
+# Smoke-test the live app (replace with your URL):
+curl -o /dev/null -s -w "%{http_code}" https://your-app.onrender.com/
+# Expected: 200
+
+# Check the soccer fixtures endpoint (needs API_FOOTBALL_KEY):
+curl -o /dev/null -s -w "%{http_code}" https://your-app.onrender.com/fixtures
+# Expected: 200
+
+# Check the NBA home (needs NBA_API_KEY):
+curl -o /dev/null -s -w "%{http_code}" https://your-app.onrender.com/nba/
+# Expected: 200
+```
 
 ## Repository Layout
 

@@ -29,11 +29,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from league_config import DEFAULT_LEAGUE_ID
+from runtime_paths import cache_dir
 from utils.parsing import safe_float as _sf
 
 # ── Cache ──────────────────────────────────────────────────────────────────────
 
-PROPS_CACHE_DIR = Path("cache/props")
+PROPS_CACHE_DIR = cache_dir("props")
 PROPS_SEASON_TTL   = 3600          # 1 hour — current season game logs
 PROPS_CAREER_TTL   = 86400         # 24 hours — historical / career vs opponent
 PROPS_LIVE_TTL     = 60            # 60 seconds — live context

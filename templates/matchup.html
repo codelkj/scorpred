@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% block title %}{{ team_a.name }} vs {{ team_b.name }} - Match Analysis{% endblock %}
+{% block title %}{{ team_a.name }} vs {{ team_b.name }} — Match Analysis{% endblock %}
 
 {% block content %}
+{# ── Template variable setup ─────────────────────────────────────────────── #}
 {% set probs = scorpred.win_probabilities or {} %}
 {% set prob_a = (probs.a or 0) | float %}
 {% set prob_draw = (probs.draw or 0) | float %}
@@ -10,14 +11,17 @@
 {% if prob_b > top_prob %}{% set top_prob = prob_b %}{% endif %}
 {% if prob_draw > top_prob %}{% set top_prob = prob_draw %}{% endif %}
 
-{% set play_type = 'LEAN' %}
-{% if (scorpred.recommended_play or '') == 'Avoid' %}
-  {% set play_type = 'AVOID' %}
-{% elif (scorpred.best_pick.confidence or '') == 'High' and (scorpred.score_gap or 0) >= 1.1 %}
-  {% set play_type = 'BET' %}
+{% set play_type = scorpred.play_type or 'LEAN' %}
+{% if play_type == 'LEAN' %}
+  {% if (scorpred.recommended_play or '') == 'Avoid' %}
+    {% set play_type = 'AVOID' %}
+  {% elif (scorpred.best_pick.confidence or '') == 'High' and (scorpred.score_gap or 0) >= 1.1 %}
+    {% set play_type = 'BET' %}
+  {% endif %}
 {% endif %}
 
 {% set risk_label = scorpred.risk_label or ('Elevated' if scorpred.best_pick.confidence == 'Low' else 'Moderate' if scorpred.best_pick.confidence == 'Medium' else 'Controlled') %}
+{% set risk_class = 'sp-badge--danger' if risk_label == 'Elevated' else ('sp-badge--caution' if risk_label == 'Moderate' else 'sp-badge--strong') %}
 {% set model_agreement = 'Low' %}
 {% if scorpred.best_pick.confidence == 'High' and (scorpred.score_gap or 0) >= 1.4 %}
   {% set model_agreement = 'High' %}
@@ -32,204 +36,235 @@
 {% set trend_a = 'up' if form_a_avg_scored >= form_a_avg_allowed else 'down' %}
 {% set trend_b = 'up' if form_b_avg_scored >= form_b_avg_allowed else 'down' %}
 
-<div class="faang-shell">
-  <section class="card glow-card faang-hero">
-    <div class="faang-hero-head">
-      <div>
-        <span class="page-kicker">Match Analysis</span>
-        <h1 class="faang-title">{{ team_a.name }} vs {{ team_b.name }}</h1>
-      </div>
-      {% if selected_fixture and selected_fixture.date %}
-      <div class="faang-meta-chip">{{ selected_fixture.date[:10] }}{% if selected_fixture.date|length > 10 %} · {{ selected_fixture.date[11:16] }} UTC{% endif %}</div>
+{% set has_edge = edge_data and edge_data.edge_pct is defined and edge_data.edge_pct is not none %}
+{% set edge_pct = edge_data.edge_pct if has_edge else 0 %}
+{% set edge_tier = 'value' if edge_pct > 5.0 else 'marginal' if edge_pct > 0 else 'negative' %}
+
+{# ═══ Decision Hero ═══════════════════════════════════════════════════════ #}
+<section class="sp-decision">
+  <div class="sp-decision__matchup">
+    <div class="sp-decision__team">
+      <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="sp-decision__logo" />
+      <span class="sp-decision__team-name">{{ team_a.name }}</span>
+      <span class="sp-decision__team-role">Home</span>
+    </div>
+
+    <div class="sp-decision__verdict">
+      <span class="sp-decision__play-type sp-decision__play-type--{{ play_type | lower }}">
+        {% if play_type == 'BET' %}Strong Lean{% elif play_type == 'AVOID' %}Avoid{% else %}{{ play_type }}{% endif %}
+      </span>
+      <h1 class="sp-decision__pick">{{ scorpred.best_pick.prediction }}</h1>
+      <p class="sp-decision__subtitle">
+        {{ scorpred.best_pick.reasoning or scorpred.matchup_reading or 'Model edge from form, matchup context, and weighted signals.' }}
+      </p>
+      {% if play_type == 'AVOID' and scorpred.top_lean %}
+      <p class="sp-decision__subtitle" style="margin-top:.2rem">Top lean: {{ scorpred.top_lean.display }}</p>
       {% endif %}
-    </div>
-
-    <div class="faang-decision-grid">
-      <article class="faang-decision-card is-primary">
-        <span class="faang-label">Recommended Play</span>
-        <div class="faang-value">{{ play_type }} · {{ scorpred.best_pick.prediction }}</div>
-        <p class="faang-copy">{{ scorpred.best_pick.reasoning or 'Model edge from form, matchup context, and weighted signals.' }}</p>
-      </article>
-      <article class="faang-decision-card">
-        <span class="faang-label">Confidence</span>
-        <div class="faang-value">{{ '%.1f'|format(top_prob) }}% · {{ scorpred.best_pick.confidence }} </div>
-        <span class="confidence-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }} Confidence</span>
-      </article>
-      <article class="faang-decision-card">
-        <span class="faang-label">Risk Level</span>
-        <div class="faang-value">{{ risk_label }}</div>
-        <span class="risk-badge {% if risk_label == 'Elevated' %}is-danger{% elif risk_label == 'Moderate' %}is-warning{% else %}is-info{% endif %}">{{ risk_label }}</span>
-      </article>
-      <article class="faang-decision-card">
-        <span class="faang-label">Top Lean</span>
-        <div class="faang-value">{{ (scorpred.top_lean.prediction if scorpred.top_lean else scorpred.best_pick.prediction) }}</div>
-        <p class="faang-copy">{{ (scorpred.top_lean.display if scorpred.top_lean else 'Primary edge remains narrow; treat as directional lean.') }}</p>
-      </article>
-    </div>
-  </section>
-
-  <section class="faang-text-grid">
-    <article class="card glow-card faang-copy-card">
-      <h2 class="faang-section-title">Why This Pick</h2>
-      <ul class="faang-bullet-list">
-        <li>{{ scorpred.best_pick.reasoning or 'Weighted model edge favors this side.' }}</li>
-        <li>{{ scorpred.matchup_reading or 'Recent form and contextual factors support the lean.' }}</li>
-        <li>Score gap: {{ scorpred.score_gap }}/10 indicates {% if (scorpred.score_gap or 0) >= 1.3 %}clear{% elif (scorpred.score_gap or 0) >= 0.8 %}moderate{% else %}thin{% endif %} separation.</li>
-      </ul>
-    </article>
-    <article class="card glow-card faang-copy-card">
-      <h2 class="faang-section-title">Risk Factors</h2>
-      <ul class="faang-bullet-list">
-        {% if scorpred.avoid_reasons %}
-          {% for reason in scorpred.avoid_reasons[:3] %}
-          <li>{{ reason }}</li>
-          {% endfor %}
-        {% else %}
-          <li>Data quality: {{ scorpred.data_quality or 'Moderate' }}.</li>
-          <li>Result volatility increases when win probabilities stay close.</li>
-          <li>Late team news can change edge quality near kickoff.</li>
+      <div class="sp-decision__badges">
+        <span class="sp-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }} · {{ '%.1f'|format(top_prob) }}%</span>
+        <span class="sp-badge {{ risk_class }}">Risk: {{ risk_label }}</span>
+        <span class="sp-badge sp-badge--muted">{{ scorpred.data_quality or 'Moderate' }} Data</span>
+        {% if has_edge %}
+        <span class="sp-badge sp-badge--{{ 'strong' if edge_tier == 'value' else ('caution' if edge_tier == 'marginal' else 'danger') }}">{{ edge_data.label or 'Edge' }}: {{ '%+.1f'|format(edge_pct) }}%</span>
         {% endif %}
-      </ul>
-    </article>
-  </section>
-
-  <section class="card glow-card faang-probability-block">
-    <div class="faang-section-head">
-      <h2 class="faang-section-title">Outcome Probabilities</h2>
-      <span class="faang-meta-chip">Highest: {{ '%.1f'|format(top_prob) }}%</span>
-    </div>
-    <div class="faang-prob-list">
-      <div class="faang-prob-item {% if prob_a == top_prob %}is-top{% endif %}">
-        <div class="faang-prob-head"><span>{{ team_a.name }} Win</span><strong>{{ '%.1f'|format(prob_a) }}%</strong></div>
-        <div class="prob-bar"><div class="prob-bar-fill" data-width="{{ prob_a }}" style="background:#00f5a0"></div></div>
-      </div>
-      <div class="faang-prob-item {% if prob_draw == top_prob %}is-top{% endif %}">
-        <div class="faang-prob-head"><span>Draw</span><strong>{{ '%.1f'|format(prob_draw) }}%</strong></div>
-        <div class="prob-bar"><div class="prob-bar-fill" data-width="{{ prob_draw }}" style="background:#f59e0b"></div></div>
-      </div>
-      <div class="faang-prob-item {% if prob_b == top_prob %}is-top{% endif %}">
-        <div class="faang-prob-head"><span>{{ team_b.name }} Win</span><strong>{{ '%.1f'|format(prob_b) }}%</strong></div>
-        <div class="prob-bar"><div class="prob-bar-fill" data-width="{{ prob_b }}" style="background:#3b82f6"></div></div>
       </div>
     </div>
-  </section>
 
-  <section class="faang-team-grid">
-    <article class="card glow-card faang-team-card">
-      <div class="faang-team-head">
-        <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="team-logo-sm team-badge" />
-        <h3>{{ team_a.name }}</h3>
-        <span class="faang-trend {{ 'is-up' if trend_a == 'up' else 'is-down' }}">{{ 'UP' if trend_a == 'up' else 'DOWN' }}</span>
-      </div>
-      <div class="faang-form-row">
-        {% for row in form_a[:5] %}
-        <span class="form-badge form-{{ row.result }}">{{ row.result }}</span>
-        {% else %}
-        <span class="filter-chip">No recent form</span>
-        {% endfor %}
-      </div>
-      <div class="faang-mini-metrics">
-        <div><span>Scoring Avg</span><strong>{{ '%.2f'|format(form_a_avg_scored) }} {{ '↑' if trend_a == 'up' else '↓' }}</strong></div>
-        <div><span>Defensive Indicator</span><strong>{{ '%.2f'|format(form_a_avg_allowed) }} {{ '↑' if form_a_avg_allowed <= 1 else '↓' }}</strong></div>
-        <div><span>Last 5 Wins</span><strong>{{ form_a | selectattr('result', 'equalto', 'W') | list | length }}</strong></div>
-      </div>
-    </article>
-
-    <article class="card glow-card faang-team-card">
-      <div class="faang-team-head">
-        <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="team-logo-sm team-badge" />
-        <h3>{{ team_b.name }}</h3>
-        <span class="faang-trend {{ 'is-up' if trend_b == 'up' else 'is-down' }}">{{ 'UP' if trend_b == 'up' else 'DOWN' }}</span>
-      </div>
-      <div class="faang-form-row">
-        {% for row in form_b[:5] %}
-        <span class="form-badge form-{{ row.result }}">{{ row.result }}</span>
-        {% else %}
-        <span class="filter-chip">No recent form</span>
-        {% endfor %}
-      </div>
-      <div class="faang-mini-metrics">
-        <div><span>Scoring Avg</span><strong>{{ '%.2f'|format(form_b_avg_scored) }} {{ '↑' if trend_b == 'up' else '↓' }}</strong></div>
-        <div><span>Defensive Indicator</span><strong>{{ '%.2f'|format(form_b_avg_allowed) }} {{ '↑' if form_b_avg_allowed <= 1 else '↓' }}</strong></div>
-        <div><span>Last 5 Wins</span><strong>{{ form_b | selectattr('result', 'equalto', 'W') | list | length }}</strong></div>
-      </div>
-    </article>
-  </section>
-
-  <section class="card glow-card faang-system-block">
-    <div class="faang-section-head">
-      <h2 class="faang-section-title">System Intelligence</h2>
+    <div class="sp-decision__team">
+      <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="sp-decision__logo" />
+      <span class="sp-decision__team-name">{{ team_b.name }}</span>
+      <span class="sp-decision__team-role">Away</span>
     </div>
-    <div class="faang-system-grid">
-      <div>
-        <span>Model Agreement</span>
-        <strong>{{ model_agreement }}</strong>
+  </div>
+</section>
+
+{% if selected_fixture and selected_fixture.date %}
+<div class="sp-meta-strip">
+  <span>{{ selected_fixture.date[:10] }}{% if selected_fixture.date|length > 10 %} · {{ selected_fixture.date[11:16] }} UTC{% endif %}</span>
+  <span>{{ scorpred.ml_source_label or 'ML' }} · {{ scorpred.decision_layer or 'Combined Signal' }}</span>
+</div>
+{% endif %}
+
+{# ═══ Tabs ════════════════════════════════════════════════════════════════ #}
+<div data-sp-tabs>
+  <div class="sp-tabs">
+    <button class="sp-tab active" data-tab="overview">Overview</button>
+    <button class="sp-tab" data-tab="form">Form</button>
+    <button class="sp-tab" data-tab="details">Details</button>
+  </div>
+
+  {# ── TAB: Overview ──────────────────────────────────────────────────── #}
+  <div class="sp-tab-panel active" data-panel="overview">
+
+    {# Edge Assessment #}
+    {% if has_edge %}
+    <div class="sp-panel sp-panel--tight" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap">
+      <span class="sp-kicker" style="margin:0">Edge</span>
+      <span style="font-size:1.1rem; font-weight:700; color:{% if edge_pct > 5 %}var(--c-strong){% elif edge_pct > 0 %}var(--c-caution){% else %}var(--c-danger){% endif %}">{{ '%+.1f'|format(edge_pct) }}%</span>
+      <span class="sp-badge sp-badge--{{ 'strong' if edge_tier == 'value' else ('caution' if edge_tier == 'marginal' else 'danger') }}">{% if edge_tier == 'value' %}Value Detected{% elif edge_tier == 'marginal' %}Marginal{% else %}No Value{% endif %}</span>
+      {% if edge_data.implied_prob %}<span style="font-size:.82rem; color:var(--text-2)">Market: {{ edge_data.implied_prob }}% · Model: {{ '%.1f'|format(top_prob) }}%</span>{% endif %}
+    </div>
+    {% endif %}
+
+    {# Probabilities #}
+    <div class="sp-panel">
+      <span class="sp-kicker">Outcome Probabilities</span>
+      <div class="sp-prob-stack" style="margin-top:.6rem">
+        <div class="sp-prob-stack__seg sp-prob-stack__seg--home" style="width:{{ prob_a }}%"></div>
+        {% if prob_draw > 0 %}
+        <div class="sp-prob-stack__seg sp-prob-stack__seg--draw" style="width:{{ prob_draw }}%"></div>
+        {% endif %}
+        <div class="sp-prob-stack__seg sp-prob-stack__seg--away" style="width:{{ prob_b }}%"></div>
       </div>
-      <div>
-        <span>Data Quality</span>
-        <strong>{{ scorpred.data_quality or 'Moderate' }}</strong>
-      </div>
-      <div>
-        <span>Confidence Adjustment</span>
-        <strong>{% if scorpred.avoid_reasons %}Downshifted for uncertainty{% else %}No adjustment{% endif %}</strong>
+      <div class="sp-prob-legend">
+        <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--home"></span> {{ team_a.name }} {{ '%.1f'|format(prob_a) }}%</span>
+        {% if prob_draw > 0 %}
+        <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--draw"></span> Draw {{ '%.1f'|format(prob_draw) }}%</span>
+        {% endif %}
+        <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--away"></span> {{ team_b.name }} {{ '%.1f'|format(prob_b) }}%</span>
       </div>
     </div>
-  </section>
 
-  <section class="card glow-card faang-final-call">
-    <h2 class="faang-section-title">Final Recommendation</h2>
-    <div class="faang-final-line">
-      {% if play_type == 'BET' %}
-      BET {{ scorpred.best_pick.prediction }}
-      {% elif play_type == 'AVOID' %}
-      AVOID - no strong edge
-      {% else %}
-      LEAN {{ scorpred.best_pick.prediction }}
-      {% endif %}
-    </div>
-    <p class="faang-copy">{{ scorpred.best_pick.reasoning or 'Decision leans on weighted model separation and current context quality.' }}</p>
-  </section>
-
-  <details class="card glow-card faang-advanced">
-    <summary>Advanced Details</summary>
-    <div class="faang-advanced-grid">
-      <article>
-        <h3>ML vs Rule Comparison</h3>
-        <p class="faang-copy">Best pick confidence: {{ scorpred.best_pick.confidence }} | Score gap: {{ scorpred.score_gap }}/10.</p>
-      </article>
-      <article>
-        <h3>Feature Importance (Weighted)</h3>
-        <ul class="faang-bullet-list">
-          <li>Form 39%, Attack 14%, Defense 14%, H2H 9%.</li>
-          <li>Venue 8%, Opponent Quality 7%, Squad 4%, Context 5%.</li>
+    {# Why + Caution side-by-side #}
+    <div class="sp-split">
+      <div class="sp-panel">
+        <span class="sp-kicker">Why This Pick</span>
+        <ul class="sp-insight-list" style="margin-top:.5rem">
+          <li>{{ scorpred.best_pick.reasoning or 'Weighted model edge favors this side.' }}</li>
+          <li>{{ scorpred.matchup_reading or 'Recent form and contextual factors support the lean.' }}</li>
+          <li>Score gap: {{ scorpred.score_gap }}/10 — {% if (scorpred.score_gap or 0) >= 1.3 %}clear{% elif (scorpred.score_gap or 0) >= 0.8 %}moderate{% else %}thin{% endif %} separation.</li>
         </ul>
-      </article>
-      <article>
-        <h3>Raw Team Snapshot</h3>
-        <div class="faang-raw-grid">
-          {% for row in stats_compare %}
-          <div><span>{{ row.label }}</span><strong>{{ row.a }} - {{ row.b }}</strong></div>
+      </div>
+      <div class="sp-panel">
+        <span class="sp-kicker" style="color:var(--c-caution)">Caution Flags</span>
+        <ul class="sp-insight-list" style="margin-top:.5rem">
+          {% if scorpred.avoid_reasons %}
+            {% for reason in scorpred.avoid_reasons[:3] %}
+            <li>{{ reason }}</li>
+            {% endfor %}
+          {% else %}
+            <li>Data quality: {{ scorpred.data_quality or 'Moderate' }}.</li>
+            <li>Volatility increases when win probabilities stay close.</li>
+            <li>Late team news can shift edge quality near kickoff.</li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  {# ── TAB: Form ──────────────────────────────────────────────────────── #}
+  <div class="sp-tab-panel" data-panel="form">
+    <div class="sp-split">
+      {# Team A #}
+      <div class="sp-panel">
+        <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem">
+          <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" style="width:28px; height:28px; object-fit:contain" />
+          <strong>{{ team_a.name }}</strong>
+          <span class="sp-badge sp-badge--{{ 'strong' if trend_a == 'up' else 'danger' }}">{{ '▲ UP' if trend_a == 'up' else '▼ DOWN' }}</span>
+        </div>
+        <div style="display:flex; gap:.25rem; margin-bottom:.6rem">
+          {% for row in form_a[:5] %}
+          <span class="sp-badge sp-badge--{{ 'strong' if row.result == 'W' else ('danger' if row.result == 'L' else 'caution') }}">{{ row.result }}</span>
+          {% else %}
+          <span style="color:var(--text-3); font-size:.82rem">No recent form</span>
           {% endfor %}
         </div>
-      </article>
-    </div>
-  </details>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:.4rem; font-size:.82rem">
+          <div><span style="color:var(--text-3)">Scored</span><br><strong>{{ '%.2f'|format(form_a_avg_scored) }}</strong></div>
+          <div><span style="color:var(--text-3)">Allowed</span><br><strong>{{ '%.2f'|format(form_a_avg_allowed) }}</strong></div>
+          <div><span style="color:var(--text-3)">Wins (5)</span><br><strong>{{ form_a | selectattr('result', 'equalto', 'W') | list | length }}</strong></div>
+        </div>
+      </div>
 
-  <div class="nav-cta">
-    <a href="/prediction" class="btn btn-secondary">Open Full Prediction</a>
-    <a href="/strategy-lab" class="btn btn-secondary">Open Strategy Lab</a>
-    <a href="/soccer" class="btn btn-primary">Analyze Another Match</a>
+      {# Team B #}
+      <div class="sp-panel">
+        <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem">
+          <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" style="width:28px; height:28px; object-fit:contain" />
+          <strong>{{ team_b.name }}</strong>
+          <span class="sp-badge sp-badge--{{ 'strong' if trend_b == 'up' else 'danger' }}">{{ '▲ UP' if trend_b == 'up' else '▼ DOWN' }}</span>
+        </div>
+        <div style="display:flex; gap:.25rem; margin-bottom:.6rem">
+          {% for row in form_b[:5] %}
+          <span class="sp-badge sp-badge--{{ 'strong' if row.result == 'W' else ('danger' if row.result == 'L' else 'caution') }}">{{ row.result }}</span>
+          {% else %}
+          <span style="color:var(--text-3); font-size:.82rem">No recent form</span>
+          {% endfor %}
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:.4rem; font-size:.82rem">
+          <div><span style="color:var(--text-3)">Scored</span><br><strong>{{ '%.2f'|format(form_b_avg_scored) }}</strong></div>
+          <div><span style="color:var(--text-3)">Allowed</span><br><strong>{{ '%.2f'|format(form_b_avg_allowed) }}</strong></div>
+          <div><span style="color:var(--text-3)">Wins (5)</span><br><strong>{{ form_b | selectattr('result', 'equalto', 'W') | list | length }}</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── TAB: Details ───────────────────────────────────────────────────── #}
+  <div class="sp-tab-panel" data-panel="details">
+
+    {# System Intelligence #}
+    <div class="sp-panel">
+      <span class="sp-kicker">System Intelligence</span>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:.6rem; margin-top:.5rem; font-size:.82rem">
+        <div><span style="color:var(--text-3)">ML Source</span><br><strong>{{ scorpred.ml_source_label or 'Unknown' }}</strong></div>
+        <div><span style="color:var(--text-3)">Decision Layer</span><br><strong>{{ scorpred.decision_layer or 'Unknown' }}</strong></div>
+        <div><span style="color:var(--text-3)">Agreement</span><br><strong>{{ model_agreement }}</strong></div>
+        <div><span style="color:var(--text-3)">Data Quality</span><br><strong>{{ scorpred.data_quality or 'Moderate' }}</strong></div>
+        {% if scorpred.base_models %}
+        <div><span style="color:var(--text-3)">Base Models</span><br><strong>{{ scorpred.base_models | join(', ') | upper }}</strong></div>
+        {% endif %}
+        {% if scorpred.base_agreement %}
+        <div><span style="color:var(--text-3)">Base Agreement</span><br><strong>{{ '%.0f'|format((scorpred.base_agreement.agreement_ratio or 0) * 100) }}%{% if scorpred.base_agreement.unanimous %} (unanimous){% endif %}</strong></div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Feature Weights #}
+    <div class="sp-panel">
+      <span class="sp-kicker">Feature Importance</span>
+      <div class="sp-comp-rows" style="margin-top:.5rem">
+        {% set features = [("Form", 39, "strong"), ("Attack", 14, "active"), ("Defense", 14, "active"), ("H2H", 9, "purple"), ("Venue", 8, "purple"), ("Opp. Quality", 7, "caution"), ("Context", 5, "caution"), ("Squad", 4, "caution")] %}
+        {% for label, pct, color in features %}
+        <div class="sp-comp-row">
+          <div class="sp-comp-row__head">
+            <span class="sp-comp-row__label">{{ label }}</span>
+            <span style="font-weight:600">{{ pct }}%</span>
+          </div>
+          <div class="sp-comp-row__bar">
+            <span class="sp-comp-row__bar-a" style="width:{{ pct * 2.5 }}%; background:var(--c-{{ color }})"></span>
+            <span class="sp-comp-row__bar-b" style="flex:1; background:var(--panel)"></span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Raw Stats #}
+    {% if stats_compare %}
+    <div class="sp-panel">
+      <span class="sp-kicker">Raw Team Snapshot</span>
+      <div class="sp-list" style="margin-top:.4rem">
+        {% for row in stats_compare %}
+        <div class="sp-stat-row">
+          <span class="sp-stat-label">{{ row.label }}</span>
+          <span class="sp-stat-val">{{ row.a }} — {{ row.b }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="sp-panel sp-panel--tight" style="font-size:.78rem; color:var(--text-3); line-height:1.6">
+      ML: {{ scorpred.ml_source_label or 'Unknown' }} ({{ scorpred.model_role or 'n/a' }}) · Layer: {{ scorpred.decision_layer or 'Unknown' }}<br>
+      Confidence: {{ scorpred.best_pick.confidence }} · Score gap: {{ scorpred.score_gap }}/10
+    </div>
   </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
-<script>
-  document.querySelectorAll('.prob-bar-fill').forEach((el) => {
-    const width = el.dataset.width || 0;
-    requestAnimationFrame(() => {
-      el.style.width = width + '%';
-    });
-  });
-</script>
+{# ── Navigation ──────────────────────────────────────────────────────────── #}
+<div style="display:flex; gap:.5rem; margin-top:1rem">
+  <a href="/prediction" class="btn btn-secondary btn-sm">Full Prediction</a>
+  <a href="/strategy-lab" class="btn btn-secondary btn-sm">Strategy Lab</a>
+  <a href="/soccer" class="btn btn-primary btn-sm">Analyze Another</a>
+</div>
 {% endblock %}

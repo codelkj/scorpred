@@ -3,22 +3,36 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, UTC
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta, UTC
+from typing import Any, Callable
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover
+    def load_dotenv(*_args, **_kwargs):
+        return False
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import api_client as ac
-import api_client as football_api
 import predictor as pred
 import props_engine as pe
 import scorpred_engine as se
 import scormastermind as sm
 import model_tracker as mt
+import odds_fetcher
 import result_updater as ru
-from security import check_chat_rate_limit, configure_security
+from runtime_paths import ensure_runtime_dirs
+from security import check_chat_rate_limit, configure_security, sanitize_error
 from services import analysis_assistant as assistant_services
+
+try:
+    import nba_live_client as nc
+    import nba_predictor as np_nba
+except ImportError:  # pragma: no cover
+    nc = None  # type: ignore[assignment]
+    np_nba = None  # type: ignore[assignment]
 from services import evidence as evidence_services
 from services import strategy_lab as strategy_lab_services
 from services import tracking_bootstrap as bootstrap_services
@@ -37,8 +51,10 @@ except Exception:  # pragma: no cover
     anthropic = None
 
 load_dotenv()
+ensure_runtime_dirs()
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 configure_security(app, os.getenv("SECRET_KEY", "").strip())
 
 # ── Blueprints ─────────────────────────────────────────────────────────────────
@@ -128,7 +144,7 @@ def _selected_fixture() -> dict:
     return bootstrap_services.selected_fixture(session)
 
 
-def _load_upcoming_fixtures(next_n: int = 20):
+def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 6):
     return evidence_services.load_upcoming_fixtures(
         ac,
         pred,
@@ -138,6 +154,7 @@ def _load_upcoming_fixtures(next_n: int = 20):
         logger=app.logger,
         football_data_source=_football_data_source,
         next_n=next_n,
+        max_deep_predictions=max_deep_predictions,
     )
 
 
@@ -159,21 +176,33 @@ def _team_form_payload(team_id: int) -> dict:
     )
 
 
+def _run_parallel(tasks: dict[str, tuple[Callable[[], Any], Any, str]]) -> dict[str, Any]:
+    """Run independent I/O tasks concurrently and return key->result with safe fallbacks."""
+    if not tasks:
+        return {}
+
+    max_workers = min(8, len(tasks))
+    results: dict[str, Any] = {key: default for key, (_, default, _) in tasks.items()}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(func): (key, default, error_label)
+            for key, (func, default, error_label) in tasks.items()
+        }
+        for future, (key, default, error_label) in futures.items():
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                results[key] = default
+                if error_label:
+                    app.logger.error("%s: %s", error_label, exc)
+
+    return results
+
+
 def _fallback_chat_reply(message: str) -> str:
-    lower = (message or "").strip().lower()
     team_a, team_b = _require_teams()
     return assistant_services.fallback_chat_reply(message, team_a=team_a, team_b=team_b)
-    matchup = f"{team_a['name']} vs {team_b['name']}" if team_a and team_b else "your selected matchup"
-
-    if "props" in lower:
-        return f"Use the Props page to generate player lines for {matchup}. Pick a player, choose markets, and the app will build a bet slip from live stats."
-    if "prediction" in lower or "winner" in lower:
-        return f"The Prediction page uses the Scorpred Engine — a weighted model combining form, H2H, injuries, venue advantage, and opponent strength — to predict {matchup}."
-    if "player" in lower:
-        return "The Player page compares squad members side by side and can generate prop ideas from their season profile and opponent context."
-    if "nba" in lower:
-        return "The NBA section has its own home, matchup, player, prediction, and standings views under /nba."
-    return "Ask about matchup analysis, player props, prediction logic, injuries, or where to find a specific football or NBA view."
 
 
 def _chat_reply(message: str, history: list[dict] | None = None) -> str:
@@ -187,45 +216,6 @@ def _chat_reply(message: str, history: list[dict] | None = None) -> str:
         team_b=team_b,
         logger=app.logger,
     )
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key or anthropic is None:
-        return _fallback_chat_reply(message)
-
-    system_prompt = (
-        "You are the ScorPred assistant — a helpful AI built into a football and NBA prediction app. "
-        "You help users navigate the app, understand predictions, interpret stats, and find features. "
-        "Key pages: Home (team selection + upcoming fixtures), Matchup (H2H, form, injuries), "
-        "Players (squad comparison, prop ideas), Prediction (Poisson model, win probability), "
-        "Props (player bet lines with 6-layer stat model), Fixtures (upcoming schedule), "
-        "NBA (full NBA section at /nba with standings, matchup, players, predictions), "
-        "World Cup (/worldcup). "
-        "Be concise (2-3 sentences max), accurate, and friendly. "
-        "Do not make up odds or guarantees. If unsure, say so."
-    )
-
-    # Build messages list from history + current message
-    messages = []
-    for entry in (history or [])[-8:]:
-        role = entry.get("role", "")
-        content = entry.get("content", "")
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": message})
-
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-3-5-haiku-latest",
-            max_tokens=300,
-            system=system_prompt,
-            messages=messages,
-        )
-        text_blocks = [block.text for block in getattr(response, "content", []) if getattr(block, "type", "") == "text"]
-        reply = " ".join(text_blocks).strip()
-        return reply or _fallback_chat_reply(message)
-    except Exception as exc:
-        app.logger.warning("Claude chat API error: %s", exc)
-        return _fallback_chat_reply(message)
 
 
 def _prediction_top_probability(pred: dict[str, Any]) -> float:
@@ -358,17 +348,27 @@ def soccer():
     fixtures_error = None
     fixtures_source = _football_data_source()
 
-    try:
-        teams = ac.get_teams(LEAGUE, SEASON)
-    except Exception as exc:
-        load_error = str(exc)
-        app.logger.error("Failed to fetch teams: %s", exc)
+    results = _run_parallel(
+        {
+            "teams": (
+                lambda: ac.get_teams(LEAGUE, SEASON),
+                [],
+                "Failed to fetch teams",
+            ),
+            "upcoming": (
+                lambda: _load_upcoming_fixtures(next_n=8, max_deep_predictions=4),
+                ([], None, fixtures_source, None),
+                "Failed to fetch upcoming fixtures",
+            ),
+        }
+    )
 
-    try:
-        upcoming_fixtures, fixtures_error, fixtures_source, _ = _load_upcoming_fixtures(next_n=8)
-    except Exception as exc:
-        fixtures_error = str(exc)
-        app.logger.error("Failed to fetch upcoming fixtures: %s", exc)
+    teams = results.get("teams") or []
+    upcoming_bundle = results.get("upcoming") or ([], None, fixtures_source, None)
+    upcoming_fixtures, fixtures_error, fixtures_source, _ = upcoming_bundle
+
+    if not teams:
+        load_error = "Teams are unavailable right now."
 
     return render_template(
         "soccer.html",
@@ -438,40 +438,63 @@ def matchup():
     selected_fixture = _selected_fixture()
 
     id_a, id_b = team_a["id"], team_b["id"]
-    h2h_raw = []
-    fixtures_a = []
-    fixtures_b = []
-    injuries_a_raw = []
-    injuries_b_raw = []
+    results = _run_parallel(
+        {
+            "h2h_raw": (
+                lambda: ac.get_h2h(id_a, id_b, last=20),
+                [],
+                "H2H fetch error",
+            ),
+            "fixtures_a": (
+                lambda: ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20),
+                [],
+                "Team A fixtures fetch error",
+            ),
+            "fixtures_b": (
+                lambda: ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20),
+                [],
+                "Team B fixtures fetch error",
+            ),
+            "injuries_a_raw": (
+                lambda: ac.get_injuries(LEAGUE, SEASON, id_a),
+                [],
+                "Team A injuries fetch error",
+            ),
+            "injuries_b_raw": (
+                lambda: ac.get_injuries(LEAGUE, SEASON, id_b),
+                [],
+                "Team B injuries fetch error",
+            ),
+            "standings_for_opp": (
+                lambda: ac.get_standings(LEAGUE, SEASON),
+                [],
+                "Standings fetch error",
+            ),
+            "squad_a": (
+                lambda: ac.get_squad(id_a, SEASON),
+                [],
+                "Matchup squad A fetch error",
+            ),
+            "squad_b": (
+                lambda: ac.get_squad(id_b, SEASON),
+                [],
+                "Matchup squad B fetch error",
+            ),
+        }
+    )
 
-    try:
-        h2h_raw = ac.get_h2h(id_a, id_b, last=20)
-    except Exception as exc:
-        app.logger.error("H2H fetch error: %s", exc)
-
-    try:
-        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20)
-    except Exception as exc:
-        app.logger.error("Team A fixtures fetch error: %s", exc)
-
-    try:
-        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20)
-    except Exception as exc:
-        app.logger.error("Team B fixtures fetch error: %s", exc)
+    h2h_raw = results.get("h2h_raw") or []
+    fixtures_a = results.get("fixtures_a") or []
+    fixtures_b = results.get("fixtures_b") or []
+    injuries_a_raw = results.get("injuries_a_raw") or []
+    injuries_b_raw = results.get("injuries_b_raw") or []
+    standings_for_opp = results.get("standings_for_opp") or []
+    squad_a = results.get("squad_a") or []
+    squad_b = results.get("squad_b") or []
 
     h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
     fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
     fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
-
-    try:
-        injuries_a_raw = ac.get_injuries(LEAGUE, SEASON, id_a)
-    except Exception as exc:
-        app.logger.error("Team A injuries fetch error: %s", exc)
-
-    try:
-        injuries_b_raw = ac.get_injuries(LEAGUE, SEASON, id_b)
-    except Exception as exc:
-        app.logger.error("Team B injuries fetch error: %s", exc)
 
     if not h2h_raw and not fixtures_a and not fixtures_b:
         app.logger.warning("Matchup has no historical source data; using fallback neutral values for %s vs %s", team_a["name"], team_b["name"])
@@ -507,12 +530,17 @@ def matchup():
     h2h_form_b = pred.extract_form(h2h_raw, id_b)[:10]
 
     # Standings → opponent strength lookup for quality-of-schedule adjustment
-    standings_for_opp = []
-    try:
-        standings_for_opp = ac.get_standings(LEAGUE, SEASON)
-    except Exception:
-        pass
     opp_strengths = _build_opp_strengths(standings_for_opp)
+
+    # ── Fetch live odds (graceful no-op when ODDS_API_KEY is unset) ──────────
+    odds_result = odds_fetcher.fetch_match_odds("soccer", team_a["name"], team_b["name"])
+    odds_ctx: dict[str, Any] | None = None
+    if odds_result.get("available"):
+        odds_ctx = {
+            "home": odds_result.get("home_odds"),
+            "draw": odds_result.get("draw_odds"),
+            "away": odds_result.get("away_odds"),
+        }
 
     mastermind = sm.predict_match(
         {
@@ -531,20 +559,28 @@ def matchup():
                 "a": split_a,
                 "b": split_b,
             },
+            **(({"odds": odds_ctx}) if odds_ctx else {}),
         }
     )
     scorpred = mastermind.get("ui_prediction") or {}
 
+    # ── Compute odds edge for template display ─────────────────────────────────
+    edge_data: dict[str, Any] = {}
+    if odds_result.get("available"):
+        probs = scorpred.get("win_probabilities") or {}
+        best_pick_team = (scorpred.get("best_pick") or {}).get("team", "A")
+        if best_pick_team in (team_a["name"], "A"):
+            model_prob = float(probs.get("a", 0) or 0) / 100.0
+            market_odds = odds_result.get("home_odds")
+        elif best_pick_team in (team_b["name"], "B"):
+            model_prob = float(probs.get("b", 0) or 0) / 100.0
+            market_odds = odds_result.get("away_odds")
+        else:
+            model_prob = float(probs.get("draw", 0) or 0) / 100.0
+            market_odds = odds_result.get("draw_odds")
+        edge_data = odds_fetcher.compute_edge(model_prob, market_odds)
+
     # ── Key threats (danger men) ────────────────────────────────────────────────
-    squad_a, squad_b = [], []
-    try:
-        squad_a = ac.get_squad(id_a, SEASON)
-    except Exception:
-        pass
-    try:
-        squad_b = ac.get_squad(id_b, SEASON)
-    except Exception:
-        pass
     threats_a = _build_key_threats(squad_a, injuries_a_raw, fixtures_a, id_a)
     threats_b = _build_key_threats(squad_b, injuries_b_raw, fixtures_b, id_b)
 
@@ -563,9 +599,11 @@ def matchup():
             team_b_id=team_b["id"],
             league_id=LEAGUE,
             season=SEASON,
+            model_probability=mastermind.get("model_probability"),
+            form_a_length=len(form_a),
         )
     except Exception:
-        pass
+        app.logger.warning("Prediction tracking failed (matchup)", exc_info=True)
 
     return render_template(
         "matchup.html",
@@ -585,6 +623,7 @@ def matchup():
             scorpred=scorpred,
             threats_a=threats_a,
             threats_b=threats_b,
+            edge_data=edge_data,
         ),
     )
 
@@ -600,6 +639,179 @@ def _build_key_threats(squad: list, injuries: list, fixtures: list, team_id: int
     )
 
 
+def _build_soccer_total_pick(fixture: dict[str, Any], opp_strengths: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        home_id = fixture["teams"]["home"]["id"]
+        away_id = fixture["teams"]["away"]["id"]
+        home_name = fixture["teams"]["home"]["name"]
+        away_name = fixture["teams"]["away"]["name"]
+
+        h2h_raw = ac.get_h2h(home_id, away_id, last=10)
+        fixtures_home = ac.get_team_fixtures(home_id, LEAGUE, SEASON, last=10)
+        fixtures_away = ac.get_team_fixtures(away_id, LEAGUE, SEASON, last=10)
+        injuries_home = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, home_id))
+        injuries_away = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, away_id))
+
+        h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
+        fixtures_home = pred.filter_recent_completed_fixtures(fixtures_home, current_season=SEASON)
+        fixtures_away = pred.filter_recent_completed_fixtures(fixtures_away, current_season=SEASON)
+
+        form_home = pred.extract_form(fixtures_home, home_id)[:5]
+        form_away = pred.extract_form(fixtures_away, away_id)[:5]
+        h2h_form_home = pred.extract_form(h2h_raw, home_id)[:5]
+        h2h_form_away = pred.extract_form(h2h_raw, away_id)[:5]
+
+        prediction = se.scorpred_predict(
+            form_a=form_home,
+            form_b=form_away,
+            h2h_form_a=h2h_form_home,
+            h2h_form_b=h2h_form_away,
+            injuries_a=injuries_home,
+            injuries_b=injuries_away,
+            team_a_is_home=True,
+            team_a_name=home_name,
+            team_b_name=away_name,
+            sport="soccer",
+            opp_strengths=opp_strengths,
+        )
+
+        best_pick = prediction.get("best_pick", {})
+        confidence = best_pick.get("confidence", "Low")
+        team_a_score = prediction.get("team_a_score", 0)
+        team_b_score = prediction.get("team_b_score", 0)
+        expected_total = team_a_score + team_b_score
+
+        if expected_total > 2.5:
+            pick = "Over 2.5 Goals"
+            over_probability = min(95, 50 + (expected_total - 2.5) * 20)
+        else:
+            pick = "Under 2.5 Goals"
+            over_probability = max(5, 50 - (2.5 - expected_total) * 20)
+
+        if abs(expected_total - 2.5) >= 1.0:
+            confidence = "High"
+        elif abs(expected_total - 2.5) >= 0.5:
+            confidence = "Medium"
+        else:
+            confidence = "Low"
+
+        if expected_total > 3.5:
+            if team_a_score > team_b_score:
+                note = f"{home_name}'s strong home form and {away_name}'s defensive struggles suggest a high-scoring game."
+            else:
+                note = f"Both teams' recent attacking displays and {away_name}'s away goal concessions point to over 2.5 goals."
+        elif expected_total > 3.0:
+            note = f"{home_name}'s scoring trend and {away_name}'s recent matches indicate this could go over 2.5."
+        elif expected_total < 2.0:
+            note = f"{home_name} and {away_name} have combined for low-scoring games in recent fixtures."
+        elif expected_total < 2.5:
+            if team_a_score < team_b_score:
+                note = f"{away_name}'s defensive solidity and {home_name}'s scoring drought suggest under 2.5 goals."
+            else:
+                note = f"Recent form shows {home_name} and {away_name} involved in low-scoring encounters."
+        else:
+            if abs(team_a_score - team_b_score) < 0.3:
+                note = f"Balanced matchup between {home_name} and {away_name} with moderate goal expectations."
+            else:
+                note = f"{home_name if team_a_score > team_b_score else away_name}'s edge and recent trends make this total competitive."
+
+        if confidence != "High" and over_probability <= 60:
+            return None
+
+        return {
+            "fixture": fixture,
+            "home_team": fixture["teams"]["home"],
+            "away_team": fixture["teams"]["away"],
+            "pick": pick,
+            "probability": round(over_probability),
+            "confidence": confidence,
+            "note": note,
+            "expected_total": round(expected_total, 1),
+        }
+    except Exception as exc:
+        app.logger.warning("Totals prediction failed for soccer fixture %s: %s", fixture.get("fixture", {}).get("id"), exc)
+        return None
+
+
+def _build_nba_winner_pick(
+    game: dict[str, Any],
+    team_map: dict[str, dict[str, Any]],
+    nba_opp_strengths: dict[str, Any],
+    nc: Any,
+    np_nba: Any,
+) -> dict[str, Any] | None:
+    try:
+        if not isinstance(game, dict):
+            return None
+
+        teams_block = game.get("teams") or {}
+        home_raw = teams_block.get("home") or {}
+        away_raw = teams_block.get("visitors") or {}
+
+        home_id = str(home_raw.get("id") or "")
+        away_id = str(away_raw.get("id") or "")
+
+        if not home_id or not away_id:
+            return None
+
+        home_team = team_map.get(home_id) or home_raw
+        away_team = team_map.get(away_id) or away_raw
+
+        h2h_raw = nc.get_h2h(home_id, away_id)
+        form_home_raw = nc.get_team_recent_form(home_id)
+        form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
+        form_away_raw = nc.get_team_recent_form(away_id)
+        form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
+        injuries_home = nc.get_team_injuries(home_id)
+        injuries_away = nc.get_team_injuries(away_id)
+
+        h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
+        h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
+
+        prediction = se.scorpred_predict(
+            form_a=form_home,
+            form_b=form_away,
+            h2h_form_a=h2h_form_home,
+            h2h_form_b=h2h_form_away,
+            injuries_a=injuries_home,
+            injuries_b=injuries_away,
+            team_a_is_home=True,
+            team_a_name=home_team.get("nickname") or home_team.get("name") or "Home",
+            team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
+            sport="nba",
+            opp_strengths=nba_opp_strengths,
+        )
+
+        best_pick = prediction.get("best_pick", {})
+        probs = prediction.get("win_probabilities", {})
+        confidence = best_pick.get("confidence", "Low")
+        prob_home = probs.get("a", 50)
+        prob_away = probs.get("b", 50)
+
+        if confidence != "High" and prob_home <= 60 and prob_away <= 60:
+            return None
+
+        predicted_winner = best_pick.get("prediction", "—")
+        winner_team = (
+            home_team.get("name")
+            if predicted_winner == "Home"
+            else away_team.get("name") if predicted_winner == "Away" else "—"
+        )
+
+        return {
+            "game": game,
+            "home_team": home_team,
+            "away_team": away_team,
+            "predicted_winner": winner_team,
+            "win_probability": prob_home if predicted_winner == "Home" else prob_away,
+            "confidence": confidence,
+            "reasoning": best_pick.get("reasoning", ""),
+        }
+    except Exception as exc:
+        app.logger.warning("Prediction failed for NBA game %s: %s", game.get("id"), exc)
+        return None
+
+
 @app.route("/player")
 def player():
     _set_data_refresh()
@@ -609,34 +821,47 @@ def player():
     selected_fixture = _selected_fixture()
     id_a, id_b = team_a["id"], team_b["id"]
 
-    squad_a, squad_b = [], []
-    injuries_a_raw, injuries_b_raw = [], []
-    fixtures_a, fixtures_b = [], []
+    results = _run_parallel(
+        {
+            "squad_a": (
+                lambda: ac.get_squad(id_a, SEASON),
+                [],
+                "Player squad A fetch error",
+            ),
+            "squad_b": (
+                lambda: ac.get_squad(id_b, SEASON),
+                [],
+                "Player squad B fetch error",
+            ),
+            "injuries_a_raw": (
+                lambda: ac.get_injuries(LEAGUE, SEASON, id_a),
+                [],
+                "Player injuries A fetch error",
+            ),
+            "injuries_b_raw": (
+                lambda: ac.get_injuries(LEAGUE, SEASON, id_b),
+                [],
+                "Player injuries B fetch error",
+            ),
+            "fixtures_a": (
+                lambda: ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20),
+                [],
+                "Player fixtures A fetch error",
+            ),
+            "fixtures_b": (
+                lambda: ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20),
+                [],
+                "Player fixtures B fetch error",
+            ),
+        }
+    )
 
-    try:
-        squad_a = ac.get_squad(id_a, SEASON)
-    except Exception as exc:
-        app.logger.error("Player squad A fetch error: %s", exc)
-    try:
-        squad_b = ac.get_squad(id_b, SEASON)
-    except Exception as exc:
-        app.logger.error("Player squad B fetch error: %s", exc)
-    try:
-        injuries_a_raw = ac.get_injuries(LEAGUE, SEASON, id_a)
-    except Exception as exc:
-        app.logger.error("Player injuries A fetch error: %s", exc)
-    try:
-        injuries_b_raw = ac.get_injuries(LEAGUE, SEASON, id_b)
-    except Exception as exc:
-        app.logger.error("Player injuries B fetch error: %s", exc)
-    try:
-        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20)
-    except Exception as exc:
-        app.logger.error("Player fixtures A fetch error: %s", exc)
-    try:
-        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20)
-    except Exception as exc:
-        app.logger.error("Player fixtures B fetch error: %s", exc)
+    squad_a = results.get("squad_a") or []
+    squad_b = results.get("squad_b") or []
+    injuries_a_raw = results.get("injuries_a_raw") or []
+    injuries_b_raw = results.get("injuries_b_raw") or []
+    fixtures_a = results.get("fixtures_a") or []
+    fixtures_b = results.get("fixtures_b") or []
 
     fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
     fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
@@ -723,7 +948,7 @@ def player_stats_api():
         data = ac.get_player_stats(pid, league_id, season) or []
         return jsonify(data)
     except Exception as exc:
-        return jsonify({"error": str(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 500
+        return jsonify({"error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 500
 
 
 @app.route("/prediction")
@@ -735,52 +960,51 @@ def prediction():
     selected_fixture = _selected_fixture()
 
     id_a, id_b = team_a["id"], team_b["id"]
-    h2h = []
-    fixtures_a = []
-    fixtures_b = []
-    injuries_a = []
-    injuries_b = []
-    squad_a = []
-    squad_b = []
+    results = _run_parallel(
+        {
+            "h2h": (
+                lambda: ac.get_h2h(id_a, id_b, last=20),
+                [],
+                "Prediction H2H fetch error",
+            ),
+            "fixtures_a": (
+                lambda: ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20),
+                [],
+                "Prediction team A fixtures fetch error",
+            ),
+            "fixtures_b": (
+                lambda: ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20),
+                [],
+                "Prediction team B fixtures fetch error",
+            ),
+            "injuries_a_raw": (
+                lambda: ac.get_injuries(LEAGUE, SEASON, id_a),
+                [],
+                "Prediction team A injuries fetch error",
+            ),
+            "injuries_b_raw": (
+                lambda: ac.get_injuries(LEAGUE, SEASON, id_b),
+                [],
+                "Prediction team B injuries fetch error",
+            ),
+            "standings_for_opp": (
+                lambda: ac.get_standings(LEAGUE, SEASON),
+                [],
+                "Prediction standings fetch error",
+            ),
+        }
+    )
 
-    try:
-        h2h = ac.get_h2h(id_a, id_b, last=20)
-    except Exception as exc:
-        app.logger.error("Prediction H2H fetch error: %s", exc)
-
-    try:
-        fixtures_a = ac.get_team_fixtures(id_a, LEAGUE, SEASON, last=20)
-    except Exception as exc:
-        app.logger.error("Prediction team A fixtures fetch error: %s", exc)
-
-    try:
-        fixtures_b = ac.get_team_fixtures(id_b, LEAGUE, SEASON, last=20)
-    except Exception as exc:
-        app.logger.error("Prediction team B fixtures fetch error: %s", exc)
+    h2h = results.get("h2h") or []
+    fixtures_a = results.get("fixtures_a") or []
+    fixtures_b = results.get("fixtures_b") or []
+    injuries_a = _clean_injuries(results.get("injuries_a_raw") or [])
+    injuries_b = _clean_injuries(results.get("injuries_b_raw") or [])
+    standings_for_opp = results.get("standings_for_opp") or []
 
     h2h = pred.filter_recent_completed_fixtures(h2h, current_season=SEASON)
     fixtures_a = pred.filter_recent_completed_fixtures(fixtures_a, current_season=SEASON)
     fixtures_b = pred.filter_recent_completed_fixtures(fixtures_b, current_season=SEASON)
-
-    try:
-        injuries_a = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, id_a))
-    except Exception as exc:
-        app.logger.error("Prediction team A injuries fetch error: %s", exc)
-
-    try:
-        injuries_b = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, id_b))
-    except Exception as exc:
-        app.logger.error("Prediction team B injuries fetch error: %s", exc)
-
-    try:
-        squad_a = ac.get_squad(id_a)
-    except Exception as exc:
-        app.logger.error("Prediction squad A fetch error: %s", exc)
-
-    try:
-        squad_b = ac.get_squad(id_b)
-    except Exception as exc:
-        app.logger.error("Prediction squad B fetch error: %s", exc)
 
     if not fixtures_a and not fixtures_b and not h2h:
         app.logger.warning(
@@ -798,12 +1022,18 @@ def prediction():
     h2h_form_b = pred.extract_form(h2h, id_b)[:5]
 
     # Standings → opponent strength lookup for quality-of-schedule adjustment
-    standings_for_opp = []
-    try:
-        standings_for_opp = ac.get_standings(LEAGUE, SEASON)
-    except Exception:
-        pass
     opp_strengths = _build_opp_strengths(standings_for_opp)
+
+    # Optional decimal odds for edge calculation — all three required or ignored
+    _odds: dict[str, float] | None = None
+    try:
+        _ho = (request.args.get("home_odds") or "").strip()
+        _do = (request.args.get("draw_odds") or "").strip()
+        _ao = (request.args.get("away_odds") or "").strip()
+        if _ho and _do and _ao:
+            _odds = {"home": float(_ho), "draw": float(_do), "away": float(_ao)}
+    except (TypeError, ValueError):
+        _odds = None
 
     # Single unified prediction from ScorMastermind
     mastermind = sm.predict_match(
@@ -823,6 +1053,7 @@ def prediction():
                 "a": {"form": form_a},
                 "b": {"form": form_b},
             },
+            "odds": _odds,
         }
     )
     prediction = mastermind.get("ui_prediction") or {}
@@ -846,9 +1077,10 @@ def prediction():
             team_b_id=team_b["id"],
             league_id=LEAGUE,
             season=SEASON,
+            model_probability=mastermind.get("model_probability"),
         )
     except Exception:
-        pass  # Silent fail if tracking fails
+        app.logger.warning("Prediction tracking failed (prediction)", exc_info=True)
 
     return render_template(
         "prediction.html",
@@ -865,7 +1097,7 @@ def prediction():
 @app.route("/fixtures")
 def fixtures():
     _set_data_refresh()
-    fixtures_with_pred, load_error, data_source, espn_slug = _load_upcoming_fixtures(next_n=20)
+    fixtures_with_pred, load_error, data_source, espn_slug = _load_upcoming_fixtures(next_n=20, max_deep_predictions=6)
 
     return render_template(
         "fixtures.html",
@@ -895,7 +1127,7 @@ def today_soccer_predictions():
     )
 
     try:
-        fixtures_with_pred, load_error, _, _ = _load_upcoming_fixtures(next_n=20)
+        fixtures_with_pred, load_error, _, _ = _load_upcoming_fixtures(next_n=20, max_deep_predictions=6)
         app.logger.info(
             "today_soccer_predictions: fixture payload size=%d",
             len(fixtures_with_pred),
@@ -912,7 +1144,7 @@ def today_soccer_predictions():
             )
     except Exception as exc:
         app.logger.error("Upcoming fixtures fetch failed: %s", exc, exc_info=True)
-        load_error = str(exc)
+        load_error = sanitize_error(exc)
 
     # Build response payload from shared fixture predictions
     predictions_for_fixtures = []
@@ -923,19 +1155,32 @@ def today_soccer_predictions():
             best_pick = prediction.get("best_pick", {})
             probs = prediction.get("win_probabilities", {})
 
+            data_quality = prediction.get("data_quality", "Limited")
+            has_data = data_quality != "Limited"
+
+            # Guard against neutral-fallback predictions that slipped through
+            # quality checks (e.g. stale cache served empty form data).
+            score_gap = prediction.get("score_gap", 0)
+            if has_data and score_gap == 0:
+                pa, pd, pb = probs.get("a", 0), probs.get("draw", 0), probs.get("b", 0)
+                if abs(pa - 37.0) < 0.5 and abs(pd - 26.0) < 0.5 and abs(pb - 37.0) < 0.5:
+                    has_data = False
+
             # Add to predictions list with fixture info
             predictions_for_fixtures.append({
                 "fixture": fixture,
                 "home_team": fixture["teams"]["home"],
                 "away_team": fixture["teams"]["away"],
                 "prediction": prediction,
-                "predicted_winner": best_pick.get("prediction", "—"),
-                "confidence": best_pick.get("confidence", "Low"),
+                "predicted_winner": best_pick.get("prediction", "—") if has_data else "—",
+                "confidence": best_pick.get("confidence", "Low") if has_data else "Low",
                 "prob_home": probs.get("a", 33.3),
                 "prob_draw": probs.get("draw", 33.4),
                 "prob_away": probs.get("b", 33.3),
-                "reasoning": best_pick.get("reasoning", ""),
+                "reasoning": best_pick.get("reasoning", "") if has_data else "",
                 "score_gap": prediction.get("score_gap", 0),
+                "data_quality": data_quality,
+                "has_data": has_data,
             })
         except Exception as exc:
             app.logger.warning("Prediction for fixture %s failed: %s", (row or {}).get("fixture", {}).get("id"), exc)
@@ -951,7 +1196,6 @@ def today_soccer_predictions():
     )
     
     # ── Yesterday section: completed predictions from tracker ─────────────────
-    from datetime import date, timedelta
     yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
     today_str = date.today().strftime("%Y-%m-%d")
     try:
@@ -970,7 +1214,7 @@ def today_soccer_predictions():
         **_page_context(
             sport="soccer",
             predictions=predictions_for_fixtures,
-            total_fixtures=len(upcoming_fixtures),
+            total_fixtures=len(fixtures_with_pred),
             total_predictions=len(predictions_for_fixtures),
             load_error=load_error,
             yesterday_results=yesterday_results,
@@ -990,16 +1234,35 @@ _EMPTY_METRICS = {
 
 @app.route("/model-performance")
 def model_performance():
-    """Display model accuracy metrics and recent predictions."""
+    """Display model evaluation dashboard with trends, calibration, and strategy analytics."""
+    sport_filter = request.args.get('sport', '').lower()
+    rolling_window = request.args.get('window', default=10, type=int) or 10
+    exclude_seeded = request.args.get('include_seeded', '0') != '1'
     try:
-        sport_filter = request.args.get('sport', '').lower()
-        metrics = mt.get_summary_metrics()
+        metrics = mt.get_summary_metrics(exclude_seeded=exclude_seeded)
         completed_predictions = mt.get_completed_predictions()
         pending_predictions = mt.get_pending_predictions()
+
+        strategy_context = strategy_lab_services.build_strategy_lab_context()
+        performance_comparison = strategy_context.get("performance_comparison") or {}
+        ml_comparison = strategy_context.get("ml_comparison") or {}
+        evaluation = mt.get_evaluation_dashboard(
+            rolling_window=max(1, min(rolling_window, 50)),
+            strategy_reference=performance_comparison,
+            exclude_seeded=exclude_seeded,
+        )
         
         # Filter completed predictions by sport if specified
         if sport_filter in ['soccer', 'nba']:
             completed_predictions = [p for p in completed_predictions if p.get('sport', '').lower() == sport_filter]
+            evaluation["failure_rows"] = [
+                row for row in evaluation.get("failure_rows", [])
+                if row.get("sport", "").lower() == sport_filter
+            ]
+            evaluation["pass_rows"] = [
+                row for row in evaluation.get("pass_rows", [])
+                if row.get("sport", "").lower() == sport_filter
+            ]
         
         # Guarantee every key the template expects is present
         metrics.setdefault("finalized_predictions", 0)
@@ -1011,6 +1274,35 @@ def model_performance():
         metrics = dict(_EMPTY_METRICS)
         completed_predictions = []
         pending_predictions = []
+        evaluation = {
+            "kpis": {
+                "overall_accuracy": None,
+                "rolling_win_rate": None,
+                "total_tracked_predictions": 0,
+                "finalized_predictions": 0,
+                "avoids_skipped": 0,
+                "current_best_strategy": "Awaiting sample",
+                "roi_or_points": 0,
+            },
+            "rolling_window": rolling_window,
+            "series": {
+                "rolling_by_match": [],
+                "rolling_by_day": [],
+                "cumulative_points": [],
+            },
+            "confidence_calibration": [],
+            "strategy_comparison": [],
+            "breakdowns": {
+                "by_sport": [],
+                "by_confidence_tier": [],
+                "by_predicted_outcome": [],
+                "recent_form": {"last_10": {"count": 0, "accuracy": None}, "last_20": {"count": 0, "accuracy": None}},
+            },
+            "failure_rows": [],
+            "pass_rows": [],
+        }
+        performance_comparison = {}
+        ml_comparison = {}
 
     return render_template(
         "model_performance.html",
@@ -1019,6 +1311,40 @@ def model_performance():
             completed_predictions=completed_predictions,
             pending_predictions=pending_predictions,
             sport_filter=sport_filter,
+            evaluation=evaluation,
+            performance_comparison=performance_comparison,
+            ml_comparison=ml_comparison,
+            walk_forward=strategy_lab_services.walk_forward_summary(),
+        ),
+    )
+
+
+@app.route("/pass-analysis")
+def pass_analysis():
+    """Display recent successful picks to complement failure analysis."""
+    sport_filter = request.args.get("sport", "").lower()
+    rolling_window = request.args.get("window", default=10, type=int) or 10
+    try:
+        evaluation = mt.get_evaluation_dashboard(
+            rolling_window=max(1, min(rolling_window, 50)),
+        )
+        pass_rows = evaluation.get("pass_rows", [])
+        if sport_filter in ["soccer", "nba"]:
+            pass_rows = [
+                row for row in pass_rows
+                if row.get("sport", "").lower() == sport_filter
+            ]
+    except Exception as exc:
+        app.logger.error("pass_analysis: failed to build pass rows - %s", exc, exc_info=True)
+        evaluation = {"kpis": {}, "rolling_window": rolling_window}
+        pass_rows = []
+
+    return render_template(
+        "pass_analysis.html",
+        **_page_context(
+            evaluation=evaluation,
+            pass_rows=pass_rows,
+            sport_filter=sport_filter,
         ),
     )
 
@@ -1026,11 +1352,25 @@ def model_performance():
 @app.route("/strategy-lab")
 def strategy_lab():
     """Display product-facing strategy and ML comparison context."""
+    exclude_seeded = request.args.get('include_seeded', '0') != '1'
     try:
         context = strategy_lab_services.build_strategy_lab_context()
     except Exception as exc:
         app.logger.error("strategy_lab: failed to build context - %s", exc, exc_info=True)
         context = strategy_lab_services.empty_strategy_lab_context()
+
+    # Add calibration data from tracker
+    try:
+        _metrics = mt.get_summary_metrics(exclude_seeded=exclude_seeded)
+        context["calibration"] = _metrics.get("calibration") or {}
+        context["seeded_count"] = _metrics.get("seeded_count", 0) if exclude_seeded else 0
+        context["real_prediction_count"] = _metrics.get("total_predictions", 0)
+        context["exclude_seeded"] = exclude_seeded
+    except Exception:
+        context.setdefault("calibration", {})
+        context.setdefault("seeded_count", 0)
+        context.setdefault("real_prediction_count", 0)
+        context.setdefault("exclude_seeded", exclude_seeded)
 
     return render_template(
         "strategy_lab.html",
@@ -1155,7 +1495,7 @@ def props_generate():
         return jsonify(result)
     except Exception as exc:
         app.logger.error("Props generation failed: %s", exc)
-        return jsonify({"error": str(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 500
+        return jsonify({"error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 500
 
 
 @app.route("/chat", methods=["POST"])
@@ -1210,119 +1550,26 @@ def top_picks_today():
         upcoming_fixtures = ac.get_upcoming_fixtures(LEAGUE, SEASON, next_n=20)
         standings_list = ac.get_standings(LEAGUE, SEASON)
         opp_strengths = _build_opp_strengths(standings_list)
-        for fixture in upcoming_fixtures or []:
-            try:
-                home_id = fixture["teams"]["home"]["id"]
-                away_id = fixture["teams"]["away"]["id"]
-                home_name = fixture["teams"]["home"]["name"]
-                away_name = fixture["teams"]["away"]["name"]
-                
-                # Fetch data (same as above)
-                h2h_raw = ac.get_h2h(home_id, away_id, last=10)
-                fixtures_home = ac.get_team_fixtures(home_id, LEAGUE, SEASON, last=10)
-                fixtures_away = ac.get_team_fixtures(away_id, LEAGUE, SEASON, last=10)
-                injuries_home = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, home_id))
-                injuries_away = _clean_injuries(ac.get_injuries(LEAGUE, SEASON, away_id))
-                
-                h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=SEASON, seasons_back=5)
-                fixtures_home = pred.filter_recent_completed_fixtures(fixtures_home, current_season=SEASON)
-                fixtures_away = pred.filter_recent_completed_fixtures(fixtures_away, current_season=SEASON)
-                
-                form_home = pred.extract_form(fixtures_home, home_id)[:5]
-                form_away = pred.extract_form(fixtures_away, away_id)[:5]
-                h2h_form_home = pred.extract_form(h2h_raw, home_id)[:5]
-                h2h_form_away = pred.extract_form(h2h_raw, away_id)[:5]
-                
-                prediction = se.scorpred_predict(
-                    form_a=form_home,
-                    form_b=form_away,
-                    h2h_form_a=h2h_form_home,
-                    h2h_form_b=h2h_form_away,
-                    injuries_a=injuries_home,
-                    injuries_b=injuries_away,
-                    team_a_is_home=True,
-                    team_a_name=home_name,
-                    team_b_name=away_name,
-                    sport="soccer",
-                    opp_strengths=opp_strengths,
-                )
-                
-                best_pick = prediction.get("best_pick", {})
-                confidence = best_pick.get("confidence", "Low")
-                team_a_score = prediction.get("team_a_score", 0)
-                team_b_score = prediction.get("team_b_score", 0)
-                expected_total = team_a_score + team_b_score
-
-                # Determine Over/Under pick based on expected total goals
-                if expected_total > 2.5:
-                    pick = "Over 2.5 Goals"
-                    # Probability based on how much over 2.5
-                    over_probability = min(95, 50 + (expected_total - 2.5) * 20)
-                else:
-                    pick = "Under 2.5 Goals"
-                    # Probability based on how much under 2.5
-                    over_probability = max(5, 50 - (2.5 - expected_total) * 20)
-
-                # Adjust confidence based on prediction strength
-                if abs(expected_total - 2.5) >= 1.0:
-                    confidence = "High"
-                elif abs(expected_total - 2.5) >= 0.5:
-                    confidence = "Medium"
-                else:
-                    confidence = "Low"
-
-                # Generate specific matchup-based note
-                home_avg_goals = sum([1 if result in ['W', 'D'] else 0 for result in form_home]) / len(form_home) if form_home else 0
-                away_avg_goals = sum([1 if result in ['W', 'D'] else 0 for result in form_away]) / len(form_away) if form_away else 0
-
-                if expected_total > 3.5:
-                    if team_a_score > team_b_score:
-                        note = f"{home_name}'s strong home form and {away_name}'s defensive struggles suggest a high-scoring game."
-                    else:
-                        note = f"Both teams' recent attacking displays and {away_name}'s away goal concessions point to over 2.5 goals."
-                elif expected_total > 3.0:
-                    note = f"{home_name}'s scoring trend and {away_name}'s recent matches indicate this could go over 2.5."
-                elif expected_total < 2.0:
-                    note = f"{home_name} and {away_name} have combined for low-scoring games in recent fixtures."
-                elif expected_total < 2.5:
-                    if team_a_score < team_b_score:
-                        note = f"{away_name}'s defensive solidity and {home_name}'s scoring drought suggest under 2.5 goals."
-                    else:
-                        note = f"Recent form shows {home_name} and {away_name} involved in low-scoring encounters."
-                else:
-                    if abs(team_a_score - team_b_score) < 0.3:
-                        note = f"Balanced matchup between {home_name} and {away_name} with moderate goal expectations."
-                    else:
-                        note = f"{home_name if team_a_score > team_b_score else away_name}'s edge and recent trends make this total competitive."
-
-                # Filter for strong picks: High confidence OR >60% probability
-                if confidence == "High" or over_probability > 60:
-                    soccer_totals.append({
-                        "fixture": fixture,
-                        "home_team": fixture["teams"]["home"],
-                        "away_team": fixture["teams"]["away"],
-                        "pick": pick,
-                        "probability": round(over_probability),
-                        "confidence": confidence,
-                        "note": note,
-                        "expected_total": round(expected_total, 1),
-                    })
-
-            except Exception as exc:
-                app.logger.warning("Totals prediction failed for soccer fixture %s: %s", fixture.get("fixture", {}).get("id"), exc)
-                continue
+        with ThreadPoolExecutor(max_workers=min(8, len(upcoming_fixtures or [])) or 1) as executor:
+            futures = [
+                executor.submit(_build_soccer_total_pick, fixture, opp_strengths)
+                for fixture in (upcoming_fixtures or [])
+            ]
+            for future in futures:
+                result = future.result()
+                if result:
+                    soccer_totals.append(result)
 
     except Exception as exc:
         app.logger.error("Failed to process soccer totals: %s", exc)
 
     # ── NBA Winners ────────────────────────────────────────────────────────
     
-    # ── NBA Winners ────────────────────────────────────────────────────────
     nba_winners = []
     try:
-        import nba_live_client as nc
-        import nba_predictor as np_nba
-        
+        if nc is None or np_nba is None:
+            raise ImportError("NBA client not available")
+
         today_games = nc.get_today_games()
         if not today_games:
             today_games = nc.get_upcoming_games(next_n=12, days_ahead=2)
@@ -1352,78 +1599,20 @@ def top_picks_today():
         except Exception:
             pass
         
-        for game in today_games or []:
-            try:
-                if not isinstance(game, dict):
-                    continue
-                teams_block = game.get("teams") or {}
-                home_raw = teams_block.get("home") or {}
-                away_raw = teams_block.get("visitors") or {}
-                
-                home_id = str(home_raw.get("id") or "")
-                away_id = str(away_raw.get("id") or "")
-                
-                if not home_id or not away_id:
-                    continue
-                
-                home_team = team_map.get(home_id) or home_raw
-                away_team = team_map.get(away_id) or away_raw
-                
-                # Fetch data
-                h2h_raw = nc.get_h2h(home_id, away_id)
-                form_home_raw = nc.get_team_recent_form(home_id)
-                form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
-                form_away_raw = nc.get_team_recent_form(away_id)
-                form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
-                injuries_home = nc.get_team_injuries(home_id)
-                injuries_away = nc.get_team_injuries(away_id)
-                
-                h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
-                h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
-                
-                prediction = se.scorpred_predict(
-                    form_a=form_home,
-                    form_b=form_away,
-                    h2h_form_a=h2h_form_home,
-                    h2h_form_b=h2h_form_away,
-                    injuries_a=injuries_home,
-                    injuries_b=injuries_away,
-                    team_a_is_home=True,
-                    team_a_name=home_team.get("nickname") or home_team.get("name") or "Home",
-                    team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
-                    sport="nba",
-                    opp_strengths=nba_opp_strengths,
-                )
-                
-                best_pick = prediction.get("best_pick", {})
-                probs = prediction.get("win_probabilities", {})
-                confidence = best_pick.get("confidence", "Low")
-                prob_home = probs.get("a", 50)
-                prob_away = probs.get("b", 50)
-                
-                # Filter for strong picks: High confidence OR >60% probability
-                if confidence == "High" or prob_home > 60 or prob_away > 60:
-                    predicted_winner = best_pick.get("prediction", "—")
-                    winner_team = home_team.get("name") if predicted_winner == "Home" else away_team.get("name") if predicted_winner == "Away" else "—"
-                    
-                    nba_winners.append({
-                        "game": game,
-                        "home_team": home_team,
-                        "away_team": away_team,
-                        "predicted_winner": winner_team,
-                        "win_probability": prob_home if predicted_winner == "Home" else prob_away,
-                        "confidence": confidence,
-                        "reasoning": best_pick.get("reasoning", ""),
-                    })
-                    
-            except Exception as exc:
-                app.logger.warning("Prediction failed for NBA game %s: %s", game.get("id"), exc)
-                continue
+        with ThreadPoolExecutor(max_workers=min(8, len(today_games or [])) or 1) as executor:
+            futures = [
+                executor.submit(_build_nba_winner_pick, game, team_map, nba_opp_strengths, nc, np_nba)
+                for game in (today_games or [])
+            ]
+            for future in futures:
+                result = future.result()
+                if result:
+                    nba_winners.append(result)
                 
     except Exception as exc:
         app.logger.error("Failed to fetch NBA data: %s", exc)
         if not load_error:
-            load_error = str(exc)
+            load_error = sanitize_error(exc)
     
     # Sort each section by confidence then probability
     conf_order = {"High": 0, "Medium": 1, "Low": 2}
@@ -1460,9 +1649,9 @@ def football_teams_api():
     league_id = request.args.get("league", default=LEAGUE, type=int)
     season = request.args.get("season", default=SEASON, type=int)
     try:
-        teams = football_api.get_teams(league_id, season)
+        teams = ac.get_teams(league_id, season)
     except Exception as exc:
-        return jsonify({"teams": [], "league": LEAGUE_BY_ID.get(league_id, {}), "error": str(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
+        return jsonify({"teams": [], "league": LEAGUE_BY_ID.get(league_id, {}), "error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
 
     payload = []
     for entry in teams:
@@ -1494,7 +1683,7 @@ def football_team_form_api():
         payload["last_updated"] = _now_stamp()
         return jsonify(payload)
     except Exception as exc:
-        return jsonify({"error": str(exc), "form_string": "", "rows": [], "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
+        return jsonify({"error": sanitize_error(exc), "form_string": "", "rows": [], "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
 
 
 @app.route("/api/football/squad")
@@ -1506,9 +1695,9 @@ def football_squad_api():
         return jsonify({"error": "team_id is required"}), 400
 
     try:
-        squad = football_api.get_squad(team_id, SEASON)
+        squad = ac.get_squad(team_id, SEASON)
     except Exception as exc:
-        return jsonify({"players": [], "league_id": league_id, "error": str(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
+        return jsonify({"players": [], "league_id": league_id, "error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
 
     payload = []
     for entry in squad:
@@ -1557,7 +1746,7 @@ def football_relevant_competitions_api():
             season,
         )
     except Exception as exc:
-        return jsonify({"competitions": [], "league_ids": [], "error": str(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
+        return jsonify({"competitions": [], "league_ids": [], "error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
     competitions = []
     for league_id in league_ids:
         info = LEAGUE_BY_ID.get(league_id, {})
@@ -1589,7 +1778,7 @@ def football_prefetch_competition_api():
         return jsonify({
             "league_id": league_id,
             "league_name": (LEAGUE_BY_ID.get(league_id) or {}).get("name", f"League {league_id}"),
-            "error": str(exc),
+            "error": sanitize_error(exc),
             "data_source": _football_data_source(),
             "last_updated": _now_stamp(),
         }), 200
@@ -1601,16 +1790,22 @@ def props_page():
     team_a, team_b = _require_teams()
     squad_a = []
     squad_b = []
+    tasks: dict[str, tuple[Callable[[], Any], Any, str]] = {}
     if team_a:
-        try:
-            squad_a = ac.get_squad(team_a["id"], SEASON)
-        except Exception as exc:
-            app.logger.error("Props page squad A fetch error: %s", exc)
+        tasks["squad_a"] = (
+            lambda: ac.get_squad(team_a["id"], SEASON),
+            [],
+            "Props page squad A fetch error",
+        )
     if team_b:
-        try:
-            squad_b = ac.get_squad(team_b["id"], SEASON)
-        except Exception as exc:
-            app.logger.error("Props page squad B fetch error: %s", exc)
+        tasks["squad_b"] = (
+            lambda: ac.get_squad(team_b["id"], SEASON),
+            [],
+            "Props page squad B fetch error",
+        )
+    results = _run_parallel(tasks)
+    squad_a = results.get("squad_a") or []
+    squad_b = results.get("squad_b") or []
 
     return render_template(
         "props.html",

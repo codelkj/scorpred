@@ -3,228 +3,127 @@
 {% block title %}Top Picks Today | ScorPred{% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-4">
-  <div class="row mb-4">
-    <div class="col-md-12">
-      <h1>Top Picks Today</h1>
-      <p class="text-muted">
-        Strongest model-backed recommendations across soccer and NBA — only the best opportunities
-      </p>
-    </div>
+{# ── HERO ── #}
+<section class="sp-hero">
+  <span class="sp-kicker">ScorPred Platform</span>
+  <h1>Top Picks Today</h1>
+  <p style="color:var(--text-3)">Strongest model-backed recommendations across soccer and NBA &mdash; only the best opportunities</p>
+  <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem">
+    <a href="{{ url_for('today_soccer_predictions') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Today Soccer</a>
+    <a href="{{ url_for('nba.today_predictions') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Today NBA</a>
+    <a href="{{ url_for('model_performance') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Performance</a>
   </div>
+</section>
 
-  {% if load_error %}
-  <div class="alert alert-warning" role="alert">
-    <h5>Data Load Issue</h5>
-    <p>{{ load_error }}</p>
-    <p>Some picks may not be available. <a href="{{ url_for('top_picks_today') }}?refresh=1">Refresh</a></p>
-  </div>
-  {% endif %}
+{% if load_error %}
+<div class="sp-notice sp-notice--warn">{{ load_error }} <a href="{{ url_for('top_picks_today') }}?refresh=1">Refresh</a></div>
+{% endif %}
 
-  <!-- ── SOCCER TOTALS ──────────────────────────────────────────── -->
-  <div class="row mb-4">
-    <div class="col-md-12">
-      <h2 class="mb-3">Soccer Totals</h2>
-    </div>
-  </div>
-
-  {% if soccer_totals | length > 0 %}
-  <div class="row mb-4">
-    {% for pick in soccer_totals %}
-    <div class="col-lg-6 col-xl-4 mb-3">
-      <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
-        <div class="card h-100 fpred-card border-primary">
-
-          <div class="card-body text-center">
-            <!-- Teams -->
-            <div class="mb-2">
-              <strong>{{ pick.home_team.name }} vs {{ pick.away_team.name }}</strong>
-            </div>
-
-            <!-- Confidence -->
-            <div class="mb-2">
-              <span class="badge bg-primary">
-                {{ pick.confidence }}
-              </span>
-            </div>
-
-            <!-- Pick -->
-            <div class="text-muted small mb-1">
-              Pick: {{ pick.pick }}
-            </div>
-
-            <!-- Probability -->
-            <div class="text-muted small mb-2">
-              Probability: {{ pick.probability }}%
-            </div>
-
-            <!-- Probability Bar -->
-            <div class="prob-bar">
-              <div class="prob-fill" style="width: {{ pick.probability }}%;"></div>
-            </div>
-
-            <!-- Note -->
-            <div class="text-muted small">
-              Note: {{ pick.note }}
-            </div>
-          </div>
-        </div>
-      </a>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="row mb-4">
-    <div class="col-md-8 mx-auto">
-      <div class="card text-center">
-        <div class="card-body py-4">
-          <h5>No high-confidence soccer totals picks today</h5>
-          <p class="text-muted">Check back later or view <a href="/today-soccer-predictions">all soccer predictions</a></p>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- ── NBA WINNERS ────────────────────────────────────────────────── -->
-  <div class="row mb-4">
-    <div class="col-md-12">
-      <h2 class="mb-3">NBA Winners</h2>
-    </div>
-  </div>
-
-  {% if nba_winners | length > 0 %}
-  <div class="row mb-4">
-    {% for pick in nba_winners %}
-    <div class="col-lg-6 col-xl-4 mb-3">
-      <a href="{{ url_for('nba.select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
-        <div class="card h-100 fpred-card
-            {% if pick.confidence == 'High' %}border-success{% elif pick.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
-
-          <div class="card-body text-center">
-            <!-- Teams -->
-            <div class="mb-2">
-              <strong>{{ pick.home_team.name }} vs {{ pick.away_team.name }}</strong>
-            </div>
-
-            <!-- Confidence -->
-            <div class="mb-2">
-              <span class="badge
-                  {% if pick.confidence == 'High' %}bg-success{% elif pick.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                {{ pick.confidence }}
-              </span>
-            </div>
-
-            <!-- Probability -->
-            <div class="text-muted small mb-1">
-              Win Probability: {{ "%.0f"|format(pick.win_probability) }}%
-            </div>
-
-            <!-- Pick -->
-            <div class="text-muted small">
-              Pick: {{ pick.predicted_winner }} Win
-            </div>
-          </div>
-        </div>
-      </a>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="row mb-4">
-    <div class="col-md-8 mx-auto">
-      <div class="card text-center">
-        <div class="card-body py-4">
-          <h5>No high-confidence NBA winner picks today</h5>
-          <p class="text-muted">Check back later or view <a href="/nba/today-predictions">all NBA predictions</a></p>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- Summary Stats -->
-  {% if (soccer_totals | length + nba_winners | length) > 0 %}
-  <div class="row mt-3 mb-4">
-    <div class="col-md-12">
-      <div class="card bg-light">
-        <div class="card-body py-3">
-          <div class="row text-center">
-            <div class="col-md-6">
-              <strong>Soccer Totals:</strong> {{ soccer_totals | length }}
-            </div>
-            <div class="col-md-6">
-              <strong>NBA Winners:</strong> {{ nba_winners | length }}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- Navigation -->
-  <div class="row mt-4 mb-4">
-    <div class="col-md-12">
-      <a href="{{ url_for('index') }}" class="btn btn-secondary">Home</a>
-      <a href="{{ url_for('today_soccer_predictions') }}" class="btn btn-outline-primary">Today Soccer</a>
-      <a href="{{ url_for('nba.today_predictions') }}" class="btn btn-outline-primary">Today NBA</a>
-      <a href="{{ url_for('model_performance') }}" class="btn btn-outline-secondary">Model Performance</a>
-    </div>
-  </div>
+{# ── SUMMARY STRIP ── #}
+{% set total_picks = (soccer_totals | length) + (nba_winners | length) %}
+{% if total_picks > 0 %}
+<div class="sp-kpi-strip">
+  <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{{ soccer_totals | length }}</span><span class="sp-kpi__label">Soccer</span></div>
+  <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-caution)">{{ nba_winners | length }}</span><span class="sp-kpi__label">NBA</span></div>
+  <div class="sp-kpi"><span class="sp-kpi__val">{{ total_picks }}</span><span class="sp-kpi__label">Total picks</span></div>
 </div>
+{% endif %}
 
-<style>
-  .pick-card-link {
-    text-decoration: none;
-    color: inherit;
-    display: block;
-    cursor: pointer;
-  }
+{# ── SOCCER TOTALS ── #}
+<span class="sp-kicker" style="margin-top:1rem">Soccer Totals</span>
+{% if soccer_totals | length > 0 %}
+<div class="sp-grid sp-grid--cards">
+  {% for pick in soccer_totals %}
+  <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" style="text-decoration:none; color:inherit">
+    <article class="sp-panel sp-panel--tight">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">
+        <div style="font-size:.75rem; color:var(--text-3)">
+          {% if pick.fixture and pick.fixture.fixture and pick.fixture.fixture.date %}{{ pick.fixture.fixture.date[:10] }}{% endif %}
+          {% if pick.fixture and pick.fixture.league %} &middot; {{ pick.fixture.league.name }}{% endif %}
+        </div>
+        <span class="sp-badge sp-badge--{{ 'strong' if pick.confidence == 'High' else ('caution' if pick.confidence == 'Medium' else 'muted') }}">{{ pick.confidence }}</span>
+      </div>
 
-  .pick-card-link:hover {
-    text-decoration: none;
-  }
+      <div style="display:flex; align-items:center; justify-content:center; gap:.6rem; margin-bottom:.5rem">
+        <div style="display:flex; align-items:center; gap:.3rem">
+          {% if pick.home_team.logo %}<img src="{{ pick.home_team.logo }}" alt="" style="width:22px;height:22px;object-fit:contain" />{% endif %}
+          <strong style="font-size:.85rem">{{ pick.home_team.name }}</strong>
+        </div>
+        <span style="color:var(--text-3); font-size:.78rem">vs</span>
+        <div style="display:flex; align-items:center; gap:.3rem">
+          {% if pick.away_team.logo %}<img src="{{ pick.away_team.logo }}" alt="" style="width:22px;height:22px;object-fit:contain" />{% endif %}
+          <strong style="font-size:.85rem">{{ pick.away_team.name }}</strong>
+        </div>
+      </div>
 
-  .fpred-card {
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    border-width: 2px;
-    background-color: #1a1a1a;
-    color: #ffffff;
-  }
+      <div class="sp-prob-stack" style="margin-bottom:.5rem">
+        <div class="sp-prob-stack__bar" style="flex:{{ pick.probability }}; background:var(--c-strong)">
+          <span style="font-size:.65rem; padding:0 .3rem">{{ pick.probability }}%</span>
+        </div>
+      </div>
 
-  .fpred-card .card-body {
-    padding: 1.5rem 1rem;
-  }
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <div><span style="font-size:.72rem; color:var(--text-3)">Pick</span><br><strong style="color:var(--c-strong)">{{ pick.pick }}</strong></div>
+        <span style="font-size:.75rem; color:var(--text-3)">Expected {{ pick.expected_total }} goals</span>
+      </div>
+      <p style="font-size:.78rem; color:var(--text-2); margin-top:.35rem">{{ pick.note }}</p>
+    </article>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="sp-panel" style="text-align:center; padding:1.5rem">
+  <p style="color:var(--text-3)">No high-confidence soccer totals picks today. <a href="{{ url_for('today_soccer_predictions') }}">View all soccer predictions</a></p>
+</div>
+{% endif %}
 
-  .pick-card-link:hover .fpred-card {
-    transform: translateY(-3px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-    border-color: rgba(34, 197, 94, 0.3);
-  }
+{# ── NBA WINNERS ── #}
+<span class="sp-kicker" style="margin-top:1.5rem">NBA Winners</span>
+{% if nba_winners | length > 0 %}
+<div class="sp-grid sp-grid--cards">
+  {% for pick in nba_winners %}
+  <a href="{{ url_for('nba.select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" style="text-decoration:none; color:inherit">
+    <article class="sp-panel sp-panel--tight sp-nba">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">
+        <span style="font-size:.75rem; color:var(--text-3)">NBA</span>
+        <span class="sp-badge sp-badge--{{ 'strong' if pick.confidence == 'High' else ('caution' if pick.confidence == 'Medium' else 'muted') }}">{{ pick.confidence }}</span>
+      </div>
 
-  .prob-bar {
-    width: 100%;
-    height: 10px;
-    background: #2d3748;
-    border-radius: 10px;
-    margin-top: 8px;
-    margin-bottom: 10px;
-    overflow: hidden;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-  }
+      <div style="display:flex; align-items:center; justify-content:center; gap:.6rem; margin-bottom:.5rem">
+        <div style="display:flex; align-items:center; gap:.3rem">
+          {% if pick.home_team.logo %}<img src="{{ pick.home_team.logo }}" alt="" style="width:22px;height:22px;object-fit:contain" />{% endif %}
+          <strong style="font-size:.85rem">{{ pick.home_team.nickname or pick.home_team.name }}</strong>
+        </div>
+        <span style="color:var(--text-3); font-size:.78rem">vs</span>
+        <div style="display:flex; align-items:center; gap:.3rem">
+          {% if pick.away_team.logo %}<img src="{{ pick.away_team.logo }}" alt="" style="width:22px;height:22px;object-fit:contain" />{% endif %}
+          <strong style="font-size:.85rem">{{ pick.away_team.nickname or pick.away_team.name }}</strong>
+        </div>
+      </div>
 
-  .prob-fill {
-    height: 100%;
-    background: #22c55e;
-    border-radius: 10px;
-    transition: width 0.4s ease;
-    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2);
-  }
+      <div class="sp-prob-stack" style="margin-bottom:.5rem">
+        <div class="sp-prob-stack__bar" style="flex:{{ pick.win_probability }}; background:var(--c-strong)">
+          <span style="font-size:.65rem; padding:0 .3rem">{{ "%.0f"|format(pick.win_probability) }}%</span>
+        </div>
+      </div>
 
-  .badge {
-    font-size: 0.75rem;
-  }
-</style>
+      <div><span style="font-size:.72rem; color:var(--text-3)">Pick</span><br><strong style="color:var(--c-strong)">{{ pick.predicted_winner }} Win</strong></div>
+      {% if pick.reasoning %}<p style="font-size:.78rem; color:var(--text-2); margin-top:.35rem">{{ pick.reasoning }}</p>{% endif %}
+    </article>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="sp-panel" style="text-align:center; padding:1.5rem">
+  <p style="color:var(--text-3)">No high-confidence NBA winner picks today. <a href="{{ url_for('nba.today_predictions') }}">View all NBA predictions</a></p>
+</div>
+{% endif %}
 
+{# ── BOTTOM NAV ── #}
+<div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-top:1.5rem">
+  <a href="{{ url_for('index') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Home</a>
+  <a href="{{ url_for('today_soccer_predictions') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Today Soccer</a>
+  <a href="{{ url_for('nba.today_predictions') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Today NBA</a>
+  <a href="{{ url_for('model_performance') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Model Performance</a>
+</div>
 {% endblock %}

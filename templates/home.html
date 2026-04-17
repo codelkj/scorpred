@@ -1,136 +1,170 @@
 {% extends "base.html" %}
-{% block title %}ScorPred - Sports Decision Intelligence{% endblock %}
+{% block title %}ScorPred — Sports Decision Intelligence{% endblock %}
 
 {% block content %}
 {% set home_match_analysis_href = '/prediction' if session.get('team_a_id') else '/nba/prediction' if session.get('nba_team_a_id') else '/soccer' %}
-{% set selected_match = (session.get('team_a_name') ~ ' vs ' ~ session.get('team_b_name')) if session.get('team_a_name') and session.get('team_b_name') else None %}
-{% set selected_nba_match = (session.get('nba_team_a_name') ~ ' vs ' ~ session.get('nba_team_b_name')) if session.get('nba_team_a_name') and session.get('nba_team_b_name') else None %}
 
-<div class="faang-shell">
-  <section class="card glow-card faang-hero">
-    <div class="faang-hero-head">
-      <div class="faang-copy-wrap">
-        <span class="page-kicker">ScorPred</span>
-        <h1 class="faang-title">Sports Decision Intelligence Platform</h1>
-        <p class="faang-copy">Make faster, clearer betting decisions with explainable signals, confidence controls, and tracked outcomes.</p>
+  {# ── Hero ─────────────────────────────────────────────────────────────── #}
+  <section class="sp-home-hero">
+    <span class="sp-kicker">ScorPred</span>
+    <h1 class="sp-display">Sports Decision<br>Intelligence Platform</h1>
+    <p class="sp-home-hero__copy">
+      Explainable match signals, confidence controls, and tracked outcomes —
+      every decision backed by data you can inspect.
+    </p>
+    <div class="sp-home-hero__actions">
+      <a href="{{ home_match_analysis_href }}" class="btn btn-primary btn-lg">Analyze Match</a>
+      <a href="/strategy-lab" class="btn btn-secondary btn-lg">Strategy Lab</a>
+    </div>
+    <div class="sp-home-hero__badges">
+      <span class="sp-badge sp-badge--strong">Explainable signals</span>
+      <span class="sp-badge sp-badge--active">Confidence controls</span>
+      <span class="sp-badge sp-badge--muted">Tracked outcomes</span>
+    </div>
+  </section>
+
+  {# ── Quick Actions ────────────────────────────────────────────────────── #}
+  <div class="sp-actions-grid">
+    <a href="{{ home_match_analysis_href }}" class="sp-action-card sp-action-card--primary">
+      <span class="sp-action-card__icon">▣</span>
+      <div class="sp-action-card__body">
+        <div class="sp-action-card__title">Analyze Match</div>
+        <div class="sp-action-card__desc">Decision view for your selected matchup.</div>
+      </div>
+      <span class="sp-action-card__arrow">→</span>
+    </a>
+    <a href="/today-soccer-predictions" class="sp-action-card">
+      <span class="sp-action-card__icon">⚽</span>
+      <div class="sp-action-card__body">
+        <div class="sp-action-card__title">Today's Games</div>
+        <div class="sp-action-card__desc">Current soccer calls and confidence levels.</div>
+      </div>
+      <span class="sp-action-card__arrow">→</span>
+    </a>
+    <a href="/strategy-lab" class="sp-action-card">
+      <span class="sp-action-card__icon">▲</span>
+      <div class="sp-action-card__body">
+        <div class="sp-action-card__title">Strategy Lab</div>
+        <div class="sp-action-card__desc">Compare strategies and segment performance.</div>
+      </div>
+      <span class="sp-action-card__arrow">→</span>
+    </a>
+    <a href="/model-performance" class="sp-action-card">
+      <span class="sp-action-card__icon">◎</span>
+      <div class="sp-action-card__body">
+        <div class="sp-action-card__title">Performance</div>
+        <div class="sp-action-card__desc">Track accuracy, results, and quality.</div>
+      </div>
+      <span class="sp-action-card__arrow">→</span>
+    </a>
+  </div>
+
+  {# ── KPI Strip ────────────────────────────────────────────────────────── #}
+  <div class="sp-kpi-strip">
+    <div class="sp-kpi sp-kpi--strong">
+      <span class="sp-kpi__label">Overall Accuracy</span>
+      <span class="sp-kpi__value">{{ system_snapshot.overall_accuracy }}</span>
+    </div>
+    <div class="sp-kpi">
+      <span class="sp-kpi__label">Best Strategy</span>
+      <span class="sp-kpi__value" style="font-size:1.1rem">{{ system_snapshot.best_strategy }}</span>
+    </div>
+    <div class="sp-kpi">
+      <span class="sp-kpi__label">Tracked Predictions</span>
+      <span class="sp-kpi__value">{{ system_snapshot.tracked_predictions }}</span>
+    </div>
+    <div class="sp-kpi">
+      <span class="sp-kpi__label">Last Updated</span>
+      <span class="sp-kpi__value" style="font-size:1rem">{{ last_updated }}</span>
+    </div>
+  </div>
+
+  {# ── Today's Top Picks ────────────────────────────────────────────────── #}
+  {% if top_picks %}
+  <section class="sp-panel">
+    <div class="sp-panel-head">
+      <div class="sp-panel-head__left">
+        <span class="sp-kicker">Live Intelligence</span>
+        <h2 class="sp-panel-title">Today's Top Picks</h2>
       </div>
     </div>
-    <div class="faang-action-row">
-      <a href="{{ home_match_analysis_href }}" class="btn btn-primary">Analyze Match</a>
-      <a href="/strategy-lab" class="btn btn-secondary">Strategy Lab</a>
-    </div>
-  </section>
-
-  <section class="card glow-card">
-    <div class="faang-section-head">
-      <h2 class="faang-section-title">Quick Actions</h2>
-    </div>
-    <div class="route-grid">
-      <a href="{{ home_match_analysis_href }}" class="route-card">
-        <span class="route-icon">MA</span>
-        <div class="route-title">Analyze Match</div>
-        <div class="route-meta">Open the main decision view for your selected matchup.</div>
-      </a>
-      <a href="/today-soccer-predictions" class="route-card">
-        <span class="route-icon">TG</span>
-        <div class="route-title">Today's Games</div>
-        <div class="route-meta">Review current soccer game calls and confidence levels.</div>
-      </a>
-      <a href="/strategy-lab" class="route-card">
-        <span class="route-icon">SL</span>
-        <div class="route-title">Strategy Lab</div>
-        <div class="route-meta">Compare strategy outcomes and confidence-segment performance.</div>
-      </a>
-      <a href="/model-performance" class="route-card">
-        <span class="route-icon">PF</span>
-        <div class="route-title">Performance</div>
-        <div class="route-meta">Track completed predictions, accuracy, and result quality.</div>
-      </a>
-    </div>
-  </section>
-
-  <section class="faang-text-grid">
-    <article class="card glow-card">
-      <h2 class="faang-section-title">System Snapshot</h2>
-      <div class="faang-system-grid">
+    <div class="sp-picks">
+      {% for pick in top_picks %}
+      <div class="sp-pick">
         <div>
-          <span>Overall Accuracy</span>
-            <strong>{{ system_snapshot.overall_accuracy }}</strong>
-          </div>
-          <div>
-            <span>Tracked Predictions</span>
-            <strong>{{ system_snapshot.tracked_predictions }}</strong>
-          </div>
-          <div>
-            <span>Best Strategy</span>
-            <strong>{{ system_snapshot.best_strategy }}</strong>
-          </div>
-          <div>
-            <span>Last Updated</span>
-            <strong>{{ last_updated }}</strong>
-          </div>
+          <div class="sp-pick__matchup">{{ pick.matchup }}</div>
+          <div class="sp-pick__meta">{{ pick.sport }}{% if pick.game_date %} · {{ pick.game_date }}{% endif %}</div>
         </div>
-      </article>
-
-      <article class="card glow-card">
-        <h2 class="faang-section-title">Today's Top Picks</h2>
-        <div class="faang-pick-list">
-          {% for pick in top_picks %}
-          <div class="faang-pick-row">
-            <div>
-              <strong>{{ pick.matchup }}</strong>
-              <div class="route-meta">{{ pick.sport }}{% if pick.game_date %} · {{ pick.game_date }}{% endif %}</div>
-            </div>
-            <div class="faang-pick-tags">
-              {% if pick.play_type == 'BET' %}
-              <span class="source-badge source-api">{{ pick.play_type }}</span>
-              {% elif pick.play_type == 'AVOID' %}
-              <span class="source-badge source-espn">{{ pick.play_type }}</span>
-              {% else %}
-              <span class="filter-chip">{{ pick.play_type }}</span>
-              {% endif %}
-              <span class="filter-chip">{{ pick.recommendation }}</span>
-              <span class="confidence-badge conf-{{ pick.confidence | lower }}">{{ pick.confidence_display }}</span>
-            </div>
-          </div>
-          {% endfor %}
-          {% if not top_picks %}
-          <div class="empty-state">No strong picks available right now. Open Match Analysis for fresh calls.</div>
+        <div class="sp-pick__tags">
+          {% if pick.play_type == 'BET' %}
+          <span class="sp-badge sp-badge--strong">Strong Lean</span>
+          {% elif pick.play_type == 'AVOID' %}
+          <span class="sp-badge sp-badge--danger">Avoid</span>
+          {% else %}
+          <span class="sp-badge sp-badge--muted">{{ pick.play_type }}</span>
           {% endif %}
+          <span class="sp-badge sp-badge--muted">{{ pick.recommendation }}</span>
+          <span class="sp-badge conf-{{ pick.confidence | lower }}">{{ pick.confidence_display }}</span>
         </div>
-      </article>
-
-      <article class="card glow-card">
-        <h2 class="faang-section-title">How It Works</h2>
-        <ul class="faang-bullet-list">
-          <li>Rule + ML signals combine into one recommendation with transparent reasoning.</li>
-          <li>Confidence and risk labels help separate strong edges from thin leans.</li>
-          <li>Tracked results feed Performance and Strategy Lab for accountability.</li>
-          <li>Avoid logic suppresses forced picks when edge quality is weak.</li>
-        </ul>
-      </article>
+      </div>
+      {% endfor %}
     </div>
   </section>
+  {% endif %}
 
-  <section class="card glow-card">
-    <div class="faang-section-head">
-      <h2 class="faang-section-title">Performance Preview</h2>
+  {# ── Performance Preview ──────────────────────────────────────────────── #}
+  <section class="sp-panel">
+    <div class="sp-panel-head">
+      <div class="sp-panel-head__left">
+        <span class="sp-kicker">Recent Form</span>
+        <h2 class="sp-panel-title">Performance Preview</h2>
+      </div>
+      <a href="/model-performance" class="btn btn-secondary btn-sm">Full Report →</a>
     </div>
-    <div class="faang-result-strip">
+    <div class="sp-perf-pips">
       {% for result in performance_preview %}
-      <span class="result-badge {% if result == 'Win' %}source-api{% elif result == 'Partial' %}filter-chip{% else %}source-espn{% endif %}">{{ result }}</span>
+      <span class="sp-perf-pip sp-perf-pip--{{ result | lower }}">{{ result }}</span>
       {% endfor %}
       {% if not performance_preview %}
-      <span class="filter-chip">Awaiting graded outcomes</span>
+      <span class="sp-perf-pip sp-perf-pip--p">Awaiting graded outcomes</span>
       {% endif %}
     </div>
-    <p class="faang-copy">Open Performance for full graded result history and confidence splits.</p>
+    <p class="sp-muted" style="font-size:.82rem; margin-top:.5rem">
+      {% if performance_preview %}
+      Recent form across {{ performance_preview | length }} finalized predictions.
+      {% else %}
+      Results appear here once graded.
+      {% endif %}
+    </p>
   </section>
 
-  <section class="card glow-card faang-final-call">
-    <h2 class="faang-section-title">Ready to Analyze?</h2>
-    <p class="faang-copy">Start with a matchup and get a clean decision card in seconds.</p>
-    <a href="{{ home_match_analysis_href }}" class="btn btn-primary">Analyze Match</a>
+  {# ── Why ScorPred ─────────────────────────────────────────────────────── #}
+  <div class="sp-why-grid">
+    <article class="sp-why-card">
+      <div class="sp-why-card__icon">◉</div>
+      <h3 class="sp-why-card__title">Explainable Predictions</h3>
+      <p class="sp-why-card__desc">Every recommendation shows signals, scores, and reasoning — never a black box.</p>
+    </article>
+    <article class="sp-why-card">
+      <div class="sp-why-card__icon">▲</div>
+      <h3 class="sp-why-card__title">Strategy Intelligence</h3>
+      <p class="sp-why-card__desc">Compare confidence segments, sport splits, and strategy outcomes.</p>
+    </article>
+    <article class="sp-why-card">
+      <div class="sp-why-card__icon">◎</div>
+      <h3 class="sp-why-card__title">Performance Tracking</h3>
+      <p class="sp-why-card__desc">Tracked results feed accuracy metrics and walk-forward validation.</p>
+    </article>
+  </div>
+
+  {# ── CTA ──────────────────────────────────────────────────────────────── #}
+  <section class="sp-cta">
+    <h2>Ready to make a decision?</h2>
+    <p class="sp-cta__copy">Pick a matchup and get a clean decision card in seconds.</p>
+    <div class="sp-cta__actions">
+      <a href="{{ home_match_analysis_href }}" class="btn btn-primary btn-lg">Analyze Match</a>
+      <a href="/soccer" class="btn btn-secondary">Soccer</a>
+      <a href="/nba/" class="btn btn-secondary">NBA</a>
+    </div>
   </section>
-</div>
 {% endblock %}

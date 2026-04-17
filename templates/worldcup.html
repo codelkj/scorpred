@@ -2,34 +2,32 @@
 {% block title %}World Cup 2026 Predictor{% endblock %}
 
 {% block content %}
+<section class="sp-hero" style="text-align:center">
+  <h1>World Cup <span style="color:var(--c-strong)">2026</span> Predictor</h1>
+  <p style="color:var(--text-3)">USA &middot; Canada &middot; Mexico &middot; 48 nations &middot; June–July 2026</p>
+</section>
 
-<div class="page-header">
-  <h1>World Cup <span class="accent">2026</span> Predictor</h1>
-  <p class="page-sub">USA · Canada · Mexico · 48 nations · June–July 2026</p>
-</div>
-
-<!-- Match predictor card -->
-<div class="card glow-card">
-  <h2 class="card-title">Match Predictor</h2>
-  <p class="model-note">Predictions use FIFA ranking-calibrated attack/defense strengths fed into a Poisson model — same engine as Premier League predictions.</p>
+{# ── Match Predictor ── #}
+<div class="sp-panel">
+  <span class="sp-kicker">Match Predictor</span>
+  <p style="font-size:.78rem; color:var(--text-3); margin:.2rem 0 .75rem">FIFA ranking-calibrated attack/defense strengths fed into a Poisson model &mdash; same engine as Premier League predictions.</p>
 
   <form method="POST" action="/worldcup" id="wcForm">
-    <div class="team-pickers" style="margin-bottom:1.25rem;">
-      <div class="picker-group">
-        <label class="picker-label">Team A</label>
-        <select name="team_a" id="wcTeamA" class="player-select" required>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div style="display:flex; gap:1rem; align-items:end; flex-wrap:wrap; margin-bottom:.75rem">
+      <div style="flex:1; min-width:160px">
+        <label style="font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); display:block; margin-bottom:.25rem">Team A</label>
+        <select name="team_a" id="wcTeamA" style="width:100%; padding:.4rem .6rem; border-radius:var(--radius); border:1px solid var(--border); background:var(--bg-2); color:var(--text-1); font-size:.88rem" required>
           <option value="">— Select nation —</option>
           {% for t in teams %}
           <option value="{{ t }}" {% if t == team_a %}selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>
       </div>
-
-      <div class="vs-badge">VS</div>
-
-      <div class="picker-group">
-        <label class="picker-label">Team B</label>
-        <select name="team_b" id="wcTeamB" class="player-select" required>
+      <span style="font-weight:700; color:var(--text-3); padding-bottom:.4rem">VS</span>
+      <div style="flex:1; min-width:160px">
+        <label style="font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); display:block; margin-bottom:.25rem">Team B</label>
+        <select name="team_b" id="wcTeamB" style="width:100%; padding:.4rem .6rem; border-radius:var(--radius); border:1px solid var(--border); background:var(--bg-2); color:var(--text-1); font-size:.88rem" required>
           <option value="">— Select nation —</option>
           {% for t in teams %}
           <option value="{{ t }}" {% if t == team_b %}selected{% endif %}>{{ t }}</option>
@@ -39,179 +37,128 @@
     </div>
 
     {% if wc_error %}
-    <div class="alert alert-error">{{ wc_error }}</div>
+    <div class="sp-notice sp-notice--error">{{ wc_error }}</div>
     {% endif %}
 
-    <button type="submit" class="btn btn-primary btn-glow btn-lg btn-full">Predict Match →</button>
+    <button type="submit" style="background:var(--c-strong); color:var(--bg-1); border:none; border-radius:var(--radius); padding:.55rem 1.5rem; font-weight:600; cursor:pointer; font-size:.9rem; width:100%">Predict Match &rarr;</button>
   </form>
 </div>
 
-<!-- Prediction result -->
+{# ── Prediction Result ── #}
 {% if result %}
-<div class="section-title">Match Winner (1X2)</div>
-<div class="card glow-card prediction-card">
-  <div class="model-note">
-    Poisson model · λ{{ result.team_a }} = {{ result.lam_a }} goals/game · λ{{ result.team_b }} = {{ result.lam_b }} goals/game · Neutral venue
+<div class="sp-panel sp-panel--highlight" style="margin-top:1rem">
+  <span class="sp-kicker">Match Winner (1X2)</span>
+  <p style="font-size:.75rem; color:var(--text-3); margin:.15rem 0 .75rem">&lambda;{{ result.team_a }} = {{ result.lam_a }} goals/game &middot; &lambda;{{ result.team_b }} = {{ result.lam_b }} goals/game &middot; Neutral venue</p>
+
+  <div style="display:flex; justify-content:space-around; text-align:center; margin-bottom:.75rem">
+    <div><strong style="font-size:1.8rem; color:var(--c-strong)">{{ result.a_pct }}</strong><br><span style="font-size:.78rem; color:var(--text-3)">{{ result.team_a }}</span></div>
+    <div><strong style="font-size:1.8rem; color:var(--c-caution)">{{ result.draw_pct }}</strong><br><span style="font-size:.78rem; color:var(--text-3)">Draw</span></div>
+    <div><strong style="font-size:1.8rem; color:var(--c-active)">{{ result.b_pct }}</strong><br><span style="font-size:.78rem; color:var(--text-3)">{{ result.team_b }}</span></div>
   </div>
 
-  <div class="win-probs">
-    <div class="win-block">
-      <div class="win-pct accent stat-number" data-target="{{ result.a_pct }}">{{ result.a_pct }}</div>
-      <div class="win-label">{{ result.team_a }}</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ result.a_pct }}" style="background:#00ff87"></div>
-      </div>
-    </div>
-    <div class="win-block">
-      <div class="win-pct stat-number" data-target="{{ result.draw_pct }}">{{ result.draw_pct }}</div>
-      <div class="win-label">Draw</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ result.draw_pct }}" style="background:#f59e0b"></div>
-      </div>
-    </div>
-    <div class="win-block">
-      <div class="win-pct stat-number" data-target="{{ result.b_pct }}">{{ result.b_pct }}</div>
-      <div class="win-label">{{ result.team_b }}</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ result.b_pct }}" style="background:#3b82f6"></div>
-      </div>
-    </div>
+  <div class="sp-prob-stack" style="margin-bottom:.75rem">
+    <div class="sp-prob-stack__bar" style="flex:{{ result.a_pct }}; background:var(--c-strong); border-radius:4px 0 0 4px">&nbsp;</div>
+    <div class="sp-prob-stack__bar" style="flex:{{ result.draw_pct }}; background:var(--c-caution)">&nbsp;</div>
+    <div class="sp-prob-stack__bar" style="flex:{{ result.b_pct }}; background:var(--c-active); border-radius:0 4px 4px 0">&nbsp;</div>
   </div>
 
-  <div class="recommended-bet" style="margin-top:.75rem;">
-    Predicted winner:
-    <span class="accent">{{ result.winner }}</span>
-    <span class="confidence-badge conf-{{ result.confidence | lower }}">{{ result.confidence }}</span>
+  <div style="text-align:center; margin-bottom:.75rem">
+    Predicted winner: <strong style="color:var(--c-strong)">{{ result.winner }}</strong>
+    <span class="sp-badge sp-badge--{{ 'strong' if result.confidence == 'High' else ('caution' if result.confidence == 'Medium' else 'muted') }}">{{ result.confidence }}</span>
   </div>
-</div>
 
-<div class="pred-row">
-  <!-- Correct scores -->
-  <div class="card glow-card pred-half">
-    <div class="section-title-sm">Top Correct Scores (Poisson)</div>
-    <div class="score-predictions">
+  <div class="sp-split">
+    {# ── Correct Scores ── #}
+    <div>
+      <span class="sp-kicker">Top Correct Scores</span>
       {% for s in result.top_scores %}
-      <div class="score-pred-card rank-{{ loop.index }}">
-        <div class="score-pred-rank">#{{ loop.index }}</div>
-        <div class="score-pred-score">{{ s.score }}</div>
-        <div class="score-pred-prob stat-number" data-target="{{ s.prob }}">{{ s.prob }}</div>
-        <div class="score-pred-bar">
-          <div class="score-pred-fill" style="width:{{ [s.prob * 5, 100] | min }}%"></div>
+      <div style="display:flex; align-items:center; gap:.5rem; padding:.25rem 0; border-bottom:1px solid var(--border); font-size:.85rem">
+        <span style="font-size:.72rem; color:var(--text-3); min-width:1.4rem">#{{ loop.index }}</span>
+        <strong>{{ s.score }}</strong>
+        <div style="flex:1; height:4px; background:var(--bg-3); border-radius:2px; overflow:hidden">
+          <div style="width:{{ [s.prob * 5, 100] | min }}%; height:100%; background:var(--c-strong)"></div>
         </div>
+        <span style="font-size:.82rem; color:var(--text-2)">{{ s.prob }}%</span>
       </div>
       {% endfor %}
     </div>
-  </div>
 
-  <!-- Over/Under -->
-  <div class="card glow-card pred-half">
-    <div class="section-title-sm">Total Goals</div>
-    <div class="model-note">Expected total: {{ result.avg_total }} goals</div>
-    <div class="ou-blocks">
-      <div class="ou-block">
-        <div class="ou-pct accent stat-number" data-target="{{ result.over25 }}">{{ result.over25 }}</div>
-        <div class="ou-label">Over 2.5</div>
-      </div>
-      <div class="ou-block">
-        <div class="ou-pct stat-number" data-target="{{ result.under25 }}">{{ result.under25 }}</div>
-        <div class="ou-label">Under 2.5</div>
+    {# ── Total Goals ── #}
+    <div>
+      <span class="sp-kicker">Total Goals</span>
+      <p style="font-size:.78rem; color:var(--text-3); margin:.2rem 0 .5rem">Expected total: {{ result.avg_total }} goals</p>
+      <div style="display:flex; gap:1rem; text-align:center">
+        <div style="flex:1"><strong style="font-size:1.4rem; color:var(--c-strong)">{{ result.over25 }}%</strong><br><span style="font-size:.75rem; color:var(--text-3)">Over 2.5</span></div>
+        <div style="flex:1"><strong style="font-size:1.4rem; color:var(--text-2)">{{ result.under25 }}%</strong><br><span style="font-size:.75rem; color:var(--text-3)">Under 2.5</span></div>
       </div>
     </div>
-    <canvas id="wcOuChart" width="300" height="160"></canvas>
   </div>
 </div>
 {% endif %}
 
-<!-- Upcoming WC fixtures from ESPN -->
+{# ── Upcoming WC Fixtures ── #}
 {% if wc_fixtures %}
-<div class="section-title">Upcoming FIFA World Cup 2026 Fixtures</div>
-<div class="model-note" style="margin-bottom:1rem;">Live data via ESPN · {{ wc_fixtures | length }} fixtures found</div>
-{% for f in wc_fixtures %}
-<div class="card glow-card fpred-card">
-  <div class="fpred-meta">
-    <span>📅 {{ f.fixture.date[:10] }}</span>
-    {% if f.fixture.date | length > 10 %}<span>🕐 {{ f.fixture.date[11:16] }} UTC</span>{% endif %}
-    {% if f.fixture.venue and f.fixture.venue.name %}<span>🏟 {{ f.fixture.venue.name }}</span>{% endif %}
-    {% if f.league and f.league.round %}<span>{{ f.league.round }}</span>{% endif %}
-  </div>
-  <div class="fpred-teams-row">
-    <div class="fpred-team">
-      {% if f.teams.home.logo %}<img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="" />{% endif %}
-      <span class="fpred-team-name">{{ f.teams.home.name }}</span>
+<span class="sp-kicker" style="margin-top:1.5rem">Upcoming FIFA World Cup 2026 Fixtures</span>
+<p style="font-size:.78rem; color:var(--text-3); margin-bottom:.5rem">Live data via ESPN &middot; {{ wc_fixtures | length }} fixtures found</p>
+<div class="sp-grid sp-grid--cards">
+  {% for f in wc_fixtures %}
+  <div class="sp-panel sp-panel--tight">
+    <div style="font-size:.75rem; color:var(--text-3); display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.4rem">
+      <span>{{ f.fixture.date[:10] }}</span>
+      {% if f.fixture.date | length > 10 %}<span>{{ f.fixture.date[11:16] }} UTC</span>{% endif %}
+      {% if f.fixture.venue and f.fixture.venue.name %}<span>{{ f.fixture.venue.name }}</span>{% endif %}
+      {% if f.league and f.league.round %}<span>{{ f.league.round }}</span>{% endif %}
     </div>
-    <div class="fpred-centre"><span class="fpred-vs">vs</span></div>
-    <div class="fpred-team right">
-      <span class="fpred-team-name">{{ f.teams.away.name }}</span>
-      {% if f.teams.away.logo %}<img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="" />{% endif %}
+    <div style="display:flex; align-items:center; justify-content:center; gap:.6rem; margin-bottom:.5rem">
+      <div style="display:flex; align-items:center; gap:.3rem">
+        {% if f.teams.home.logo %}<img src="{{ f.teams.home.logo }}" alt="" style="width:22px;height:22px;object-fit:contain" />{% endif %}
+        <strong style="font-size:.85rem">{{ f.teams.home.name }}</strong>
+      </div>
+      <span style="color:var(--text-3); font-size:.78rem">vs</span>
+      <div style="display:flex; align-items:center; gap:.3rem">
+        <strong style="font-size:.85rem">{{ f.teams.away.name }}</strong>
+        {% if f.teams.away.logo %}<img src="{{ f.teams.away.logo }}" alt="" style="width:22px;height:22px;object-fit:contain" />{% endif %}
+      </div>
     </div>
-  </div>
-  <div class="fpred-footer" style="border-top:none;padding-top:0;">
-    <form method="POST" action="/worldcup" style="display:inline">
+    <form method="POST" action="/worldcup" style="text-align:center">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <input type="hidden" name="team_a" value="{{ f.teams.home.name }}" />
       <input type="hidden" name="team_b" value="{{ f.teams.away.name }}" />
-      <button type="submit" class="btn btn-primary btn-sm btn-glow">Predict →</button>
+      <button type="submit" style="background:var(--c-strong); color:var(--bg-1); border:none; border-radius:var(--radius); padding:.35rem .9rem; font-weight:600; cursor:pointer; font-size:.82rem">Predict &rarr;</button>
     </form>
   </div>
+  {% endfor %}
 </div>
-{% endfor %}
 {% else %}
-<div class="card glow-card">
-  <div class="empty-state">
-    WC 2026 fixtures not yet available from ESPN · Tournament starts June 2026<br>
-    <small style="margin-top:.5rem;display:block;">Use the predictor above to simulate any match-up.</small>
-  </div>
+<div class="sp-panel" style="text-align:center; padding:1.5rem; margin-top:1rem">
+  <p style="color:var(--text-3)">WC 2026 fixtures not yet available from ESPN &middot; Tournament starts June 2026</p>
+  <p style="font-size:.82rem; color:var(--text-3); margin-top:.3rem">Use the predictor above to simulate any match-up.</p>
 </div>
 {% endif %}
 
-<!-- Team strength reference -->
-<div class="section-title">Team Strength Reference</div>
-<div class="card glow-card">
-  <p class="model-note" style="margin-bottom:1rem;">Strengths are derived from FIFA world rankings and recent tournament performance. Attack = avg goals scored/game · Defense = avg goals conceded/game (lower = better).</p>
-  <div class="wc-strength-grid">
-    {% set tiers = [
-      ("Elite", ["Argentina","France","Brazil","Spain","England"]),
-      ("Strong", ["Germany","Portugal","Netherlands","Belgium","Croatia","Italy","Morocco"]),
-      ("Competitive", ["Colombia","Uruguay","Japan","Denmark","Switzerland","USA","South Korea","Senegal"]),
-    ] %}
-    {% for tier_name, tier_teams in tiers %}
-    <div class="wc-tier">
-      <div class="wc-tier-label">{{ tier_name }}</div>
-      <div class="wc-tier-teams">
-        {% for t in tier_teams %}
-        <button type="button" class="wc-team-chip" onclick="prefillTeam('{{ t }}')">{{ t }}</button>
-        {% endfor %}
-      </div>
+{# ── Team Strength Reference ── #}
+<div class="sp-panel" style="margin-top:1rem">
+  <span class="sp-kicker">Team Strength Reference</span>
+  <p style="font-size:.78rem; color:var(--text-3); margin:.2rem 0 .75rem">Attack = avg goals scored/game &middot; Defense = avg goals conceded/game (lower = better)</p>
+  {% set tiers = [
+    ("Elite", ["Argentina","France","Brazil","Spain","England"]),
+    ("Strong", ["Germany","Portugal","Netherlands","Belgium","Croatia","Italy","Morocco"]),
+    ("Competitive", ["Colombia","Uruguay","Japan","Denmark","Switzerland","USA","South Korea","Senegal"]),
+  ] %}
+  {% for tier_name, tier_teams in tiers %}
+  <div style="margin-bottom:.5rem">
+    <strong style="font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:var(--c-caution)">{{ tier_name }}</strong>
+    <div style="display:flex; gap:.3rem; flex-wrap:wrap; margin-top:.25rem">
+      {% for t in tier_teams %}
+      <button type="button" class="sp-badge sp-badge--muted" onclick="prefillTeam('{{ t }}')" style="cursor:pointer; border:none">{{ t }}</button>
+      {% endfor %}
     </div>
-    {% endfor %}
   </div>
+  {% endfor %}
 </div>
-
 {% endblock %}
 
 {% block scripts %}
-{% if result %}
-<script>
-  new Chart(document.getElementById('wcOuChart'), {
-    type: 'bar',
-    data: {
-      labels: ['Over 2.5', 'Under 2.5'],
-      datasets: [{
-        data: [{{ result.over25 }}, {{ result.under25 }}],
-        backgroundColor: ['#00ff87', '#3b82f6'],
-        borderRadius: 4,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { min: 0, max: 100, grid: { color: '#21262d' }, ticks: { color: '#8b949e', callback: v => v + '%' } },
-        x: { grid: { display: false }, ticks: { color: '#8b949e' } }
-      }
-    }
-  });
-</script>
-{% endif %}
 <script>
   function prefillTeam(name) {
     const a = document.getElementById('wcTeamA');

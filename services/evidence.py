@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 
-_UPCOMING_FIXTURE_CACHE_TTL_SECONDS = 180
+_UPCOMING_FIXTURE_CACHE_TTL_SECONDS = 600
 _UPCOMING_FIXTURE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 
 
@@ -44,9 +44,11 @@ def load_upcoming_fixtures(
     logger,
     football_data_source,
     next_n: int = 20,
+    max_deep_predictions: int = 6,
 ):
     force_refresh = bool(getattr(api_client, "FORCE_REFRESH", False))
-    cache_key = (league, season, int(next_n), football_data_source())
+    deep_limit = max(0, int(max_deep_predictions))
+    cache_key = (league, season, int(next_n), deep_limit, football_data_source())
     now = datetime.now(UTC)
 
     if not force_refresh:
@@ -65,11 +67,13 @@ def load_upcoming_fixtures(
         load_error = str(exc)
         logger.error("Upcoming fixtures fetch failed: %s", exc)
 
-    try:
-        standings_list = api_client.get_standings(league, season)
-    except Exception as exc:
-        standings_list = []
-        logger.warning("Standings unavailable for quick predictions: %s", exc)
+    standings_list = []
+    if deep_limit > 0:
+        try:
+            standings_list = api_client.get_standings(league, season)
+        except Exception as exc:
+            standings_list = []
+            logger.warning("Standings unavailable for quick predictions: %s", exc)
 
     opp_strengths = build_opp_strengths(engine, standings_list)
 
@@ -100,13 +104,30 @@ def load_upcoming_fixtures(
         h2h_cache[key] = rows
         return rows
 
-    for fixture in upcoming:
+    for idx, fixture in enumerate(upcoming):
         prediction = None
         try:
             home_id = fixture["teams"]["home"]["id"]
             away_id = fixture["teams"]["away"]["id"]
             home_name = fixture["teams"]["home"]["name"]
             away_name = fixture["teams"]["away"]["name"]
+
+            if idx >= deep_limit:
+                prediction = engine.scorpred_predict(
+                    form_a=[],
+                    form_b=[],
+                    h2h_form_a=[],
+                    h2h_form_b=[],
+                    injuries_a=[],
+                    injuries_b=[],
+                    team_a_is_home=True,
+                    team_a_name=home_name,
+                    team_b_name=away_name,
+                    sport="soccer",
+                    opp_strengths=opp_strengths,
+                )
+                fixtures_with_pred.append({**fixture, "prediction": prediction})
+                continue
 
             h2h_raw = []
             fixtures_home = []

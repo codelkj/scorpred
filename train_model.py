@@ -1,4 +1,5 @@
-"""Train a Random Forest match outcome model on clean pre-match features only.
+"""Train a stacking ensemble (Logistic Regression + Random Forest + XGBoost + LightGBM)
+match outcome model on clean pre-match features only.
 
 Target encoding:
 - 0: Home Win
@@ -59,14 +60,30 @@ from typing import Any
 import json
 
 import joblib
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix
+import numpy as np
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, brier_score_loss, confusion_matrix
+
+try:
+    from xgboost import XGBClassifier
+    _HAS_XGBOOST = True
+except ImportError:
+    _HAS_XGBOOST = False
+
+try:
+    from lightgbm import LGBMClassifier
+    _HAS_LIGHTGBM = True
+except ImportError:
+    _HAS_LIGHTGBM = False
 
 from runtime_paths import (
     clean_soccer_dataset_path,
     clean_soccer_model_path,
     data_dir,
     elo_state_path,
+    ensemble_soccer_model_path,
     historical_dataset_path,
 )
 from utils.parsing import safe_float
@@ -408,7 +425,7 @@ def train_model(
     processed_dataset_path: Path | None = None,
     random_state: int = 42,
 ) -> dict[str, Any]:
-    """Build clean features, train Random Forest, print metrics, save model."""
+    """Build clean features, train 4 base models + stacking ensemble, save model."""
     historical = historical_path or historical_dataset_path()
     if not historical.exists():
         raise FileNotFoundError(
@@ -431,36 +448,149 @@ def train_model(
     print(f"Saved clean dataset ({len(rows)} rows) → {processed_path}")
 
     # ── Feature matrix and targets ────────────────────────────────────────────
-    x = [_row_to_features(r) for r in rows]
-    y = [int(r["target"]) for r in rows]
+    x = np.array([_row_to_features(r) for r in rows])
+    y = np.array([int(r["target"]) for r in rows])
 
     # ── Class balance ─────────────────────────────────────────────────────────
-    class_counts = collections.Counter(y)
+    class_counts = collections.Counter(y.tolist())
     print("\nClass balance:")
     for cls, label in CLASS_LABELS.items():
         count = class_counts.get(cls, 0)
         pct = count / len(y) * 100.0
         print(f"  {label:10s} ({cls}): {count:4d}  ({pct:.1f}%)")
 
-    # ── Chronological train/test split (last 20% = test) ─────────────────────
-    n_test = max(1, int(len(rows) * 0.2))
-    x_train, x_test = x[:-n_test], x[-n_test:]
-    y_train, y_test = y[:-n_test], y[-n_test:]
-    print(f"\nChronological split: {len(x_train)} train / {len(x_test)} test")
-
-    # ── Train ─────────────────────────────────────────────────────────────────
-    model = RandomForestClassifier(
-        n_estimators=300,
-        max_depth=8,
-        min_samples_leaf=3,
-        random_state=random_state,
+    # ── Chronological 60/20/20 split: train / calibration / test ─────────────
+    n_test  = max(1, int(len(rows) * 0.20))
+    n_cal   = max(1, int(len(rows) * 0.20))
+    n_train = len(rows) - n_test - n_cal
+    x_train, y_train = x[:n_train],              y[:n_train]
+    x_cal,   y_cal   = x[n_train:n_train+n_cal], y[n_train:n_train+n_cal]
+    x_test,  y_test  = x[n_train+n_cal:],        y[n_train+n_cal:]
+    print(
+        f"\nChronological split: {len(x_train)} train / "
+        f"{len(x_cal)} calibration / {len(x_test)} test"
     )
-    model.fit(x_train, y_train)
+
+    # ── Define base estimators ────────────────────────────────────────────────
+    estimators: list[tuple[str, Any]] = [
+        ("lr", LogisticRegression(
+            max_iter=1000,
+            solver="lbfgs",
+            C=1.0,
+            random_state=random_state,
+        )),
+        ("rf", RandomForestClassifier(
+            n_estimators=300,
+            max_depth=8,
+            min_samples_leaf=3,
+            random_state=random_state,
+        )),
+    ]
+
+    if _HAS_XGBOOST:
+        estimators.append(("xgb", XGBClassifier(
+            n_estimators=200,
+            max_depth=6,
+            learning_rate=0.1,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            use_label_encoder=False,
+            eval_metric="mlogloss",
+            random_state=random_state,
+            verbosity=0,
+        )))
+    else:
+        print("  [warn] xgboost not installed – skipping XGBoost base model")
+
+    if _HAS_LIGHTGBM:
+        estimators.append(("lgbm", LGBMClassifier(
+            n_estimators=200,
+            max_depth=6,
+            learning_rate=0.1,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=random_state,
+            verbose=-1,
+        )))
+    else:
+        print("  [warn] lightgbm not installed – skipping LightGBM base model")
+
+    print(f"\nBase models: {[name for name, _ in estimators]}")
+
+    # ── Train individual base models and report accuracy ──────────────────────
+    base_models: dict[str, Any] = {}
+    for name, est in estimators:
+        est.fit(x_train, y_train)
+        preds = est.predict(x_test)
+        acc = float(accuracy_score(y_test, preds))
+        base_models[name] = {"model": est, "accuracy": acc}
+        print(f"  {name:6s} test accuracy: {acc * 100:.1f}%")
+
+    # ── Build stacking ensemble with LR meta-learner ──────────────────────────
+    # Re-create fresh estimators for StackingClassifier (it fits them internally)
+    stack_estimators: list[tuple[str, Any]] = []
+    for name, _ in estimators:
+        if name == "lr":
+            stack_estimators.append(("lr", LogisticRegression(
+                max_iter=1000, solver="lbfgs",
+                C=1.0, random_state=random_state,
+            )))
+        elif name == "rf":
+            stack_estimators.append(("rf", RandomForestClassifier(
+                n_estimators=300, max_depth=8, min_samples_leaf=3,
+                random_state=random_state,
+            )))
+        elif name == "xgb" and _HAS_XGBOOST:
+            stack_estimators.append(("xgb", XGBClassifier(
+                n_estimators=200, max_depth=6, learning_rate=0.1,
+                subsample=0.8, colsample_bytree=0.8,
+                use_label_encoder=False, eval_metric="mlogloss",
+                random_state=random_state, verbosity=0,
+            )))
+        elif name == "lgbm" and _HAS_LIGHTGBM:
+            stack_estimators.append(("lgbm", LGBMClassifier(
+                n_estimators=200, max_depth=6, learning_rate=0.1,
+                subsample=0.8, colsample_bytree=0.8,
+                random_state=random_state, verbose=-1,
+            )))
+
+    stacking_model = StackingClassifier(
+        estimators=stack_estimators,
+        final_estimator=LogisticRegression(
+            max_iter=1000, solver="lbfgs",
+            random_state=random_state,
+        ),
+        cv=5,
+        stack_method="predict_proba",
+        passthrough=False,
+    )
+
+    print("\nTraining stacking ensemble ...")
+    stacking_model.fit(x_train, y_train)
+
+    # ── Brier score before calibration ────────────────────────────────────────
+    n_classes = len(CLASS_LABELS)
+    proba_raw = stacking_model.predict_proba(x_test)
+    brier_raw = float(
+        sum(
+            brier_score_loss(
+                [1 if yi == c else 0 for yi in y_test],
+                [p[c] for p in proba_raw],
+            )
+            for c in range(n_classes)
+        )
+        / n_classes
+    )
+
+    # ── Isotonic calibration on the held-out calibration split ────────────────
+    calibrator = CalibratedClassifierCV(stacking_model, method="isotonic", cv="prefit")
+    calibrator.fit(x_cal, y_cal)
+    model = calibrator
 
     # ── Evaluate ──────────────────────────────────────────────────────────────
     predictions = model.predict(x_test)
     accuracy = float(accuracy_score(y_test, predictions))
-    print(f"\nTest accuracy: {accuracy * 100:.1f}%  (random baseline ≈ 33%)")
+    print(f"\nEnsemble test accuracy: {accuracy * 100:.1f}%  (random baseline ≈ 33%)")
 
     cm = confusion_matrix(y_test, predictions, labels=[0, 1, 2])
     print("\nConfusion matrix (rows=actual, cols=predicted):")
@@ -468,27 +598,68 @@ def train_model(
     for i, counts in enumerate(cm):
         print(f"  {CLASS_LABELS[i]:10s}  " + "  ".join(f"{v:10d}" for v in counts))
 
-    # ── Feature importances ───────────────────────────────────────────────────
-    print("\nFeature importances:")
-    ranked = sorted(zip(FEATURE_COLUMNS, model.feature_importances_), key=lambda t: -t[1])
-    for feat, imp in ranked:
-        print(f"  {feat:30s}: {imp:.4f}")
+    # Brier score after calibration
+    proba_test = model.predict_proba(x_test)
+    brier = float(
+        sum(
+            brier_score_loss(
+                [1 if yi == c else 0 for yi in y_test],
+                [p[c] for p in proba_test],
+            )
+            for c in range(n_classes)
+        )
+        / n_classes
+    )
+    print(f"\nRaw Brier: {brier_raw:.3f} | Calibrated Brier: {brier:.3f}  (lower = better)")
+
+    # ── Feature importances (from RF base model) ─────────────────────────────
+    rf_model = base_models.get("rf", {}).get("model")
+    if rf_model is not None and hasattr(rf_model, "feature_importances_"):
+        print("\nFeature importances (from RF base model):")
+        ranked = sorted(zip(FEATURE_COLUMNS, rf_model.feature_importances_), key=lambda t: -t[1])
+        for feat, imp in ranked:
+            print(f"  {feat:30s}: {imp:.4f}")
 
     print(f"\nFeatures used ({len(FEATURE_COLUMNS)}): {FEATURE_COLUMNS}")
 
-    # ── Save model bundle ─────────────────────────────────────────────────────
-    save_path = output_path or clean_soccer_model_path()
+    # ── Save ensemble model bundle ────────────────────────────────────────────
+    save_path = output_path or ensemble_soccer_model_path()
     save_path.parent.mkdir(parents=True, exist_ok=True)
     bundle = {
         "model": model,
+        "model_type": "stacking_ensemble",
+        "model_role": "production",
+        "base_models": [name for name, _ in estimators],
+        "base_accuracies": {name: info["accuracy"] for name, info in base_models.items()},
         "feature_names": FEATURE_COLUMNS,
         "class_labels": CLASS_LABELS,
         "accuracy": accuracy,
+        "brier_score": brier,
+        "brier_score_raw": brier_raw,
+        "calibrated": True,
+        "calibration_method": "isotonic",
         "rolling_window": SHORT_WINDOW,
         "dataset_path": str(processed_path),
     }
     joblib.dump(bundle, save_path)
-    print(f"\nSaved model → {save_path}")
+    print(f"\nSaved ensemble model → {save_path}")
+
+    # Also save standalone RF for backward-compatibility with older code paths
+    rf_compat_path = clean_soccer_model_path()
+    rf_compat_path.parent.mkdir(parents=True, exist_ok=True)
+    rf_base = base_models["rf"]["model"]
+    rf_bundle = {
+        "model": rf_base,
+        "model_type": "random_forest",
+        "model_role": "fallback",
+        "feature_names": FEATURE_COLUMNS,
+        "class_labels": CLASS_LABELS,
+        "accuracy": base_models["rf"]["accuracy"],
+        "rolling_window": SHORT_WINDOW,
+        "dataset_path": str(processed_path),
+    }
+    joblib.dump(rf_bundle, rf_compat_path)
+    print(f"Saved RF compat model → {rf_compat_path}")
 
     # ── Save ELO state for runtime lookup ─────────────────────────────────────
     elo_path = elo_state_path()
@@ -501,15 +672,23 @@ def train_model(
         "model_path": str(save_path),
         "total_rows": len(rows),
         "train_size": len(x_train),
+        "cal_size": len(x_cal),
         "test_size": len(x_test),
         "accuracy": accuracy,
+        "brier_score": brier,
+        "brier_score_raw": brier_raw,
+        "calibrated": True,
+        "calibration_method": "isotonic",
+        "model_type": "stacking_ensemble",
+        "base_models": [name for name, _ in estimators],
+        "base_accuracies": {name: info["accuracy"] for name, info in base_models.items()},
         "feature_names": FEATURE_COLUMNS,
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Train ScorPred Soccer Random Forest on clean pre-match features."
+        description="Train ScorPred Soccer stacking ensemble on clean pre-match features."
     )
     parser.add_argument(
         "--historical",
@@ -518,8 +697,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output",
-        default=str(clean_soccer_model_path()),
-        help="Where to save the model pickle.",
+        default=str(ensemble_soccer_model_path()),
+        help="Where to save the ensemble model pickle.",
     )
     parser.add_argument("--random-state", type=int, default=42, help="Random seed.")
     return parser

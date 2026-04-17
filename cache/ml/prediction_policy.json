@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-15T22:10:48.510886Z",
+  "sports": {
+    "soccer": {
+      "min_confidence_pct": 53.0,
+      "min_top_two_gap_pct": 3.0,
+      "lean_min_confidence_pct": 51.0,
+      "bet_min_confidence_pct": 70.0,
+      "draw_min_top_prob_pct": 37.0
+    },
+    "nba": {
+      "min_confidence_pct": 53.0,
+      "min_top_two_gap_pct": 3.0,
+      "lean_min_confidence_pct": 51.0,
+      "bet_min_confidence_pct": 70.0,
+      "draw_min_top_prob_pct": 37.0
+    }
+  },
+  "metadata": {
+    "source": "backtest_optimizer",
+    "sample_size": 40,
+    "sports": {
+      "soccer": {
+        "sample_size": 25,
+        "metrics": {
+          "score": 55.913,
+          "coverage_pct": 88.0,
+          "hit_rate_pct": 54.55,
+          "unit_rate_pct": 8.0,
+          "placed": 22,
+          "wins": 12,
+          "losses": 10,
+          "avoided": 3
+        },
+        "note": "Tuned from finalized tracked predictions."
+      },
+      "nba": {
+        "sample_size": 15,
+        "metrics": {
+          "score": 30.933,
+          "coverage_pct": 66.67,
+          "hit_rate_pct": 30.0,
+          "unit_rate_pct": -26.67,
+          "placed": 10,
+          "wins": 3,
+          "losses": 7,
+          "avoided": 5
+        },
+        "note": "Insufficient finalized sample for reliable tuning; defaults retained."
+      }
+    }
+  }
+}

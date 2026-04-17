@@ -3,115 +3,93 @@
 
 {% block content %}
 
-<div class="page-header">
-  <h1>Upcoming <span class="accent">Fixtures</span></h1>
-  <p class="page-sub">Next 20 matches · AI-predicted winner per game</p>
-</div>
+<section class="sp-hero">
+  <span class="sp-kicker">Fixtures</span>
+  <h1>Upcoming Fixtures</h1>
+  <p class="sp-hero__copy">Next 20 matches with AI-predicted outcomes.</p>
+</section>
 
-<!-- League switcher -->
-<div class="card glow-card" style="padding:1rem 1.5rem;">
-  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
-    <span style="font-size:.82rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Competition</span>
-    <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
-      {% set slugs = [
-        ("eng.1",   "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League"),
-        ("esp.1",   "🇪🇸 La Liga"),
-        ("ger.1",   "🇩🇪 Bundesliga"),
-        ("ita.1",   "🇮🇹 Serie A"),
-        ("fra.1",   "🇫🇷 Ligue 1"),
-        ("UEFA.CL", "⭐ Champions League"),
-      ] %}
-      {% for slug, label in slugs %}
-      <a href="/fixtures?espn_slug={{ slug }}" class="btn btn-sm {{ 'btn-primary btn-glow' if espn_slug == slug else 'btn-secondary' }}">{{ label }}</a>
-      {% endfor %}
-    </div>
-    <span class="source-badge {{ 'source-espn' if data_source == 'espn' else 'source-api' }}">
-      {{ '📡 ESPN (free)' if data_source == 'espn' else '🔑 API data' }}
-    </span>
+{# ── League Switcher ───────────────────────────────────────────────────── #}
+<div class="sp-league-switcher">
+  <span class="sp-league-switcher__label">Competition</span>
+  <div class="sp-league-switcher__options">
+    {% set slugs = [
+      ("eng.1",   "🏴󠁧󠁢󠁥󠁮󠁧󠁿 PL"),
+      ("esp.1",   "🇪🇸 La Liga"),
+      ("ger.1",   "🇩🇪 Bund."),
+      ("ita.1",   "🇮🇹 Serie A"),
+      ("fra.1",   "🇫🇷 Ligue 1"),
+      ("UEFA.CL", "⭐ UCL"),
+    ] %}
+    {% for slug, label in slugs %}
+    <a href="/fixtures?espn_slug={{ slug }}" class="btn btn-sm {{ 'btn-primary' if espn_slug == slug else 'btn-secondary' }}">{{ label }}</a>
+    {% endfor %}
   </div>
+  <span class="source-badge {{ 'source-espn' if data_source == 'espn' else 'source-api' }}">
+    {{ 'ESPN' if data_source == 'espn' else 'API' }}
+  </span>
 </div>
 
 {% if load_error %}
-<div class="alert alert-warn">{{ load_error }}</div>
+<div class="sp-alert sp-alert--warn">{{ load_error }}</div>
 {% endif %}
 
 {% if not fixtures %}
-<div class="card glow-card">
-  <div class="empty-state">No upcoming fixtures found. Try again later or check your API key.</div>
-</div>
+<div class="sp-empty">No upcoming fixtures found. Try again later.</div>
 {% else %}
 
 {% for f in fixtures %}
 {% set p = f.prediction %}
-<div class="card glow-card fpred-card">
-
-  <!-- Date / venue row -->
-  <div class="fpred-meta">
-    <span>📅 {{ f.fixture.date[:10] }}</span>
-    {% if f.fixture.date | length > 10 %}
-    <span>🕐 {{ f.fixture.date[11:16] }} UTC</span>
-    {% endif %}
-    {% if f.fixture.venue and f.fixture.venue.name %}
-    <span>🏟 {{ f.fixture.venue.name }}</span>
-    {% endif %}
-    {% if f.league and f.league.round %}
-    <span>{{ f.league.round }}</span>
-    {% endif %}
+<article class="sp-fixture">
+  <div class="sp-fixture__meta">
+    <span>{{ f.fixture.date[:10] }}</span>
+    {% if f.fixture.date | length > 10 %}<span>{{ f.fixture.date[11:16] }} UTC</span>{% endif %}
+    {% if f.fixture.venue and f.fixture.venue.name %}<span>{{ f.fixture.venue.name }}</span>{% endif %}
+    {% if f.league and f.league.round %}<span>{{ f.league.round }}</span>{% endif %}
+    <span class="sp-badge conf-{{ p.confidence | lower }}">{{ p.confidence }}</span>
   </div>
 
-  <!-- Teams row -->
-  <div class="fpred-teams-row">
-    <div class="fpred-team">
-      <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.home.name }}" />
-      <span class="fpred-team-name">{{ f.teams.home.name }}</span>
+  <div class="sp-fixture__teams">
+    <div class="sp-fixture__team">
+      <img src="{{ f.teams.home.logo }}" class="team-logo-sm" alt="{{ f.teams.home.name }}" />
+      <span>{{ f.teams.home.name }}</span>
     </div>
-
-    <div class="fpred-centre">
-      <span class="fpred-vs">vs</span>
-      <span class="confidence-badge conf-{{ p.confidence | lower }}">{{ p.confidence }}</span>
-    </div>
-
-    <div class="fpred-team right">
-      <span class="fpred-team-name">{{ f.teams.away.name }}</span>
-      <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.away.name }}" />
+    <span class="sp-fixture__vs">vs</span>
+    <div class="sp-fixture__team right">
+      <span>{{ f.teams.away.name }}</span>
+      <img src="{{ f.teams.away.logo }}" class="team-logo-sm" alt="{{ f.teams.away.name }}" />
     </div>
   </div>
 
-  <!-- 1X2 probability bars -->
-  <div class="fpred-probs">
-    <div class="fpred-prob-block {{ 'active' if p.best_pick.team == 'A' }}">
-      <div class="fpred-prob-pct stat-number" data-target="{{ p.home_pct }}">{{ p.home_pct }}</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ p.home_pct }}" style="background:#00ff87"></div>
-      </div>
-      <div class="fpred-prob-label">Home Win</div>
+  {# Compact prob bars #}
+  <div style="display:flex; gap:1rem; margin-bottom:.65rem; font-size:.82rem">
+    <div style="flex:1">
+      <div style="display:flex; justify-content:space-between"><span>Home</span><span class="sp-mono">{{ p.home_pct }}%</span></div>
+      <div class="prob-bar"><div class="prob-bar-fill prob-bar-fill--home" data-width="{{ p.home_pct }}"></div></div>
     </div>
-    <div class="fpred-prob-block {{ 'active' if p.best_pick.team == 'draw' }}">
-      <div class="fpred-prob-pct stat-number" data-target="{{ p.draw_pct }}">{{ p.draw_pct }}</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ p.draw_pct }}" style="background:#f59e0b"></div>
-      </div>
-      <div class="fpred-prob-label">Draw</div>
+    <div style="flex:1">
+      <div style="display:flex; justify-content:space-between"><span>Draw</span><span class="sp-mono">{{ p.draw_pct }}%</span></div>
+      <div class="prob-bar"><div class="prob-bar-fill prob-bar-fill--draw" data-width="{{ p.draw_pct }}"></div></div>
     </div>
-    <div class="fpred-prob-block {{ 'active' if p.best_pick.team == 'B' }}">
-      <div class="fpred-prob-pct stat-number" data-target="{{ p.away_pct }}">{{ p.away_pct }}</div>
-      <div class="prob-bar">
-        <div class="prob-bar-fill" data-width="{{ p.away_pct }}" style="background:#3b82f6"></div>
-      </div>
-      <div class="fpred-prob-label">Away Win</div>
+    <div style="flex:1">
+      <div style="display:flex; justify-content:space-between"><span>Away</span><span class="sp-mono">{{ p.away_pct }}%</span></div>
+      <div class="prob-bar"><div class="prob-bar-fill prob-bar-fill--away" data-width="{{ p.away_pct }}"></div></div>
     </div>
   </div>
 
-  <!-- Footer: predicted winner + analyse button -->
-  <div class="fpred-footer">
-    <span class="fpred-winner-label">
-      Predicted:
-      <strong class="accent">
-        {% if p.best_pick.prediction %}{{ p.best_pick.prediction }}
-        {% else %}No prediction available
-        {% endif %}
-      </strong>
-    </span>
+  <div class="sp-fixture__footer">
+    <div class="sp-fixture__lean">
+      {% set lean = p.get('top_lean', {}) %}
+      {% set status = p.get('decision_status', '') %}
+      {% if lean and lean.get('label') %}
+      Top Lean: <strong>{{ lean.label }}</strong> ({{ lean.prob }}%)
+      {% else %}
+      Predicted: <strong>{{ p.best_pick.prediction or 'N/A' }}</strong>
+      {% endif %}
+      {% if status %}
+      <span class="sp-fixture__status sp-fixture__status--{{ status | lower | replace(' ', '-') }}">{{ status }}</span>
+      {% endif %}
+    </div>
     <form method="POST" action="/select" style="display:inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
@@ -126,11 +104,10 @@
       <input type="hidden" name="round" value="{{ f.league.round if f.league else '' }}" />
       <input type="hidden" name="venue_name" value="{{ f.fixture.venue.name if f.fixture.venue else '' }}" />
       <input type="hidden" name="data_source" value="{{ data_source }}" />
-      <button type="submit" class="btn btn-primary btn-sm btn-glow">Full Analysis →</button>
+      <button type="submit" class="btn btn-primary btn-sm">Full Analysis →</button>
     </form>
   </div>
-
-</div>
+</article>
 {% endfor %}
 
 {% endif %}

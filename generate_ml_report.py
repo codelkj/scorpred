@@ -17,7 +17,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 import ml_service
-from runtime_paths import clean_soccer_dataset_path, clean_soccer_model_path
+from runtime_paths import clean_soccer_dataset_path, clean_soccer_model_path, ensemble_soccer_model_path
 from train_model import FEATURE_COLUMNS
 from utils.parsing import safe_float
 
@@ -146,9 +146,20 @@ def generate_clean_soccer_report(
     output: str | Path = mlp.DEFAULT_REPORT_PATH,
     random_state: int = 42,
 ) -> Path:
-    """Generate Strategy Lab report from the current clean soccer ML assets."""
+    """Generate Strategy Lab report from the current clean soccer ML assets.
+
+    Prefers the stacking ensemble model when available, falls back to the
+    standalone RF.  Always evaluates LR baseline independently for comparison.
+    """
     dataset = Path(dataset_path or clean_soccer_dataset_path())
-    model_file = Path(model_path or clean_soccer_model_path())
+
+    # Resolve model: prefer ensemble, fall back to RF
+    if model_path:
+        model_file = Path(model_path)
+    elif ensemble_soccer_model_path().exists():
+        model_file = ensemble_soccer_model_path()
+    else:
+        model_file = clean_soccer_model_path()
 
     if not dataset.exists():
         raise FileNotFoundError(f"Clean dataset not found: {dataset}")
@@ -168,6 +179,7 @@ def generate_clean_soccer_report(
     x_test = _matrix(test_rows, FEATURE_COLUMNS)
     y_test = _targets(test_rows)
 
+    # ── Logistic Regression baseline ──────────────────────────────────────────
     logistic = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
@@ -186,49 +198,107 @@ def generate_clean_soccer_report(
     logistic_predictions = logistic.predict(x_test)
     logistic_accuracy = float(accuracy_score(y_test, logistic_predictions))
 
+    # ── Primary model (ensemble or RF) ────────────────────────────────────────
     bundle = ml_service.load_model(model_path=model_file, force_reload=True)
     if not bundle or bundle.get("model") is None:
-        raise ValueError("Unable to load trained Random Forest bundle for report generation.")
+        raise ValueError("Unable to load trained model bundle for report generation.")
 
-    rf_model = bundle["model"]
-    rf_predictions = rf_model.predict(x_test)
-    rf_probabilities = rf_model.predict_proba(x_test)
-    rf_accuracy = float(accuracy_score(y_test, rf_predictions))
+    primary_model = bundle["model"]
+    model_type = bundle.get("model_type", "random_forest")
+    base_models = bundle.get("base_models")
+    base_accuracies = bundle.get("base_accuracies") or {}
 
+    primary_predictions = primary_model.predict(x_test)
+    primary_probabilities = primary_model.predict_proba(x_test)
+    primary_accuracy = float(accuracy_score(y_test, primary_predictions))
+
+    # ── Rule + Combined evaluation ────────────────────────────────────────────
     rule_predictions = [ml_service._rule_prediction_from_features(features) for features in x_test]
     rule_probabilities = [ml_service._rule_probabilities(features) for features in x_test]
     combined_predictions: list[int] = []
-    for idx, probs in enumerate(rf_probabilities):
+    for idx, probs in enumerate(primary_probabilities):
         combined = ml_service._combine_probabilities(rule_probabilities[idx], [float(p) for p in probs])
         combined_predictions.append(int(max(range(3), key=lambda class_idx: combined[class_idx])))
 
     rule_accuracy = float(accuracy_score(y_test, rule_predictions))
     combined_accuracy = float(accuracy_score(y_test, combined_predictions))
 
+    # ── Build ranking (all models sorted by accuracy) ─────────────────────────
+    ranking: list[dict[str, Any]] = []
+
+    # Primary model entry
+    primary_label = "stacking_ensemble" if model_type == "stacking_ensemble" else "random_forest"
+    primary_features = _top_rf_features(primary_model, FEATURE_COLUMNS)
+    # For ensemble, try to get feature importances from the RF base model
+    if not primary_features and hasattr(primary_model, "estimator"):
+        try:
+            base = primary_model.estimator
+            if hasattr(base, "estimators_"):
+                for name, est in base.named_estimators_.items():
+                    if hasattr(est, "feature_importances_"):
+                        primary_features = _top_rf_features(est, FEATURE_COLUMNS)
+                        break
+        except Exception:
+            pass
+
+    ranking.append({
+        "model": primary_label,
+        "accuracy": round(primary_accuracy, 4),
+        "top_features": primary_features,
+    })
+
+    # Base model entries from training (if ensemble)
+    for name, acc in base_accuracies.items():
+        if name == "rf" and primary_label == "random_forest":
+            continue  # Already listed as primary
+        model_name = {"lr": "logistic_regression", "rf": "random_forest", "xgb": "xgboost", "lgbm": "lightgbm"}.get(name, name)
+        ranking.append({
+            "model": model_name,
+            "accuracy": round(float(acc), 4),
+            "top_features": [],
+        })
+
+    # LR baseline (only add if not already present from base_accuracies)
+    lr_already = any(r["model"] == "logistic_regression" for r in ranking)
+    if not lr_already:
+        ranking.append({
+            "model": "logistic_regression",
+            "accuracy": round(logistic_accuracy, 4),
+            "top_features": _top_logistic_features(log_model, FEATURE_COLUMNS),
+        })
+    else:
+        # Update the LR entry with feature info from our fresh evaluation
+        for r in ranking:
+            if r["model"] == "logistic_regression" and not r["top_features"]:
+                r["top_features"] = _top_logistic_features(log_model, FEATURE_COLUMNS)
+
+    # Combined entry
+    ranking.append({
+        "model": "combined",
+        "accuracy": round(combined_accuracy, 4),
+        "top_features": [],
+    })
+
+    ranking.sort(key=lambda r: r.get("accuracy", 0), reverse=True)
+
+    # Determine best model (exclude combined for best_model label)
+    individual_ranking = [r for r in ranking if r["model"] != "combined"]
+    best_model = individual_ranking[0]["model"] if individual_ranking else primary_label
+
+    # ── Build models dict ─────────────────────────────────────────────────────
+    models_dict: dict[str, Any] = {}
+    for r in ranking:
+        models_dict[r["model"]] = {
+            "accuracy": r["accuracy"],
+            "top_features": r["top_features"],
+        }
+
     report = {
-        "best_model": "random_forest" if rf_accuracy >= logistic_accuracy else "logistic_regression",
-        "ranking": [
-            {
-                "model": "random_forest",
-                "accuracy": round(rf_accuracy, 4),
-                "top_features": _top_rf_features(rf_model, FEATURE_COLUMNS),
-            },
-            {
-                "model": "logistic_regression",
-                "accuracy": round(logistic_accuracy, 4),
-                "top_features": _top_logistic_features(log_model, FEATURE_COLUMNS),
-            },
-        ],
-        "models": {
-            "logistic_regression": {
-                "accuracy": round(logistic_accuracy, 4),
-                "top_features": _top_logistic_features(log_model, FEATURE_COLUMNS),
-            },
-            "random_forest": {
-                "accuracy": round(rf_accuracy, 4),
-                "top_features": _top_rf_features(rf_model, FEATURE_COLUMNS),
-            },
-        },
+        "best_model": best_model,
+        "model_type": model_type,
+        "base_models": base_models,
+        "ranking": ranking,
+        "models": models_dict,
         "workflow": {
             "chronological_split": True,
             "train_size": len(train_rows),
@@ -244,7 +314,7 @@ def generate_clean_soccer_report(
         },
         "performance": {
             "rule_accuracy": round(rule_accuracy, 4),
-            "ml_accuracy": round(rf_accuracy, 4),
+            "ml_accuracy": round(primary_accuracy, 4),
             "combined_accuracy": round(combined_accuracy, 4),
             "evaluation_matches": len(test_rows),
         },

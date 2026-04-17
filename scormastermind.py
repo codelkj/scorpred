@@ -17,28 +17,46 @@ from pathlib import Path
 from typing import Any
 
 import ml_service
+import nba_ml_service
+import odds_utils
+import prediction_policy as pp
 from runtime_paths import elo_state_path, ml_report_path
 import scorpred_engine as se
 
 _ML_REPORT_PATH = ml_report_path()
 
+
+# ── Blend weights (shared via prediction_policy) ──────────────────────────────
+# Both scormastermind (runtime) and ml_service (offline eval) now read from
+# the same source — prediction_policy.soccer_ml_blend_weight() / nba variant.
+# prediction_policy.json is read from disk when the file mtime changes, so
+# updates written by daily_refresh are picked up on the next prediction.
+
 # ── ELO state cache (loaded once from training output) ───────────────────────────
 class _EloCache:
     ratings: dict[str, float] | None = None
+    _mtime: float = 0.0
 
 
 def _load_soccer_elo() -> dict[str, float]:
-    """Return ELO ratings dict saved by train_model.py. Falls back to empty dict."""
-    if _EloCache.ratings is not None:
-        return _EloCache.ratings
+    """Return ELO ratings dict saved by train_model.py. Falls back to empty dict.
+
+    Re-reads the file if its modification time has changed (e.g. after retraining)
+    so a running server picks up fresh ratings without a restart.
+    """
     try:
         path = elo_state_path()
         if path.exists():
+            mtime = path.stat().st_mtime
+            if _EloCache.ratings is not None and mtime == _EloCache._mtime:
+                return _EloCache.ratings
             _EloCache.ratings = json.loads(path.read_text(encoding="utf-8"))
+            _EloCache._mtime = mtime
             return _EloCache.ratings
     except Exception:
         pass
-    _EloCache.ratings = {}
+    if _EloCache.ratings is None:
+        _EloCache.ratings = {}
     return _EloCache.ratings
 
 
@@ -56,7 +74,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 def _confidence_label(confidence: float) -> str:
     if confidence >= 0.72:
         return "High"
-    if confidence >= 0.57:
+    if confidence >= 0.51:
         return "Medium"
     return "Low"
 
@@ -85,26 +103,6 @@ def _results_to_points(rows: list[dict], sport: str) -> float:
         elif result == "D" and sport == "soccer":
             pts += 0.45
     return pts / max(1.0, min(5.0, float(len(rows[:5]))))
-
-
-def _heuristic_signal(context: dict[str, Any]) -> dict[str, Any]:
-    sport = str(context.get("sport") or "soccer").lower()
-    form_a = context.get("form_a") or []
-    form_b = context.get("form_b") or []
-    team_a_is_home = bool(context.get("team_a_is_home", True))
-
-    form_a_pts = _results_to_points(form_a, sport)
-    form_b_pts = _results_to_points(form_b, sport)
-    form_delta = form_a_pts - form_b_pts
-
-    home_adv = 0.06 if team_a_is_home else -0.06
-    prob_a = _clamp(0.5 + form_delta * 0.22 + home_adv, 0.05, 0.95)
-    return {
-        "available": True,
-        "prob_a": prob_a,
-        "form_delta": round(form_delta, 3),
-        "home_advantage": home_adv,
-    }
 
 
 def _average_metric(rows: list[dict[str, Any]], key: str, default: float = 0.0) -> float:
@@ -136,6 +134,116 @@ def _build_elo_features(context: dict[str, Any]) -> dict[str, float]:
     }
 
 
+def _nba_ml_features(context: dict[str, Any]) -> dict[str, float]:
+    """Build NBA ML feature dict matching NBA_FEATURE_COLUMNS in nba_train_model.py."""
+    form_a    = context.get("form_a") or []
+    form_b    = context.get("form_b") or []
+    h2h_form_a = context.get("h2h_form_a") or []
+
+    def _net_rtg(rows: list[dict], window: int = 10) -> float:
+        recent = rows[:window]
+        if not recent:
+            return 0.0
+        vals = [
+            _safe_float(r.get("our_pts"), 110.0) - _safe_float(r.get("their_pts"), 110.0)
+            for r in recent
+        ]
+        return round(sum(vals) / len(vals), 2)
+
+    def _win_pct(rows: list[dict], window: int = 10) -> float:
+        recent = rows[:window]
+        if not recent:
+            return 0.5
+        return round(sum(1.0 for r in recent if str(r.get("result", "")).upper() == "W") / len(recent), 4)
+
+    def _avg_pts(rows: list[dict], window: int = 10) -> float:
+        recent = rows[:window]
+        if not recent:
+            return 110.0
+        return round(sum(_safe_float(r.get("our_pts"), 110.0) for r in recent) / len(recent), 2)
+
+    def _avg_pts_against(rows: list[dict], window: int = 10) -> float:
+        recent = rows[:window]
+        if not recent:
+            return 110.0
+        return round(sum(_safe_float(r.get("their_pts"), 110.0) for r in recent) / len(recent), 2)
+
+    def _scoring_consistency(rows: list[dict], window: int = 10) -> float:
+        recent = rows[:window]
+        if len(recent) < 2:
+            return 0.0
+        pts = [_safe_float(r.get("our_pts"), 110.0) for r in recent]
+        mean = sum(pts) / len(pts)
+        return round((sum((p - mean) ** 2 for p in pts) / len(pts)) ** 0.5, 2)
+
+    def _rest_days(rows: list[dict]) -> float:
+        if not rows:
+            return 3.0
+        try:
+            from datetime import date as _date
+            ds = rows[0].get("date") or ""
+            if ds:
+                last  = _date.fromisoformat(str(ds).strip()[:10])
+                return min(float(max(0, (_date.today() - last).days)), 7.0)
+        except Exception:
+            pass
+        return 3.0
+
+    rest_home = _rest_days(form_a)
+    rest_away = _rest_days(form_b)
+
+    h2h_win_rate = 0.5
+    if h2h_form_a:
+        wins = sum(1 for r in h2h_form_a if str(r.get("result", "")).upper() == "W")
+        h2h_win_rate = round(wins / len(h2h_form_a), 4)
+
+    # ELO: use context-level ELO if available, else neutral
+    h_elo = _safe_float(context.get("home_elo"), 1500.0)
+    a_elo = _safe_float(context.get("away_elo"), 1500.0)
+
+    h_net10 = _net_rtg(form_a, 10)
+    a_net10 = _net_rtg(form_b, 10)
+    h_wpct10 = _win_pct(form_a, 10)
+    a_wpct10 = _win_pct(form_b, 10)
+    h_off10 = _avg_pts(form_a, 10)
+    a_off10 = _avg_pts(form_b, 10)
+
+    return {
+        # Performance – last 10
+        "home_net_rating_last10": h_net10,
+        "away_net_rating_last10": a_net10,
+        "home_off_rtg_last10":    h_off10,
+        "away_off_rtg_last10":    a_off10,
+        "home_def_rtg_last10":    _avg_pts_against(form_a, 10),
+        "away_def_rtg_last10":    _avg_pts_against(form_b, 10),
+        "home_win_pct_last10":    h_wpct10,
+        "away_win_pct_last10":    a_wpct10,
+        # Recent form – last 5
+        "home_win_pct_last5":     _win_pct(form_a, 5),
+        "away_win_pct_last5":     _win_pct(form_b, 5),
+        "home_net_rating_last5":  _net_rtg(form_a, 5),
+        "away_net_rating_last5":  _net_rtg(form_b, 5),
+        # Rest / fatigue
+        "rest_days_home":         rest_home,
+        "rest_days_away":         rest_away,
+        "is_back_to_back_home":   1.0 if rest_home <= 1 else 0.0,
+        "is_back_to_back_away":   1.0 if rest_away <= 1 else 0.0,
+        # H2H
+        "h2h_home_win_rate":      h2h_win_rate,
+        # ELO
+        "home_elo":               round(h_elo, 1),
+        "away_elo":               round(a_elo, 1),
+        "elo_diff":               round(h_elo - a_elo, 1),
+        # Scoring consistency
+        "home_scoring_consistency": _scoring_consistency(form_a, 10),
+        "away_scoring_consistency": _scoring_consistency(form_b, 10),
+        # Derived comparisons
+        "pace_diff":              round(h_off10 - a_off10, 2),
+        "net_rating_diff":        round(h_net10 - a_net10, 2),
+        "win_pct_diff_10":        round(h_wpct10 - a_wpct10, 4),
+    }
+
+
 def _ml_features(context: dict[str, Any]) -> dict[str, float]:
     """Build pre-match feature dict matching FEATURE_COLUMNS in train_model.py.
 
@@ -143,9 +251,10 @@ def _ml_features(context: dict[str, Any]) -> dict[str, float]:
     Features requiring data absent from the live context (H2H records, opponent
     PPG history) use neutral defaults that are safe for inference.
     """
-    form_a = context.get("form_a") or []   # home team's recent match dicts
-    form_b = context.get("form_b") or []   # away team's recent match dicts
-    sport  = str(context.get("sport") or "soccer").lower()
+    form_a    = context.get("form_a") or []      # home team's recent match dicts
+    form_b    = context.get("form_b") or []      # away team's recent match dicts
+    h2h_form_a = context.get("h2h_form_a") or [] # H2H results from home team's perspective
+    sport     = str(context.get("sport") or "soccer").lower()
 
     def _avg(rows: list[dict], key: str, window: int = 5, default: float = 0.0) -> float:
         vals = [_safe_float(row.get(key), default) for row in rows[:window]
@@ -240,6 +349,47 @@ def _ml_features(context: dict[str, Any]) -> dict[str, float]:
     attack_vs_defense_home = round(h_gf5 - a_ga5, 4)
     attack_vs_defense_away = round(a_gf5 - h_ga5, 4)
 
+    # ── H2H features (from h2h_form_a — home team's perspective) ─────────────
+    h2h_pts_avg: float = 1.0
+    h2h_gd_avg: float  = 0.0
+    if h2h_form_a:
+        pts_list: list[float] = []
+        gd_list: list[float]  = []
+        for r in h2h_form_a[:5]:
+            res = str(r.get("result", "")).upper()
+            gf  = _safe_float(r.get("gf"), 0.0)
+            ga  = _safe_float(r.get("ga"), 0.0)
+            pts_list.append(3.0 if res == "W" else (1.0 if res == "D" else 0.0))
+            gd_list.append(gf - ga)
+        if pts_list:
+            h2h_pts_avg = round(sum(pts_list) / len(pts_list), 4)
+            h2h_gd_avg  = round(sum(gd_list)  / len(gd_list),  4)
+
+    # ── Opponent-strength proxy ────────────────────────────────────────────────
+    # Training computes opp_avg_ppg as the mean of each past opponent's PPG
+    # stored in the 'opp_ppg' field of each match record.  At inference time
+    # form entries carry that field when available (enriched sources); when
+    # absent, we approximate using the current opponent's recent PPG (W=3,
+    # D=1, L=0 pts/game) as a proxy for schedule difficulty.
+    # home_opp_avg_ppg_5 = away team's PPG (today's opponent for home team)
+    # away_opp_avg_ppg_5 = home team's PPG (today's opponent for away team)
+    _PTS_MAP = {"W": 3.0, "D": 1.0, "L": 0.0}
+
+    def _opp_avg_ppg(form_rows: list[dict], window: int = 5) -> float:
+        recent = form_rows[:window]
+        if not recent:
+            return 1.0
+        vals = [_safe_float(r.get("opp_ppg"), None) for r in recent]
+        known = [v for v in vals if v is not None]
+        if known:
+            return round(sum(known) / len(known), 4)
+        # Fallback: derive PPG from result column (W=3, D=1, L=0)
+        pts = [_PTS_MAP.get(str(r.get("result", "")).upper(), 1.0) for r in recent]
+        return round(sum(pts) / len(pts), 4)
+
+    home_opp_avg_ppg_5 = _opp_avg_ppg(form_b) if form_b else 1.0
+    away_opp_avg_ppg_5 = _opp_avg_ppg(form_a) if form_a else 1.0
+
     return {
         # Overall last-5
         "home_avg_gf_5":         h_gf5,
@@ -274,15 +424,15 @@ def _ml_features(context: dict[str, Any]) -> dict[str, float]:
         "away_clean_sheet_rate_5": a_clean_sheet_rate5,
         "home_scored_rate_5":      h_scored_rate5,
         "away_scored_rate_5":      a_scored_rate5,
-        # Opponent strength (not in live context – neutral 1.0 default)
-        "home_opp_avg_ppg_5":    1.0,
-        "away_opp_avg_ppg_5":    1.0,
+        # Opponent-strength proxy (away team's PPG as proxy for home team's opponent quality)
+        "home_opp_avg_ppg_5":    home_opp_avg_ppg_5,
+        "away_opp_avg_ppg_5":    away_opp_avg_ppg_5,
         # Rest / fatigue
         "days_since_last_match_home": days_home,
         "days_since_last_match_away": days_away,
-        # H2H (not in live context – neutral defaults)
-        "h2h_home_points_avg":   1.0,
-        "h2h_goal_diff_avg":     0.0,
+        # H2H (computed from h2h_form_a when available)
+        "h2h_home_points_avg":   h2h_pts_avg,
+        "h2h_goal_diff_avg":     h2h_gd_avg,
         # Derived comparison features
         "ppg_diff_5":            round(h_ppg5 - a_ppg5, 4),
         "gf_diff_5":             round(h_gf5 - a_gf5, 4),
@@ -358,7 +508,8 @@ def _blend_soccer_probabilities(
     data_quality: str,
 ) -> tuple[float, float, float]:
     weak_quality = _is_weak_data_quality(data_quality)
-    ml_weight = 0.56 if ml.get("available") and not weak_quality else 0.50 if ml.get("available") else 0.0
+    base_ml_weight = pp.soccer_ml_blend_weight()
+    ml_weight = base_ml_weight if ml.get("available") and not weak_quality else max(0.0, base_ml_weight - 0.06) if ml.get("available") else 0.0
     rule_weight = 1.0 - ml_weight if ml.get("available") else 1.0
 
     prob_a = rule_prob_a_total
@@ -385,13 +536,26 @@ def _blend_soccer_probabilities(
     prob_a, prob_draw, prob_b = _normalize_probabilities(prob_a, prob_draw, prob_b)
 
     side_gap = abs(prob_a - prob_b)
+    side_max = max(prob_a, prob_b)
     edge_strength = abs(_safe_float(edge_summary.get("side_edge"), 0.0))
+
+    # Draw transfer: move some draw probability to sides when the data
+    # clearly favours a side outcome.  Suppress transfer when the draw is
+    # genuinely competitive so we don't contradict a valid draw selection.
     if prob_draw > 0.0:
-        draw_transfer = min(
-            prob_draw * 0.28,
-            max(0.0, (edge_strength - 0.22) * 0.11 + max(0.0, side_gap - 0.04) * 0.70),
+        # How dominant is the draw vs the best side?  When draw is close to
+        # or above the top side the transfer should be near-zero.
+        draw_dominance = _clamp(prob_draw - side_max, -0.30, 0.15)
+        # Scale factor: 1.0 when draw is clearly below sides, ~0 when draw
+        # is competitive, 0 when draw leads.
+        suppression = _clamp(1.0 - (draw_dominance + 0.04) * 8.0, 0.0, 1.0)
+
+        raw_transfer = min(
+            prob_draw * 0.22,
+            max(0.0, (edge_strength - 0.25) * 0.09 + max(0.0, side_gap - 0.05) * 0.55),
         )
-        if draw_transfer > 0.0:
+        draw_transfer = raw_transfer * suppression
+        if draw_transfer > 0.001:
             side_total = max(prob_a + prob_b, 1e-9)
             prob_draw -= draw_transfer
             prob_a += draw_transfer * (prob_a / side_total)
@@ -402,18 +566,20 @@ def _blend_soccer_probabilities(
 
 def _select_soccer_outcome(prob_a: float, prob_draw: float, prob_b: float, edge_summary: dict[str, float]) -> str:
     side_gap = abs(prob_a - prob_b)
+    side_max = max(prob_a, prob_b)
     edge_strength = abs(_safe_float(edge_summary.get("side_edge"), 0.0))
 
     draw_viable = (
-        prob_draw >= 0.34
-        and side_gap <= 0.07
-        and edge_strength <= 0.42
-        and prob_draw >= max(prob_a, prob_b) - 0.01
+        prob_draw >= 0.36
+        and side_gap <= 0.06
+        and edge_strength <= 0.36
+        and prob_draw >= side_max + 0.012
     )
     draw_balanced = (
-        prob_draw >= 0.37
-        and side_gap <= 0.045
-        and edge_strength <= 0.28
+        prob_draw >= 0.39
+        and side_gap <= 0.04
+        and edge_strength <= 0.24
+        and prob_draw >= side_max + 0.005
     )
 
     if draw_viable or draw_balanced:
@@ -464,8 +630,18 @@ def _confidence_score(
     if strong_disagreement:
         agreement_bonus -= 0.04
 
+    # Base model agreement: boost confidence when all base learners in the
+    # stacking ensemble agree, penalise slightly when they disagree.
+    base_agreement = ml.get("base_agreement") or {}
+    agreement_ratio = _safe_float(base_agreement.get("agreement_ratio"), 0.0)
+    if agreement_ratio > 0.0:
+        if base_agreement.get("unanimous"):
+            agreement_bonus += 0.03
+        elif agreement_ratio < 0.5:
+            agreement_bonus -= 0.02
+
     edge_strength = abs(_safe_float(edge_summary.get("side_edge"), 0.0))
-    edge_bonus = min(0.08, edge_strength * 0.08) if selected_team != "draw" else min(0.03, max(0.0, 0.35 - edge_strength) * 0.10)
+    edge_bonus = min(0.08, edge_strength * 0.08) if selected_team != "draw" else min(0.06, max(0.0, 0.35 - edge_strength) * 0.14)
     cluster_penalty = max(0.0, 0.08 - gap) * 0.90
 
     data_penalty = 0.0
@@ -475,10 +651,10 @@ def _confidence_score(
         data_penalty += 0.05
     if _is_weak_data_quality(data_quality):
         data_penalty += 0.05
-    if selected_team == "draw" and gap < 0.05:
-        data_penalty += 0.03
+    if selected_team == "draw" and gap < 0.03:
+        data_penalty += 0.02
 
-    confidence = _clamp(top_prob * 0.72 + gap * 1.10 + agreement_bonus + edge_bonus - cluster_penalty - data_penalty, 0.05, 0.95)
+    confidence = _clamp(top_prob * 0.82 + gap * 1.30 + agreement_bonus + edge_bonus - cluster_penalty - data_penalty, 0.05, 0.95)
     return confidence, top_prob * 100.0, gap * 100.0, strong_disagreement
 
 
@@ -510,6 +686,8 @@ def _ml_signal(context: dict[str, Any]) -> dict[str, Any]:
     inference = ml_service.predict_match(_ml_features(context))
     if inference.get("available"):
         probs = inference.get("probabilities") or [0.3333, 0.3333, 0.3334]
+        model_type = inference.get("model_type", "random_forest")
+        source = f"{model_type}_model"
         return {
             "available": True,
             "prob_a": _clamp(_safe_float(probs[0], 0.3333), 0.01, 0.99),
@@ -517,7 +695,10 @@ def _ml_signal(context: dict[str, Any]) -> dict[str, Any]:
             "prob_b": _clamp(_safe_float(probs[2], 0.3334), 0.01, 0.99),
             "confidence": _clamp(_safe_float(inference.get("confidence"), 0.0), 0.0, 1.0),
             "prediction": inference.get("prediction"),
-            "source": "random_forest_model",
+            "source": source,
+            "model_role": inference.get("model_role"),
+            "base_models": inference.get("base_models"),
+            "base_agreement": inference.get("base_agreement"),
             "top_features": ml_outputs.get("top_features") or [],
         }
 
@@ -631,6 +812,21 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
     sport = str(context.get("sport") or "soccer").lower()
     team_a_name = context.get("team_a_name") or "Team A"
     team_b_name = context.get("team_b_name") or "Team B"
+    policy = pp.sport_policy(sport)
+
+    # ── Apply learned adjustments from mistake analysis ─────────────────────
+    _learned_notes: list[str] = []
+    try:
+        import mistake_analysis as _ma
+        policy, _learned_notes = _ma.apply_adjustments_to_thresholds(policy, sport)
+    except Exception:
+        pass
+
+    min_confidence_pct = _safe_float(policy.get("min_confidence_pct"), 53.0)
+    min_top_two_gap_pct = _safe_float(policy.get("min_top_two_gap_pct"), 3.0)
+    lean_min_confidence_pct = _safe_float(policy.get("lean_min_confidence_pct"), 51.0)
+    bet_min_confidence_pct = _safe_float(policy.get("bet_min_confidence_pct"), 70.0)
+    draw_min_top_prob_pct = _safe_float(policy.get("draw_min_top_prob_pct"), 37.0)
 
     rule_prediction = context.get("rule_prediction") or _build_rule_prediction(context)
     rule_probs = rule_prediction.get("win_probabilities") or {}
@@ -660,9 +856,16 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
     else:
         rule_prob_a = _clamp(rule_prob_a_total, 0.01, 0.99)
         rule_prob_a_for_compare = rule_prob_a
-        if ml.get("available"):
+        # Try NBA ML signal
+        _nba_ml_result = nba_ml_service.predict_match(_nba_ml_features(context))
+        if _nba_ml_result.get("available"):
+            nba_ml_w = pp.nba_ml_blend_weight()
+            ml_prob_a = _clamp(_safe_float(_nba_ml_result.get("prob_a"), 0.5), 0.01, 0.99)
+            prob_a = _clamp((1.0 - nba_ml_w) * rule_prob_a + nba_ml_w * ml_prob_a, 0.01, 0.99)
+        elif ml.get("available"):
+            _nbw = pp.nba_ml_blend_weight()
             ml_prob_a = _clamp(_safe_float(ml.get("prob_a"), 0.5), 0.01, 0.99)
-            prob_a = _clamp(0.6 * rule_prob_a + 0.4 * ml_prob_a, 0.01, 0.99)
+            prob_a = _clamp((1.0 - _nbw) * rule_prob_a + _nbw * ml_prob_a, 0.01, 0.99)
         else:
             prob_a = rule_prob_a
         prob_b = 1.0 - prob_a
@@ -740,30 +943,30 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
     strong_signal_disagreement = bool(ml.get("available")) and bool(ml_side) and bool(rule_side) and ml_side != rule_side and strong_disagreement_from_confidence
 
     avoid_reasons: list[str] = []
-    if confidence_pct < 58.0:
+    if confidence_pct < min_confidence_pct:
         avoid_reasons.append("No strong edge found")
-    if top_two_gap_pct < 3.0:
+    if top_two_gap_pct < min_top_two_gap_pct:
         avoid_reasons.append("Outcome probabilities are too close")
     if weak_data_quality:
         avoid_reasons.append("High uncertainty matchup")
     if strong_signal_disagreement:
         avoid_reasons.append("ML and rule signals disagree strongly")
-    if sport == "soccer" and selected_team == "draw" and top_prob_pct < 37.0:
+    if sport == "soccer" and selected_team == "draw" and top_prob_pct < draw_min_top_prob_pct:
         avoid_reasons.append("Draw signal is not strong enough")
 
     avoid_triggered = bool(avoid_reasons)
 
-    if confidence_pct < 58.0:
+    if confidence_pct < lean_min_confidence_pct:
         play_type = "AVOID"
-    elif confidence_pct < 72.0:
+    elif confidence_pct < bet_min_confidence_pct:
         play_type = "LEAN"
     else:
         play_type = "BET"
     top_lean = {
         "team": top_outcome.get("team"),
         "prediction": top_outcome.get("prediction"),
-        "probability": round(top_prob_pct, 1),
-        "display": f"Top lean: {top_outcome.get('prediction')} ({top_prob_pct:.1f}%)",
+        "probability": round(winner_prob * 100.0, 1),
+        "display": f"Top lean: {top_outcome.get('prediction')} ({winner_prob * 100.0:.1f}%)",
     }
 
     best_pick = ui_prediction.get("best_pick") or {}
@@ -789,8 +992,78 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
 
     ui_prediction["confidence_pct"] = round(confidence_pct, 1)
     ui_prediction["ml_confidence_pct"] = round(ml_confidence_pct, 1)
+    if _learned_notes:
+        ui_prediction["learned_adjustment_notes"] = _learned_notes
 
     ui_prediction["best_pick"] = best_pick
+
+    # ── Edge calculation (when odds provided) ─────────────────────────────────
+    # Accepts context["odds"] = {"home": float, "draw": float, "away": float}
+    # (decimal odds).  Computes edge vs vig-adjusted implied probs and stores
+    # a market-adjusted play_type inside edge_data.
+    #
+    # Design rule: edge_data.play_type is an ADDITIONAL signal shown in the UI
+    # alongside the model's recommendation.  It only overrides ui_prediction
+    # play_type when the sole AVOID reason was low confidence (no data-quality
+    # or disagreement flags) — in that case edge can legitimately rescue a LEAN.
+    odds_ctx = context.get("odds")
+    edge_data: dict[str, Any] = {}
+    if odds_ctx and sport == "soccer":
+        edge_data = odds_utils.compute_soccer_edge(
+            prob_a=prob_a,
+            prob_draw=prob_draw,
+            prob_b=prob_b,
+            selected_team=selected_team,
+            home_odds=odds_ctx.get("home"),
+            draw_odds=odds_ctx.get("draw"),
+            away_odds=odds_ctx.get("away"),
+            base_play_type=ui_prediction.get("play_type", play_type),
+        )
+        if edge_data.get("available"):
+            model_play = ui_prediction.get("play_type", play_type)
+            edge_play = edge_data["play_type"]
+            # Only let edge upgrade a pure-confidence AVOID (no data/disagreement)
+            edge_rescuable_reasons = {
+                "No strong edge found",
+                "Outcome probabilities are too close",
+            }
+            pure_confidence_avoid = (
+                model_play == "AVOID"
+                and bool(avoid_reasons)
+                and set(avoid_reasons).issubset(edge_rescuable_reasons)
+            )
+            if edge_play != model_play and (not avoid_triggered or pure_confidence_avoid):
+                ui_prediction["play_type"] = edge_play
+                if pure_confidence_avoid and edge_play in {"LEAN", "BET"}:
+                    best_pick["prediction"] = top_outcome.get("prediction")
+                    best_pick["team"] = selected_team
+                    best_pick["confidence"] = ui_prediction.get("confidence", best_pick.get("confidence", "Medium"))
+                    ui_prediction["recommended_play"] = top_outcome.get("prediction")
+                    ui_prediction["avoid_reasons"] = []
+                    ui_prediction["top_lean"] = top_lean
+                    ui_prediction["risk_label"] = "Moderate" if edge_play == "LEAN" else "Controlled"
+                sel_edge = edge_data.get("selected_edge", 0.0) or 0.0
+                sel_label = edge_data.get("selected_edge_label", "")
+                edge_note = f" Market edge: {sel_label} ({sel_edge:+.1%})."
+                existing = best_pick.get("reasoning") or ""
+                best_pick["reasoning"] = (existing + edge_note).strip()
+                ui_prediction["best_pick"] = best_pick
+
+    ui_prediction["edge_data"] = edge_data
+
+    # ── ML source metadata for template display ───────────────────────────────
+    _source_raw = ml.get("source", "rules_only")
+    _source_labels = {
+        "stacking_ensemble_model": "Stacking Ensemble",
+        "random_forest_model": "Random Forest (fallback)",
+        "rules_only": "Rules Only",
+    }
+    ui_prediction["ml_source"] = _source_raw
+    ui_prediction["ml_source_label"] = _source_labels.get(_source_raw, _source_raw)
+    ui_prediction["decision_layer"] = "Combined Signal" if ml.get("available") else "Rules Only"
+    ui_prediction["model_role"] = ml.get("model_role", "")
+    ui_prediction["base_models"] = ml.get("base_models") or []
+    ui_prediction["base_agreement"] = ml.get("base_agreement")
 
     return {
         "winner": winner,
@@ -799,4 +1072,5 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
         "explanation": explanation,
         "ui_prediction": ui_prediction,
         "rule_prediction": rule_prediction,
+        "model_probability": round(winner_prob, 6),   # top class probability for calibration tracking
     }

@@ -8,6 +8,7 @@ Provides functions to save, update, and summarize model performance.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from typing import Any
@@ -15,6 +16,8 @@ import uuid
 import re
 from runtime_paths import prediction_tracking_path
 from utils.parsing import normalize_date
+
+logger = logging.getLogger(__name__)
 
 _TRACKING_FILE = str(prediction_tracking_path())
 
@@ -58,7 +61,7 @@ def _migrate_predictions() -> None:
             with open(_TRACKING_FILE, "w", encoding="utf-8") as f:
                 json.dump({"predictions": predictions}, f, indent=2)
     except Exception:
-        pass  # Silent fail if migration fails
+        logger.warning("Prediction migration failed", exc_info=True)
 
 
 def _load_predictions() -> list[dict]:
@@ -86,8 +89,8 @@ def _save_predictions(predictions: list[dict]) -> None:
         _ensure_tracking_file()
         with open(_TRACKING_FILE, "w", encoding="utf-8") as f:
             json.dump({"predictions": predictions}, f, indent=2)
-    except Exception as e:
-        pass  # Silent fail if file can't be written
+    except Exception:
+        logger.error("Failed to save predictions to %s", _TRACKING_FILE, exc_info=True)
 
 
 def _get_game_key(sport: str, date: str, team_a: str, team_b: str) -> str:
@@ -301,6 +304,10 @@ def save_prediction(
     team_b_id: str | int | None = None,
     league_id: int | None = None,
     season: int | None = None,
+    model_probability: float | None = None,   # model's top class probability (0-1)
+    implied_probability: float | None = None,  # market implied probability (reserved)
+    form_a_length: int | None = None,          # home team's form list length (for recency_bias detection)
+    elo_diff: float | None = None,             # home_elo - away_elo (for popular_team_overrating)
 ) -> str:
     """
     Save a new prediction to the tracking file.
@@ -358,7 +365,14 @@ def save_prediction(
         prediction["league_id"] = int(league_id)
     if season is not None:
         prediction["season"] = int(season)
-    
+    if model_probability is not None:
+        prediction["model_probability"] = round(float(model_probability), 6)
+    prediction["implied_probability"] = implied_probability  # None by default (reserved for odds)
+    if form_a_length is not None:
+        prediction["form_a_length"] = int(form_a_length)
+    if elo_diff is not None:
+        prediction["elo_diff"] = round(float(elo_diff), 2)
+
     predictions.append(prediction)
     _save_predictions(predictions)
     
@@ -424,13 +438,16 @@ def update_prediction_result(pred_id: str, actual_result: str, final_score: dict
     return False
 
 
-def get_summary_metrics() -> dict[str, Any]:
+def get_summary_metrics(exclude_seeded: bool = True) -> dict[str, Any]:
     """
     Compute summary metrics across tracked winner predictions.
 
     Completed predictions are graded from the persisted winner outcome stored in
     `is_correct`, which is the source of truth for dashboard accuracy.
-    
+
+    Args:
+        exclude_seeded: When True (default), exclude predictions with is_seeded=True.
+
     Returns:
         {
             "total_predictions": int,
@@ -438,19 +455,16 @@ def get_summary_metrics() -> dict[str, Any]:
             "wins": int,
             "losses": int,
             "overall_accuracy": float,  # 0-100%
-            "by_confidence": {
-                "High": {"accuracy": float, "count": int, "wins": int, "losses": int},
-                "Medium": {"accuracy": float, "count": int, "wins": int, "losses": int},
-                "Low": {"accuracy": float, "count": int, "wins": int, "losses": int},
-            },
-            "by_sport": {
-                "soccer": {"accuracy": float, "count": int, "wins": int, "losses": int},
-                "nba": {"accuracy": float, "count": int, "wins": int, "losses": int},
-            },
-            "recent_predictions": list  # Last 10
+            "by_confidence": {...},
+            "by_sport": {...},
+            "calibration": {...},
+            "seeded_count": int,         # number of seeded predictions excluded
+            "recent_predictions": list   # Last 10
         }
     """
-    predictions = _load_predictions()
+    all_predictions = _load_predictions()
+    seeded_count = sum(1 for p in all_predictions if p.get("is_seeded"))
+    predictions = [p for p in all_predictions if not (exclude_seeded and p.get("is_seeded"))]
     
     if not predictions:
         return {
@@ -523,6 +537,34 @@ def get_summary_metrics() -> dict[str, Any]:
                 "losses": sport_losses,
             }
     
+    # Calibration: per confidence tier, compare avg model_probability vs actual hit rate
+    calibration: dict[str, dict[str, Any]] = {}
+    for conf_level in ("High", "Medium", "Low"):
+        tier_preds = [p for p in finalized if p.get("confidence") == conf_level]
+        if not tier_preds:
+            continue
+        probs = [float(p["model_probability"]) for p in tier_preds if p.get("model_probability") is not None]
+        tier_wins = sum(1 for p in tier_preds if is_game_win(p))
+        actual_hr  = round(tier_wins / len(tier_preds), 4)
+        avg_model  = round(sum(probs) / len(probs), 4) if probs else None
+        gap = round(actual_hr - avg_model, 4) if avg_model is not None else None
+        if gap is not None:
+            if gap < -0.05:
+                label = "Overconfident"
+            elif gap > 0.05:
+                label = "Underconfident"
+            else:
+                label = "Well-calibrated"
+        else:
+            label = "No probability data"
+        calibration[conf_level] = {
+            "avg_model_probability": avg_model,
+            "actual_hit_rate":       actual_hr,
+            "calibration_gap":       gap,
+            "label":                 label,
+            "count":                 len(tier_preds),
+        }
+
     return {
         "total_predictions": len(predictions),
         "finalized_predictions": len(finalized),
@@ -531,6 +573,8 @@ def get_summary_metrics() -> dict[str, Any]:
         "overall_accuracy": round(overall_accuracy, 1),
         "by_confidence": by_confidence,
         "by_sport": by_sport,
+        "calibration": calibration,
+        "seeded_count": seeded_count,
         "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
     }
 
@@ -824,6 +868,27 @@ def _build_failure_rows(finalized: list[dict[str, Any]], failure_limit: int) -> 
     return failure_rows
 
 
+def _build_pass_rows(finalized: list[dict[str, Any]], pass_limit: int) -> list[dict[str, Any]]:
+    passes = [pred for pred in finalized if _is_win(pred)]
+    passes.sort(key=_prediction_timestamp, reverse=True)
+    pass_rows = []
+    for pred in passes[: max(1, pass_limit)]:
+        pass_rows.append(
+            {
+                "date": normalize_date(pred.get("date") or pred.get("game_date")) or (str(pred.get("updated_at") or "")[:10]),
+                "sport": str(pred.get("sport") or "").upper(),
+                "matchup": f"{pred.get('team_a', 'Team A')} vs {pred.get('team_b', 'Team B')}",
+                "predicted_outcome": pred.get("predicted_winner") or _predicted_outcome(pred) or "--",
+                "actual_result": pred.get("actual_winner") or pred.get("actual_result") or pred.get("actual_result_normalized") or "--",
+                "confidence": pred.get("confidence") or "Low",
+                "confidence_pct": _confidence_percent(pred),
+                "recommendation": _recommendation_label(pred),
+                "notes": pred.get("reasoning") or pred.get("winner_display") or "",
+            }
+        )
+    return pass_rows
+
+
 def _build_strategy_comparison(
     metrics: dict[str, Any],
     finalized: list[dict[str, Any]],
@@ -852,22 +917,26 @@ def _build_strategy_comparison(
     combined_accuracy = strategy_reference.get("combined_accuracy")
 
     return [
-        {"strategy": "Rule-Based", "accuracy": tracker_accuracy, "sample_size": metrics.get("finalized_predictions", 0)},
-        {"strategy": "ML", "accuracy": ml_accuracy, "sample_size": strategy_reference.get("evaluation_matches")},
-        {"strategy": "Combined", "accuracy": combined_accuracy, "sample_size": strategy_reference.get("evaluation_matches")},
-        {"strategy": "Edge-Filtered", "accuracy": edge_filtered_accuracy, "sample_size": len(edge_filtered_subset)},
-        {"strategy": "Avoid-Aware", "accuracy": avoid_aware_score, "sample_size": len(all_predictions)},
+        {"strategy": "Rule-Based", "accuracy": tracker_accuracy, "sample_size": metrics.get("finalized_predictions", 0), "source": "live"},
+        {"strategy": "ML (Stacking)", "accuracy": ml_accuracy, "sample_size": strategy_reference.get("evaluation_matches"), "source": "offline"},
+        {"strategy": "Combined Signal", "accuracy": combined_accuracy, "sample_size": strategy_reference.get("evaluation_matches"), "source": "offline"},
+        {"strategy": "Edge-Filtered", "accuracy": edge_filtered_accuracy, "sample_size": len(edge_filtered_subset), "source": "live"},
+        {"strategy": "Avoid-Aware", "accuracy": avoid_aware_score, "sample_size": len(all_predictions), "source": "live"},
     ]
 
 
 def get_evaluation_dashboard(
     rolling_window: int = 10,
     failure_limit: int = 12,
+    pass_limit: int = 12,
     strategy_reference: dict[str, Any] | None = None,
+    exclude_seeded: bool = True,
 ) -> dict[str, Any]:
     """Build a full evaluation payload for the model performance dashboard."""
-    all_predictions = _load_predictions()
-    metrics = get_summary_metrics()
+    raw_predictions = _load_predictions()
+    seeded_count = sum(1 for p in raw_predictions if p.get("is_seeded"))
+    all_predictions = [p for p in raw_predictions if not (exclude_seeded and p.get("is_seeded"))]
+    metrics = get_summary_metrics(exclude_seeded=exclude_seeded)
     finalized = _finalized_predictions(all_predictions)
 
     avoids_skipped = sum(1 for pred in all_predictions if _predicted_outcome(pred) == "avoid")
@@ -879,6 +948,7 @@ def get_evaluation_dashboard(
     outcome_breakdown = _build_outcome_breakdown(finalized)
     recent_form = _build_recent_form(finalized)
     failure_rows = _build_failure_rows(finalized, failure_limit)
+    pass_rows = _build_pass_rows(finalized, pass_limit)
 
     strategy_reference = strategy_reference or {}
     strategy_comparison = _build_strategy_comparison(
@@ -957,4 +1027,7 @@ def get_evaluation_dashboard(
             "recent_form": recent_form,
         },
         "failure_rows": failure_rows,
+        "pass_rows": pass_rows,
+        "seeded_count": seeded_count,
+        "exclude_seeded": exclude_seeded,
     }

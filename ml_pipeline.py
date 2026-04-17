@@ -15,12 +15,17 @@ from sklearn.metrics import accuracy_score, brier_score_loss, log_loss
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from runtime_paths import ml_report_path
 from utils.parsing import normalize_date, safe_float
 
-DEFAULT_REPORT_PATH = Path(__file__).resolve().parent / "cache" / "ml" / "model_comparison.json"
+DEFAULT_REPORT_PATH = ml_report_path()
 MODEL_LABELS = {
     "logistic_regression": "Baseline Logistic Regression",
     "random_forest": "Random Forest",
+    "xgboost": "XGBoost",
+    "lightgbm": "LightGBM",
+    "stacking_ensemble": "Stacking Ensemble",
+    "combined": "Combined (Rule + ML)",
 }
 
 
@@ -240,7 +245,7 @@ def build_strategy_lab_summary(
         "evaluation_matches": None,
         "summary": "Generating ML insights...",
         "message": "Generating ML insights...",
-        "command": "",
+        "command": str(report_path),
         "report_path": str(report_path),
         "top_signals": [],
         "generated_at": None,
@@ -251,41 +256,67 @@ def build_strategy_lab_summary(
         return fallback
 
     models = payload.get("models") or {}
+    ranking = payload.get("ranking") or []
     logistic = models.get("logistic_regression") or {}
     random_forest = models.get("random_forest") or {}
+    ensemble = models.get("stacking_ensemble") or {}
+    xgboost_model = models.get("xgboost") or {}
+    lightgbm_model = models.get("lightgbm") or {}
+    combined_model = models.get("combined") or {}
+
     logistic_accuracy = _display_accuracy(logistic.get("accuracy"))
     random_forest_accuracy = _display_accuracy(random_forest.get("accuracy"))
-    if logistic_accuracy is None or random_forest_accuracy is None:
+    ensemble_accuracy = _display_accuracy(ensemble.get("accuracy"))
+    xgboost_accuracy = _display_accuracy(xgboost_model.get("accuracy"))
+    lightgbm_accuracy = _display_accuracy(lightgbm_model.get("accuracy"))
+    combined_accuracy = _display_accuracy(combined_model.get("accuracy"))
+
+    # Need at least LR baseline to display
+    if logistic_accuracy is None and random_forest_accuracy is None and ensemble_accuracy is None:
         return fallback
 
     best_model = str(
         payload.get("best_model")
-        or (payload.get("ranking") or [{}])[0].get("model")
+        or (ranking[0].get("model") if ranking else "")
         or ""
     ).strip()
     if not best_model:
-        best_model = (
-            "random_forest"
-            if random_forest_accuracy >= logistic_accuracy
-            else "logistic_regression"
-        )
+        # Fall back to highest-accuracy individual model
+        candidates = [("stacking_ensemble", ensemble_accuracy), ("random_forest", random_forest_accuracy), ("logistic_regression", logistic_accuracy)]
+        best_model = max(candidates, key=lambda c: c[1] or 0.0)[0]
 
     workflow = payload.get("workflow") or {}
     feature_keys = workflow.get("feature_keys") or []
-    gap = round(random_forest_accuracy - logistic_accuracy, 1)
     evaluation_matches = workflow.get("test_size")
     top_signals = _top_signal_names(
         (models.get(best_model) or {}).get("top_features"),
         limit=5,
     )
     leader_label = _model_label(best_model)
+
+    # Build model comparison list for UI
+    model_accuracies: list[dict[str, Any]] = []
+    for r in ranking:
+        name = r.get("model", "")
+        acc = _display_accuracy(r.get("accuracy"))
+        if acc is not None:
+            model_accuracies.append({
+                "model": name,
+                "label": _model_label(name),
+                "accuracy": acc,
+            })
+
+    # Compute gap between best and LR baseline
+    best_acc = _display_accuracy((models.get(best_model) or {}).get("accuracy"))
+    gap = round((best_acc or 0.0) - (logistic_accuracy or 0.0), 1) if best_acc and logistic_accuracy else 0.0
+
     summary = (
         f"{leader_label} leads the saved leakage-safe evaluation by "
         f"{abs(gap):.1f} pts across {evaluation_matches or 0} matches."
     )
     if gap == 0:
         summary = (
-            f"Baseline Logistic Regression and Random Forest are tied in the "
+            f"Models are tied in the "
             f"saved evaluation across {evaluation_matches or 0} matches."
         )
 
@@ -295,9 +326,14 @@ def build_strategy_lab_summary(
         "best_model_label": leader_label,
         "baseline_logistic_accuracy": logistic_accuracy,
         "random_forest_accuracy": random_forest_accuracy,
+        "ensemble_accuracy": ensemble_accuracy,
+        "xgboost_accuracy": xgboost_accuracy,
+        "lightgbm_accuracy": lightgbm_accuracy,
+        "combined_accuracy": combined_accuracy,
         "accuracy_gap": gap,
         "accuracy_gap_display": f"{gap:+.1f} pts",
         "evaluation_matches": evaluation_matches,
+        "model_accuracies": model_accuracies,
         "summary": summary,
         "message": None,
         "command": "",

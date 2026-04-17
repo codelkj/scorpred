@@ -1,0 +1,188 @@
+{
+  "best_model": "stacking_ensemble",
+  "model_type": "stacking_ensemble",
+  "base_models": [
+    "lr",
+    "rf",
+    "xgb",
+    "lgbm"
+  ],
+  "ranking": [
+    {
+      "model": "stacking_ensemble",
+      "accuracy": 0.4231,
+      "top_features": []
+    },
+    {
+      "model": "random_forest",
+      "accuracy": 0.4038,
+      "top_features": []
+    },
+    {
+      "model": "combined",
+      "accuracy": 0.4038,
+      "top_features": []
+    },
+    {
+      "model": "xgboost",
+      "accuracy": 0.3846,
+      "top_features": []
+    },
+    {
+      "model": "lightgbm",
+      "accuracy": 0.3269,
+      "top_features": []
+    },
+    {
+      "model": "logistic_regression",
+      "accuracy": 0.2692,
+      "top_features": [
+        {
+          "feature": "h2h_goal_diff_avg",
+          "weight": 0.6556,
+          "direction": "mixed"
+        },
+        {
+          "feature": "h2h_home_points_avg",
+          "weight": 0.6097,
+          "direction": "mixed"
+        },
+        {
+          "feature": "home_avg_ga_10",
+          "weight": 0.4791,
+          "direction": "mixed"
+        },
+        {
+          "feature": "home_home_ppg_5",
+          "weight": 0.4303,
+          "direction": "mixed"
+        },
+        {
+          "feature": "away_elo",
+          "weight": 0.3959,
+          "direction": "mixed"
+        }
+      ]
+    }
+  ],
+  "models": {
+    "stacking_ensemble": {
+      "accuracy": 0.4231,
+      "top_features": []
+    },
+    "random_forest": {
+      "accuracy": 0.4038,
+      "top_features": []
+    },
+    "combined": {
+      "accuracy": 0.4038,
+      "top_features": []
+    },
+    "xgboost": {
+      "accuracy": 0.3846,
+      "top_features": []
+    },
+    "lightgbm": {
+      "accuracy": 0.3269,
+      "top_features": []
+    },
+    "logistic_regression": {
+      "accuracy": 0.2692,
+      "top_features": [
+        {
+          "feature": "h2h_goal_diff_avg",
+          "weight": 0.6556,
+          "direction": "mixed"
+        },
+        {
+          "feature": "h2h_home_points_avg",
+          "weight": 0.6097,
+          "direction": "mixed"
+        },
+        {
+          "feature": "home_avg_ga_10",
+          "weight": 0.4791,
+          "direction": "mixed"
+        },
+        {
+          "feature": "home_home_ppg_5",
+          "weight": 0.4303,
+          "direction": "mixed"
+        },
+        {
+          "feature": "away_elo",
+          "weight": 0.3959,
+          "direction": "mixed"
+        }
+      ]
+    }
+  },
+  "workflow": {
+    "chronological_split": true,
+    "train_size": 209,
+    "test_size": 52,
+    "train_start": "2024-01-27",
+    "train_end": "2024-09-04",
+    "test_start": "2024-09-05",
+    "test_end": "2024-10-26",
+    "feature_keys": [
+      "home_avg_gf_5",
+      "home_avg_ga_5",
+      "home_avg_gd_5",
+      "home_ppg_5",
+      "away_avg_gf_5",
+      "away_avg_ga_5",
+      "away_avg_gd_5",
+      "away_ppg_5",
+      "home_avg_gf_10",
+      "home_avg_ga_10",
+      "home_ppg_10",
+      "away_avg_gf_10",
+      "away_avg_ga_10",
+      "away_ppg_10",
+      "home_ppg_delta_5v10",
+      "home_gf_delta_5v10",
+      "away_ppg_delta_5v10",
+      "away_gf_delta_5v10",
+      "home_home_avg_gf_5",
+      "home_home_avg_ga_5",
+      "home_home_ppg_5",
+      "away_away_avg_gf_5",
+      "away_away_avg_ga_5",
+      "away_away_ppg_5",
+      "home_clean_sheet_rate_5",
+      "away_clean_sheet_rate_5",
+      "home_scored_rate_5",
+      "away_scored_rate_5",
+      "home_opp_avg_ppg_5",
+      "away_opp_avg_ppg_5",
+      "days_since_last_match_home",
+      "days_since_last_match_away",
+      "h2h_home_points_avg",
+      "h2h_goal_diff_avg",
+      "ppg_diff_5",
+      "gf_diff_5",
+      "ga_diff_5",
+      "venue_ppg_diff_5",
+      "attack_vs_defense_home",
+      "attack_vs_defense_away",
+      "attack_balance_diff",
+      "scored_rate_diff_5",
+      "clean_sheet_diff_5",
+      "rest_diff_days",
+      "home_elo",
+      "away_elo",
+      "elo_diff"
+    ],
+    "label_key": "target",
+    "dataset_path": "C:\\Dev\\scorpred\\data\\processed\\soccer_training_data_clean.csv",
+    "model_path": "C:\\Dev\\scorpred\\data\\models\\soccer_ensemble_stack.pkl"
+  },
+  "performance": {
+    "rule_accuracy": 0.4231,
+    "ml_accuracy": 0.4231,
+    "combined_accuracy": 0.4038,
+    "evaluation_matches": 52
+  },
+  "generated_at": "2026-04-16T03:38:34.707178Z"
+}

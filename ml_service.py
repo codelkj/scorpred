@@ -9,12 +9,13 @@ from typing import Any
 import joblib
 from sklearn.metrics import accuracy_score
 
-from runtime_paths import clean_soccer_dataset_path, clean_soccer_model_path, trained_model_path
+from runtime_paths import clean_soccer_dataset_path, clean_soccer_model_path, ensemble_soccer_model_path, trained_model_path
 from train_model import CLASS_LABELS, FEATURE_COLUMNS, _target_from_row
 from utils.parsing import safe_float
+import prediction_policy as pp
 
 
-_MODEL_CACHE: dict[str, Any] = {"bundle": None, "path": None}
+_MODEL_CACHE: dict[str, Any] = {"bundle": None, "path": None, "mtime": 0.0}
 _FEATURE_INDEX = {name: idx for idx, name in enumerate(FEATURE_COLUMNS)}
 
 
@@ -95,18 +96,30 @@ def _rule_probabilities(features: list[float]) -> list[float]:
 
 
 def _combine_probabilities(rule_probs: list[float], ml_probs: list[float]) -> list[float]:
-    combined = [0.42 * rule_probs[idx] + 0.58 * ml_probs[idx] for idx in range(3)]
+    """Blend rule and ML probabilities for offline evaluation.
+
+    Weights are read from prediction_policy so that offline evaluation uses
+    the same blend as the runtime decision layer in scormastermind.
+    """
+    ml_w = pp.soccer_ml_blend_weight()
+    rule_w = 1.0 - ml_w
+    combined = [rule_w * rule_probs[idx] + ml_w * ml_probs[idx] for idx in range(3)]
     if len(combined) == 3:
         draw_prob = combined[1]
         side_top = max(combined[0], combined[2])
         side_gap = abs(combined[0] - combined[2])
-        rule_side_top = max(rule_probs[0], rule_probs[2]) if len(rule_probs) == 3 else side_top
-        if draw_prob > 0.0 and rule_side_top >= rule_probs[1]:
-            draw_transfer = min(
-                draw_prob * 0.26,
-                max(0.0, (side_top - draw_prob + 0.02) * 0.50 + max(0.0, side_gap - 0.04) * 0.40),
+
+        # Draw transfer with suppression when draw is genuinely competitive —
+        # mirrors the runtime draw_dominance / suppression logic.
+        if draw_prob > 0.0:
+            draw_dominance = max(-0.30, min(0.15, draw_prob - side_top))
+            suppression = max(0.0, min(1.0, 1.0 - (draw_dominance + 0.04) * 8.0))
+            raw_transfer = min(
+                draw_prob * 0.22,
+                max(0.0, max(0.0, side_gap - 0.05) * 0.55),
             )
-            if draw_transfer > 0.0:
+            draw_transfer = raw_transfer * suppression
+            if draw_transfer > 0.001:
                 side_total = max(combined[0] + combined[2], 1e-9)
                 combined[1] -= draw_transfer
                 combined[0] += draw_transfer * (combined[0] / side_total)
@@ -117,9 +130,10 @@ def _combine_probabilities(rule_probs: list[float], ml_probs: list[float]) -> li
 
 
 def _confidence_label(confidence: float) -> str:
+    # Thresholds aligned with scormastermind._confidence_label()
     if confidence >= 0.72:
         return "High"
-    if confidence >= 0.57:
+    if confidence >= 0.51:
         return "Medium"
     return "Low"
 
@@ -129,11 +143,26 @@ def model_exists(model_path: Path | None = None) -> bool:
 
 
 def load_model(model_path: Path | None = None, force_reload: bool = False) -> dict[str, Any] | None:
-    path = Path(model_path or clean_soccer_model_path())
+    path = Path(model_path) if model_path else None
+    # Auto-resolve: prefer ensemble, fall back to RF, then legacy
+    if path is None:
+        for candidate in [ensemble_soccer_model_path(), clean_soccer_model_path()]:
+            if candidate.exists():
+                path = candidate
+                break
+    if path is None:
+        path = clean_soccer_model_path()
     if not path.exists():
         return None
 
-    if not force_reload and _MODEL_CACHE.get("bundle") is not None and _MODEL_CACHE.get("path") == str(path):
+    # Invalidate cache when the model file has been updated (e.g. after retraining)
+    current_mtime = path.stat().st_mtime
+    if (
+        not force_reload
+        and _MODEL_CACHE.get("bundle") is not None
+        and _MODEL_CACHE.get("path") == str(path)
+        and _MODEL_CACHE.get("mtime") == current_mtime
+    ):
         cached = _MODEL_CACHE["bundle"]
         return cached if isinstance(cached, dict) else None
 
@@ -147,7 +176,35 @@ def load_model(model_path: Path | None = None, force_reload: bool = False) -> di
 
     _MODEL_CACHE["bundle"] = bundle
     _MODEL_CACHE["path"] = str(path)
+    _MODEL_CACHE["mtime"] = current_mtime
     return bundle
+
+
+def _base_model_agreement(model: Any, vector: list[float]) -> dict[str, Any] | None:
+    """Extract prediction agreement across base learners inside a StackingClassifier.
+
+    Returns None when the model is not a stacking ensemble.
+    """
+    try:
+        estimators = getattr(model, "estimators_", None)
+        if not estimators:
+            return None
+        predictions = []
+        for est in estimators:
+            pred = int(est.predict([vector])[0])
+            predictions.append(pred)
+        from collections import Counter
+        counts = Counter(predictions)
+        most_common_pred, most_common_count = counts.most_common(1)[0]
+        n = len(predictions)
+        return {
+            "n_base_models": n,
+            "unanimous": most_common_count == n,
+            "agreement_ratio": round(most_common_count / n, 4),
+            "majority_class": int(most_common_pred),
+        }
+    except Exception:
+        return None
 
 
 def predict_match(features_dict: dict[str, Any], model_path: Path | None = None) -> dict[str, Any]:
@@ -186,12 +243,21 @@ def predict_match(features_dict: dict[str, Any], model_path: Path | None = None)
 
     probabilities = [round(float(prob), 6) for prob in probabilities_raw]
     confidence = max(probabilities) if probabilities else 0.0
+    model_type = bundle.get("model_type", "random_forest")
+
+    # Expose base model agreement for stacking ensembles.
+    base_agreement = _base_model_agreement(model, vector)
+
     return {
         "available": True,
         "prediction": prediction,
         "probabilities": probabilities,
         "confidence": round(float(confidence), 6),
         "class_labels": CLASS_LABELS,
+        "model_type": model_type,
+        "model_role": "production" if model_type == "stacking_ensemble" else "fallback",
+        "base_models": bundle.get("base_models"),
+        "base_agreement": base_agreement,
     }
 
 
@@ -286,7 +352,7 @@ def evaluate_model_comparison(
     ]
     confidence_counts = {"High": 0, "Medium": 0, "Low": 0}
     for top_prob, gap in zip(top_probs, gaps):
-        label = _confidence_label(min(0.95, max(0.05, top_prob * 0.72 + gap * 1.10)))
+        label = _confidence_label(min(0.95, max(0.05, top_prob * 0.82 + gap * 1.30)))
         confidence_counts[label] += 1
     draw_predictions = sum(1 for pred in combined_predictions if pred == 1)
 

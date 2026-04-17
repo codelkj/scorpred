@@ -20,6 +20,7 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from runtime_paths import cache_dir
 from utils.parsing import safe_float as _sf, safe_int
 
 from league_config import (
@@ -38,13 +39,17 @@ load_dotenv()
 API_KEY  = os.getenv("API_FOOTBALL_KEY", "").strip()
 API_HOST = os.getenv("API_FOOTBALL_HOST", "api-football-v1.p.rapidapi.com").strip()
 API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://api-football-v1.p.rapidapi.com/v3").rstrip("/")
+EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "20"))
+EXTERNAL_API_RETRY_ATTEMPTS = max(1, int(os.getenv("EXTERNAL_API_RETRY_ATTEMPTS", "3")))
+EXTERNAL_API_RETRY_BACKOFF_SECONDS = float(os.getenv("EXTERNAL_API_RETRY_BACKOFF_SECONDS", "1.2"))
 
-CACHE_DIR          = Path("cache/football")
+CACHE_DIR          = cache_dir("football")
 CACHE_HOURS        = 1          # default 1-hour TTL
-PROPS_CACHE_DIR    = Path("cache/props")
+PROPS_CACHE_DIR    = cache_dir("props")
 PLAYER_LOG_TTL_H   = 1
 FORCE_REFRESH      = False
 RAPIDAPI_OK        = True
+RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 
 ESPN_SLUG_BY_LEAGUE: dict[int, str] = {
     39: "eng.1",
@@ -156,17 +161,34 @@ def api_get(
         raise RuntimeError("API-Football RapidAPI access is unavailable for this key.")
 
     url = f"{API_BASE}/{endpoint.lstrip('/')}"
-    for attempt in range(2):
+    last_exc: Exception | None = None
+    for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
         try:
             with requests.Session() as sess:
                 sess.trust_env = False
-                resp = sess.get(url, headers=_headers(), params=params, timeout=20)
-            if resp.status_code == 429 and attempt == 0:
-                time.sleep(12)
-                continue
+                resp = sess.get(
+                    url,
+                    headers=_headers(),
+                    params=params,
+                    timeout=EXTERNAL_API_TIMEOUT_SECONDS,
+                )
+
             if resp.status_code == 403:
                 RAPIDAPI_OK = False
                 raise RuntimeError(resp.text[:200] or "API-Football returned 403.")
+
+            if resp.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
+                retry_after = resp.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        sleep_seconds = max(float(retry_after), 0.0)
+                    except ValueError:
+                        sleep_seconds = EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt)
+                else:
+                    sleep_seconds = EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt)
+                time.sleep(sleep_seconds)
+                continue
+
             resp.raise_for_status()
             data = resp.json()
             if data.get("errors"):
@@ -175,12 +197,15 @@ def api_get(
                     raise RuntimeError(f"API-Football error {endpoint}: {errs}")
             _save(path, data)
             return data
-        except requests.HTTPError as exc:
-            if exc.response is not None and exc.response.status_code == 429 and attempt == 0:
-                time.sleep(12)
+        except (requests.RequestException, ValueError, RuntimeError) as exc:
+            last_exc = exc
+            if attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
+                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
                 continue
-            raise
-    raise RuntimeError(f"API-Football request failed for {endpoint}")
+
+    if path.exists():
+        return _load(path)
+    raise RuntimeError(f"API-Football request failed for {endpoint}") from last_exc
 
 
 # -- Runtime controls --------------------------------------------------------
@@ -225,13 +250,34 @@ def _espn_get_json(url: str, cache_key: str, ttl_hours: float = 1.0) -> dict:
     if not FORCE_REFRESH and _cache_valid(path, ttl_hours):
         return _load(path)
 
-    with requests.Session() as session:
-        session.trust_env = False
-        response = session.get(url, timeout=20, headers={"Accept": "application/json"})
-    response.raise_for_status()
-    payload = response.json()
-    _save(path, payload)
-    return payload
+    last_exc: Exception | None = None
+    for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
+        try:
+            with requests.Session() as session:
+                session.trust_env = False
+                response = session.get(
+                    url,
+                    timeout=EXTERNAL_API_TIMEOUT_SECONDS,
+                    headers={"Accept": "application/json"},
+                )
+
+            if response.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
+                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
+                continue
+
+            response.raise_for_status()
+            payload = response.json()
+            _save(path, payload)
+            return payload
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            if attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
+                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
+                continue
+
+    if path.exists():
+        return _load(path)
+    raise RuntimeError(f"ESPN request failed for cache key {cache_key}") from last_exc
 
 
 def _espn_league_teams(league_id: int) -> list[dict]:
@@ -394,12 +440,24 @@ def _normalize_espn_fixture(event: dict, league_id: int) -> dict | None:
 def _espn_schedule(team_id: int, league_id: int, season: int = CURRENT_SEASON) -> list[dict]:
     slug = _espn_slug(league_id)
     resolved_team_id = _resolve_team_id(team_id, league_id)
+    cache_key_str = f"schedule:{league_id}:{resolved_team_id}:{season}"
     payload = _espn_get_json(
         f"{ESPN_BASE}/{slug}/teams/{resolved_team_id}/schedule?season={season}",
-        f"schedule:{league_id}:{resolved_team_id}:{season}",
+        cache_key_str,
         ttl_hours=1,
     )
     events = payload.get("events") or []
+    if not events:
+        # Don't keep empty schedule responses cached — they are likely transient
+        # errors (team not in league, season not yet populated, API hiccup).
+        # Evicting lets the next request try again instead of serving stale empties.
+        path = _espn_cache_key("espn", (cache_key_str,))
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        return []
     fixtures = []
     for event in events:
         normalized = _normalize_espn_fixture(event, league_id)

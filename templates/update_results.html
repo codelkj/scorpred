@@ -3,148 +3,74 @@
 {% block title %}Update Prediction Results | ScorPred{% endblock %}
 
 {% block content %}
-<section class="page-hero">
-  <div class="page-hero-copy">
-    <span class="page-kicker">Result Reconciliation</span>
-    <h1 class="page-title">Refresh pending predictions against real outcomes.</h1>
-    <p class="page-sub">
-      Use this workflow to pull completed results into the tracker and keep the dashboard aligned with reality.
-    </p>
-  </div>
-  <div class="page-actions">
-    <a href="{{ url_for('model_performance') }}" class="btn btn-secondary">Back to Performance</a>
-    <a href="/" class="btn btn-secondary">Home</a>
+<section class="sp-hero">
+  <span class="sp-kicker">Result Reconciliation</span>
+  <h1>Update Prediction Results</h1>
+  <p style="color:var(--text-3)">Pull completed results into the tracker and keep the dashboard aligned with reality.</p>
+  <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem">
+    <a href="{{ url_for('model_performance') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Performance</a>
+    <a href="/" class="sp-badge sp-badge--muted" style="text-decoration:none">Home</a>
   </div>
 </section>
 
-<section class="section-stack">
-  <div class="performance-summary-grid">
-    <article class="performance-stat-card">
-      <span class="metric-label">Total Predictions</span>
-      <strong class="performance-stat-value">{{ summary.total }}</strong>
-      <div class="performance-stat-meta">Stored in the tracker</div>
-    </article>
-    <article class="performance-stat-card">
-      <span class="metric-label">Completed</span>
-      <strong class="performance-stat-value performance-tone-good">{{ summary.completed }}</strong>
-      <div class="performance-stat-meta">Already reconciled</div>
-    </article>
-    <article class="performance-stat-card">
-      <span class="metric-label">Pending</span>
-      <strong class="performance-stat-value performance-tone-mid">{{ summary.pending }}</strong>
-      <div class="performance-stat-meta">Waiting for result lookup</div>
-    </article>
-    <article class="performance-stat-card gradient-border">
-      <span class="metric-label">Completion Rate</span>
-      <strong class="performance-stat-value">{{ summary.completion_rate }}%</strong>
-      <div class="performance-stat-meta">Share of predictions already graded</div>
-    </article>
-  </div>
-</section>
+<div class="sp-kpi-strip">
+  <div class="sp-kpi"><span class="sp-kpi__val">{{ summary.total }}</span><span class="sp-kpi__label">Total Predictions</span></div>
+  <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{{ summary.completed }}</span><span class="sp-kpi__label">Completed</span></div>
+  <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-caution)">{{ summary.pending }}</span><span class="sp-kpi__label">Pending</span></div>
+  <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-active)">{{ summary.completion_rate }}%</span><span class="sp-kpi__label">Completion Rate</span></div>
+</div>
 
 {% if summary.pending > 0 %}
-<section class="section-stack">
-  <article class="card glow-card">
-    <div class="section-heading">
-      <div>
-        <span class="page-kicker">Run Update</span>
-        <h2 class="section-title">Fetch the latest game results.</h2>
-        <p class="page-sub">
-          This will check {{ summary.pending }} pending predictions and mark them correct or incorrect when a matching final result is found.
-        </p>
-      </div>
-    </div>
-    <form method="POST">
-      <button type="submit" class="btn btn-primary btn-lg">Update Now</button>
-    </form>
-  </article>
-</section>
+<div class="sp-panel">
+  <span class="sp-kicker">Run Update</span>
+  <p style="color:var(--text-2); font-size:.85rem; margin:.25rem 0 .75rem">Check {{ summary.pending }} pending predictions and mark correct or incorrect when a matching final result is found.</p>
+  <form method="POST">
+    <button type="submit" style="background:var(--c-strong); color:var(--bg-1); border:none; border-radius:var(--radius); padding:.5rem 1.2rem; font-weight:600; cursor:pointer; font-size:.9rem">Update Now</button>
+  </form>
+</div>
 {% endif %}
 
 {% if update_stats %}
-<section class="section-stack">
-  <article class="card glow-card">
-    <div class="section-heading">
-      <div>
-        <span class="page-kicker">Update Complete</span>
-        <h2 class="section-title">Result refresh summary.</h2>
-      </div>
-    </div>
+<div class="sp-panel" style="margin-top:1rem">
+  <span class="sp-kicker">Update Complete</span>
+  <div class="sp-kpi-strip" style="margin:.5rem 0">
+    <div class="sp-kpi"><span class="sp-kpi__val">{{ update_stats.checked }}</span><span class="sp-kpi__label">Checked</span></div>
+    <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{{ update_stats.found }}</span><span class="sp-kpi__label">Found</span></div>
+    <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{{ update_stats.updated }}</span><span class="sp-kpi__label">Updated</span></div>
+    <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-danger)">{{ update_stats.failed }}</span><span class="sp-kpi__label">Failed</span></div>
+  </div>
 
-    <div class="performance-grid">
-      <div class="performance-card">
-        <span class="metric-label">Checked</span>
-        <strong class="metric-value">{{ update_stats.checked }}</strong>
-      </div>
-      <div class="performance-card">
-        <span class="metric-label">Results Found</span>
-        <strong class="metric-value performance-tone-good">{{ update_stats.found }}</strong>
-      </div>
-      <div class="performance-card">
-        <span class="metric-label">Updated</span>
-        <strong class="metric-value performance-tone-good">{{ update_stats.updated }}</strong>
-      </div>
-      <div class="performance-card">
-        <span class="metric-label">Failed</span>
-        <strong class="metric-value performance-tone-risk">{{ update_stats.failed }}</strong>
-      </div>
-    </div>
+  {% if update_stats.errors %}
+  <div class="sp-notice sp-notice--warn" style="margin-top:.5rem">
+    <strong>Errors / Notes</strong>
+    <ul style="margin:.3rem 0 0 1rem; font-size:.82rem">
+      {% for error in update_stats.errors %}<li>{{ error }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
 
-    {% if update_stats.errors %}
-    <div class="surface-note" style="margin-top: 1rem;">
-      <strong>Errors / Notes</strong>
-      <ul style="margin: .5rem 0 0 1.1rem;">
-        {% for error in update_stats.errors %}
-        <li>{{ error }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-  </article>
+<div class="sp-panel" style="margin-top:1rem">
+  <span class="sp-kicker">Updated Metrics</span>
+  <div class="sp-kpi-strip" style="margin:.5rem 0">
+    <div class="sp-kpi"><span class="sp-kpi__val">{{ metrics.total_predictions }}</span><span class="sp-kpi__label">Total</span></div>
+    <div class="sp-kpi"><span class="sp-kpi__val">{{ metrics.finalized_predictions }}</span><span class="sp-kpi__label">Finalized</span></div>
+    <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{% if metrics.overall_accuracy is not none %}{{ metrics.overall_accuracy }}%{% else %}—{% endif %}</span><span class="sp-kpi__label">Overall Accuracy</span></div>
+  </div>
 
-  <article class="card glow-card">
-    <div class="section-heading">
-      <div>
-        <span class="page-kicker">Updated Metrics</span>
-        <h2 class="section-title">Tracker accuracy after reconciliation.</h2>
+  {% if metrics.by_confidence %}
+  <div style="display:flex; gap:.75rem; flex-wrap:wrap; margin-top:.5rem">
+    {% for conf_level in ['High', 'Medium', 'Low'] %}
+      {% if metrics.by_confidence.get(conf_level) %}
+      <div class="sp-panel sp-panel--tight" style="flex:1; min-width:120px; text-align:center">
+        <span class="sp-badge sp-badge--{{ 'strong' if conf_level == 'High' else ('caution' if conf_level == 'Medium' else 'muted') }}">{{ conf_level }}</span>
+        <strong style="display:block; font-size:1.2rem; margin:.3rem 0">{{ metrics.by_confidence[conf_level].accuracy }}%</strong>
+        <span style="font-size:.75rem; color:var(--text-3)">{{ metrics.by_confidence[conf_level].count }} predictions</span>
       </div>
-    </div>
-
-    <div class="performance-summary-grid">
-      <div class="performance-stat-card">
-        <span class="metric-label">Total Predictions</span>
-        <strong class="performance-stat-value">{{ metrics.total_predictions }}</strong>
-      </div>
-      <div class="performance-stat-card">
-        <span class="metric-label">Finalized</span>
-        <strong class="performance-stat-value">{{ metrics.finalized_predictions }}</strong>
-      </div>
-      <div class="performance-stat-card gradient-border">
-        <span class="metric-label">Overall Accuracy</span>
-        <strong class="performance-stat-value">
-          {% if metrics.overall_accuracy is not none %}
-          {{ metrics.overall_accuracy }}%
-          {% else %}
-          Waiting for results
-          {% endif %}
-        </strong>
-      </div>
-    </div>
-
-    {% if metrics.by_confidence %}
-    <div class="performance-grid" style="margin-top: 1rem;">
-      {% for conf_level in ['High', 'Medium', 'Low'] %}
-        {% if metrics.by_confidence.get(conf_level) %}
-        <div class="performance-card">
-          <span class="confidence-badge conf-{{ conf_level | lower }}">{{ conf_level }}</span>
-          <strong class="metric-value">{{ metrics.by_confidence[conf_level].accuracy }}%</strong>
-          <div class="metric-meta">{{ metrics.by_confidence[conf_level].count }} predictions</div>
-        </div>
-        {% endif %}
-      {% endfor %}
-    </div>
-    {% endif %}
-  </article>
-</section>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
 {% endif %}
 {% endblock %}

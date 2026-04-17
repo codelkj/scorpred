@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import time
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -17,17 +19,26 @@ from typing import Any
 import requests
 
 import nba_client as legacy
+from runtime_paths import cache_dir
 
+logger = logging.getLogger(__name__)
 
 NBA_SEASON = getattr(legacy, "NBA_SEASON", datetime.now().year)
 NBA_ESPN_BASE_URL = os.getenv(
     "NBA_ESPN_BASE_URL",
     "https://site.api.espn.com/apis/site/v2/sports/basketball/nba",
 ).rstrip("/")
+EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "20"))
+EXTERNAL_API_RETRY_ATTEMPTS = max(1, int(os.getenv("EXTERNAL_API_RETRY_ATTEMPTS", "3")))
+EXTERNAL_API_RETRY_BACKOFF_SECONDS = float(os.getenv("EXTERNAL_API_RETRY_BACKOFF_SECONDS", "1.2"))
+PAGE_RENDER_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_PAGE_TIMEOUT_SECONDS", "3"))
+PAGE_RENDER_RETRY_ATTEMPTS = max(1, int(os.getenv("EXTERNAL_API_PAGE_RETRY_ATTEMPTS", "1")))
+PAGE_RENDER_RETRY_BACKOFF_SECONDS = float(os.getenv("EXTERNAL_API_PAGE_RETRY_BACKOFF_SECONDS", "0.0"))
 
-NBA_CACHE_DIR = Path("cache/nba_public")
+NBA_CACHE_DIR = cache_dir("nba_public")
 NBA_LIVE_TTL_SECONDS = 60
 NBA_SCHEDULE_TTL_SECONDS = 60 * 60
+RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 
 ROUTE_FEATURES: dict[str, list[str]] = {
     "index": ["teams", "scoreboard"],
@@ -63,30 +74,66 @@ def _save_cache(path: Path, payload: Any) -> None:
         json.dump(payload, file)
 
 
+def _request_settings(request_profile: str = "default") -> tuple[float, int, float]:
+    if request_profile == "page":
+        return (
+            PAGE_RENDER_TIMEOUT_SECONDS,
+            PAGE_RENDER_RETRY_ATTEMPTS,
+            PAGE_RENDER_RETRY_BACKOFF_SECONDS,
+        )
+    return (
+        EXTERNAL_API_TIMEOUT_SECONDS,
+        EXTERNAL_API_RETRY_ATTEMPTS,
+        EXTERNAL_API_RETRY_BACKOFF_SECONDS,
+    )
+
+
 def _espn_get(
     endpoint: str,
     params: dict[str, Any] | None = None,
     ttl_seconds: int = NBA_SCHEDULE_TTL_SECONDS,
+    request_profile: str = "default",
 ) -> Any:
     params = params or {}
     path = _cache_path(f"espn:{endpoint}", params)
 
     if _cache_valid(path, ttl_seconds):
+        logger.debug("ESPN cache HIT  %s", endpoint)
         return _load_cache(path)
 
+    logger.debug("ESPN cache MISS %s", endpoint)
     url = f"{NBA_ESPN_BASE_URL}/{endpoint.lstrip('/')}"
-    with requests.Session() as session:
-        session.trust_env = False
-        response = session.get(
-            url,
-            params=params,
-            headers={"Accept": "application/json"},
-            timeout=20,
-        )
-    response.raise_for_status()
-    payload = response.json()
-    _save_cache(path, payload)
-    return payload
+    timeout_seconds, retry_attempts, retry_backoff_seconds = _request_settings(request_profile)
+    last_exc: Exception | None = None
+    for attempt in range(retry_attempts):
+        try:
+            with requests.Session() as session:
+                session.trust_env = False
+                response = session.get(
+                    url,
+                    params=params,
+                    headers={"Accept": "application/json"},
+                    timeout=timeout_seconds,
+                )
+
+            if response.status_code in RETRY_STATUS_CODES and attempt < retry_attempts - 1:
+                time.sleep(retry_backoff_seconds * (2 ** attempt))
+                continue
+
+            response.raise_for_status()
+            payload = response.json()
+            _save_cache(path, payload)
+            return payload
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            if attempt < retry_attempts - 1:
+                time.sleep(retry_backoff_seconds * (2 ** attempt))
+                continue
+
+    if path.exists():
+        logger.warning("ESPN STALE fallback for %s", endpoint)
+        return _load_cache(path)
+    raise RuntimeError(f"NBA ESPN request failed for {endpoint}") from last_exc
 
 
 def _feature_catalog() -> dict[str, dict[str, str]]:
@@ -274,12 +321,13 @@ def _ymd(value: datetime) -> str:
     return value.strftime("%Y%m%d")
 
 
-def get_scoreboard_games(target_date: datetime | None = None) -> list[dict]:
+def get_scoreboard_games(target_date: datetime | None = None, request_profile: str = "default") -> list[dict]:
     target_date = target_date or datetime.now()
     payload = _espn_get(
         "scoreboard",
         params={"dates": _ymd(target_date)},
         ttl_seconds=NBA_LIVE_TTL_SECONDS,
+        request_profile=request_profile,
     )
     games = []
     for event in payload.get("events") or []:
@@ -289,17 +337,29 @@ def get_scoreboard_games(target_date: datetime | None = None) -> list[dict]:
     return games
 
 
-def get_today_games() -> list[dict]:
-    return get_scoreboard_games()
+def get_today_games(request_profile: str = "default") -> list[dict]:
+    return get_scoreboard_games(request_profile=request_profile)
 
 
-def get_upcoming_games(next_n: int = 12, days_ahead: int = 5) -> list[dict]:
+def get_upcoming_games(next_n: int = 12, days_ahead: int = 5, request_profile: str = "default") -> list[dict]:
     now = datetime.now()
+    dates = [now + timedelta(days=d) for d in range(days_ahead + 1)]
+
+    # Fetch all dates in parallel instead of sequentially
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    day_results: dict[int, list[dict]] = {}
+    with ThreadPoolExecutor(max_workers=min(len(dates), 6)) as pool:
+        futs = {pool.submit(get_scoreboard_games, d, request_profile): i for i, d in enumerate(dates)}
+        for fut in as_completed(futs):
+            try:
+                day_results[futs[fut]] = fut.result()
+            except Exception:
+                day_results[futs[fut]] = []
+
     seen: set[str] = set()
     upcoming: list[dict] = []
-
-    for day_offset in range(days_ahead + 1):
-        for game in get_scoreboard_games(now + timedelta(days=day_offset)):
+    for i in range(len(dates)):
+        for game in day_results.get(i, []):
             if game["id"] in seen:
                 continue
             if game.get("status", {}).get("state") not in {"pre", "in"}:
@@ -338,24 +398,25 @@ def _candidate_dates_from_hint(date_hint: str | None) -> list[datetime]:
     return unique
 
 
-def get_event_snapshot(event_id: str, date_hint: str | None = None) -> dict | None:
+def get_event_snapshot(event_id: str, date_hint: str | None = None, request_profile: str = "default") -> dict | None:
     event_id = str(event_id)
     for candidate in _candidate_dates_from_hint(date_hint):
-        for game in get_scoreboard_games(candidate):
+        for game in get_scoreboard_games(candidate, request_profile=request_profile):
             if game["id"] == event_id:
                 return game
     return None
 
 
-def get_game_summary(event_id: str) -> dict:
+def get_game_summary(event_id: str, request_profile: str = "default") -> dict:
     return _espn_get(
         "summary",
         params={"event": str(event_id)},
         ttl_seconds=NBA_LIVE_TTL_SECONDS,
+        request_profile=request_profile,
     )
 
 
-def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
+def _team_schedule(team_id: str, season: int | None = None, request_profile: str = "default") -> list[dict]:
     params: dict = {}
     if season is not None:
         params["season"] = season
@@ -363,6 +424,7 @@ def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
         f"teams/{team_id}/schedule",
         params=params if params else None,
         ttl_seconds=NBA_SCHEDULE_TTL_SECONDS,
+        request_profile=request_profile,
     )
     events = []
     for event in payload.get("events") or []:
@@ -371,8 +433,8 @@ def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
     return events
 
 
-def _completed_team_games_for_season(team_id: str, season: int) -> list[dict]:
-    finished = [game for game in _team_schedule(team_id, season=season) if game["status"]["state"] == "post"]
+def _completed_team_games_for_season(team_id: str, season: int, request_profile: str = "default") -> list[dict]:
+    finished = [game for game in _team_schedule(team_id, season=season, request_profile=request_profile) if game["status"]["state"] == "post"]
     finished.sort(key=lambda game: game["date"]["start"], reverse=True)
     return finished
 
@@ -406,7 +468,7 @@ def _extract_summary_scores(summary: dict[str, Any], event_id: str) -> dict[str,
     }
 
 
-def _enrich_game_scores(game: dict[str, Any]) -> dict[str, Any]:
+def _enrich_game_scores(game: dict[str, Any], request_profile: str = "default") -> dict[str, Any]:
     if game["scores"]["home"].get("points") is not None and game["scores"]["visitors"].get("points") is not None:
         return game
 
@@ -415,7 +477,7 @@ def _enrich_game_scores(game: dict[str, Any]) -> dict[str, Any]:
         return game
 
     try:
-        summary = get_game_summary(event_id)
+        summary = get_game_summary(event_id, request_profile=request_profile)
     except Exception:
         return game
 
@@ -433,13 +495,17 @@ def _latest_completed_team_games(
     season: int = NBA_SEASON,
     lookback_seasons: int = 0,
     enrich_scores: bool = False,
+    request_profile: str = "default",
 ) -> list[dict]:
     team_id = str(team_id)
     for candidate_season in range(season, season - lookback_seasons - 1, -1):
-        games = _completed_team_games_for_season(team_id, candidate_season)
+        try:
+            games = _completed_team_games_for_season(team_id, candidate_season, request_profile=request_profile)
+        except TypeError:
+            games = _completed_team_games_for_season(team_id, candidate_season)
         if games:
             if enrich_scores:
-                return [_enrich_game_scores(dict(game)) for game in games]
+                return [_enrich_game_scores(dict(game), request_profile=request_profile) for game in games]
             return games
     return []
 
@@ -456,18 +522,27 @@ def _season_from_game_date(game: dict[str, Any]) -> int | None:
     return dt.year if dt.month >= 7 else dt.year - 1
 
 
-def get_team_recent_form_context(team_id, season: int = NBA_SEASON, n: int = 10, historical_lookback: int = 2) -> dict[str, Any]:
+def get_team_recent_form_context(team_id, season: int = NBA_SEASON, n: int = 10, historical_lookback: int = 2, request_profile: str = "default") -> dict[str, Any]:
     """Return current-season recent form plus optional clearly-separated historical context."""
     team_id = str(team_id)
-    current = _latest_completed_team_games(team_id, season=season, lookback_seasons=0, enrich_scores=True)[:n]
+    current = _latest_completed_team_games(
+        team_id,
+        season=season,
+        lookback_seasons=0,
+        enrich_scores=True,
+        request_profile=request_profile,
+    )[:n]
     historical: list[dict[str, Any]] = []
     historical_season: int | None = None
 
     if not current:
         for candidate in range(season - 1, season - historical_lookback - 1, -1):
-            rows = _completed_team_games_for_season(team_id, candidate)
+            try:
+                rows = _completed_team_games_for_season(team_id, candidate, request_profile=request_profile)
+            except TypeError:
+                rows = _completed_team_games_for_season(team_id, candidate)
             if rows:
-                historical = [_enrich_game_scores(dict(game)) for game in rows[:n]]
+                historical = [_enrich_game_scores(dict(game), request_profile=request_profile) for game in rows[:n]]
                 historical_season = candidate
                 break
 
@@ -603,33 +678,48 @@ def _derive_team_stats_from_games(team_id: str, games: list[dict[str, Any]]) -> 
     }
 
 
-def get_team_recent_form(team_id, season: int = NBA_SEASON, n: int = 10) -> list[dict]:
+def get_team_recent_form(team_id, season: int = NBA_SEASON, n: int = 10, request_profile: str = "default") -> list[dict]:
     team_id = str(team_id)
-    context = get_team_recent_form_context(team_id, season=season, n=n, historical_lookback=0)
+    context = get_team_recent_form_context(team_id, season=season, n=n, historical_lookback=0, request_profile=request_profile)
     return context.get("current_games") or []
 
 
-def get_h2h(team_a_id, team_b_id, season: int = NBA_SEASON) -> list[dict]:
+def get_h2h(team_a_id, team_b_id, season: int = NBA_SEASON, request_profile: str = "default") -> list[dict]:
+    from concurrent.futures import ThreadPoolExecutor
+
     team_a_id = str(team_a_id)
     team_b_id = str(team_b_id)
     seen_ids: set[str] = set()
     games: list[dict] = []
-    # Fetch the last 5 seasons so H2H is not limited to current season only
-    for yr in range(season - 4, season + 1):
+    target_set = {team_a_id, team_b_id}
+
+    def _scan_season(yr: int) -> list[dict]:
+        found: list[dict] = []
         try:
-            for game in _team_schedule(team_a_id, season=yr):
+            for game in _team_schedule(team_a_id, season=yr, request_profile=request_profile):
                 if game["status"]["state"] != "post":
                     continue
                 home_id = game["teams"]["home"]["id"]
                 away_id = game["teams"]["visitors"]["id"]
-                if {home_id, away_id} != {team_a_id, team_b_id}:
+                if {home_id, away_id} != target_set:
                     continue
-                gid = game["id"]
-                if gid not in seen_ids:
-                    seen_ids.add(gid)
-                    games.append(_enrich_game_scores(dict(game)))
+                found.append(game)
         except Exception:
-            continue
+            pass
+        return found
+
+    # Fetch 5 seasons in parallel
+    seasons = list(range(season - 4, season + 1))
+    with ThreadPoolExecutor(max_workers=len(seasons)) as pool:
+        season_results = list(pool.map(_scan_season, seasons))
+
+    for season_games in season_results:
+        for game in season_games:
+            gid = game["id"]
+            if gid not in seen_ids:
+                seen_ids.add(gid)
+                games.append(_enrich_game_scores(dict(game), request_profile=request_profile))
+
     games.sort(key=lambda game: game["date"]["start"], reverse=True)
     return games[:10]
 
@@ -659,19 +749,20 @@ def _normalize_roster_player(player: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def get_team_roster(team_id, season: int = NBA_SEASON) -> list[dict]:
+def get_team_roster(team_id, season: int = NBA_SEASON, request_profile: str = "default") -> list[dict]:
     payload = _espn_get(
         f"teams/{team_id}/roster",
         ttl_seconds=NBA_SCHEDULE_TTL_SECONDS,
+        request_profile=request_profile,
     )
     roster = [_normalize_roster_player(player) for player in (payload.get("athletes") or [])]
     roster.sort(key=lambda player: (player["lastname"], player["firstname"]))
     return roster
 
 
-def get_team_injuries(team_id) -> list[dict]:
+def get_injuries_from_roster(roster: list[dict]) -> list[dict]:
     injuries = []
-    for player in get_team_roster(team_id):
+    for player in roster:
         for injury in player.get("injuries") or []:
             injuries.append(
                 {
@@ -687,6 +778,11 @@ def get_team_injuries(team_id) -> list[dict]:
                 }
             )
     return injuries
+
+
+def get_team_injuries(team_id, season: int = NBA_SEASON, request_profile: str = "default") -> list[dict]:
+    roster = get_team_roster(team_id, season=season, request_profile=request_profile)
+    return get_injuries_from_roster(roster)
 
 
 def get_injuries() -> list:

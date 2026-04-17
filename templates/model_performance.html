@@ -1,504 +1,490 @@
 {% extends "base.html" %}
-{% block title %}Model Evaluation Dashboard | ScorPred{% endblock %}
-
-{% block head %}
-<style>
-  .eval-shell { display: grid; gap: 1.1rem; }
-  .eval-kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: .9rem;
-  }
-  .eval-kpi-card {
-    background: linear-gradient(150deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 14px;
-    padding: .95rem 1rem;
-  }
-  .eval-kpi-label { color: var(--muted); font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; }
-  .eval-kpi-value { margin-top: .35rem; font-size: 1.35rem; font-weight: 700; color: var(--text); }
-  .eval-kpi-meta { margin-top: .2rem; font-size: .78rem; color: var(--muted); }
-
-  .eval-grid-2 {
-    display: grid;
-    grid-template-columns: 1.5fr 1fr;
-    gap: .9rem;
-  }
-  .eval-grid-3 {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: .9rem;
-  }
-  .eval-card {
-    background: linear-gradient(180deg, rgba(16,16,16,.96), rgba(10,10,10,.96));
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1rem;
-  }
-  .eval-card h3 {
-    font-size: 1rem;
-    margin-bottom: .35rem;
-    color: var(--text);
-  }
-  .eval-card .sub {
-    color: var(--muted);
-    font-size: .82rem;
-    margin-bottom: .8rem;
-  }
-  .eval-chart-wrap { position: relative; min-height: 260px; }
-  .eval-chart-wrap.compact { min-height: 220px; }
-
-  .eval-mini-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: .7rem;
-  }
-  .eval-mini {
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 10px;
-    padding: .7rem .75rem;
-    background: rgba(255,255,255,.02);
-  }
-  .eval-mini .label { color: var(--muted); font-size: .75rem; }
-  .eval-mini .value { color: var(--text); font-size: 1.05rem; font-weight: 700; margin-top: .2rem; }
-
-  .eval-table-wrap { overflow-x: auto; }
-  .eval-table {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: 880px;
-    font-size: .88rem;
-  }
-  .eval-table th, .eval-table td {
-    text-align: left;
-    padding: .62rem .55rem;
-    border-bottom: 1px solid rgba(255,255,255,.08);
-  }
-  .eval-table th {
-    color: #c7d0da;
-    font-size: .74rem;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-  }
-  .eval-pill {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 999px;
-    padding: .2rem .52rem;
-    border: 1px solid rgba(255,255,255,.14);
-    color: #d8e2ee;
-    font-size: .74rem;
-  }
-  .eval-pill.good { border-color: rgba(16,185,129,.45); color: #9ae6c8; }
-  .eval-pill.warn { border-color: rgba(234,179,8,.45); color: #f7e29a; }
-  .eval-pill.risk { border-color: rgba(239,68,68,.45); color: #f6b0b0; }
-
-  @media (max-width: 1080px) {
-    .eval-grid-2 { grid-template-columns: 1fr; }
-    .eval-grid-3 { grid-template-columns: 1fr; }
-  }
-</style>
-{% endblock %}
+{% block title %}Model Evaluation & Strategy Intelligence | ScorPred{% endblock %}
 
 {% block content %}
+{# ── Template variables ──────────────────────────────────────────────────── #}
 {% set kpis = evaluation.get('kpis', {}) if evaluation else {} %}
 {% set series = evaluation.get('series', {}) if evaluation else {} %}
-{% set rolling_by_match = series.get('rolling_by_match', []) if series else [] %}
-{% set rolling_by_day = series.get('rolling_by_day', []) if series else [] %}
-{% set cumulative_points = series.get('cumulative_points', []) if series else [] %}
+{% set rolling_by_match = series.get('rolling_by_match', []) %}
+{% set cumulative_points = series.get('cumulative_points', []) %}
 {% set confidence_calibration = evaluation.get('confidence_calibration', []) if evaluation else [] %}
 {% set strategy_rows = evaluation.get('strategy_comparison', []) if evaluation else [] %}
 {% set breakdowns = evaluation.get('breakdowns', {}) if evaluation else {} %}
-{% set by_sport = breakdowns.get('by_sport', []) if breakdowns else [] %}
-{% set by_confidence_tier = breakdowns.get('by_confidence_tier', []) if breakdowns else [] %}
-{% set by_predicted_outcome = breakdowns.get('by_predicted_outcome', []) if breakdowns else [] %}
-{% set recent_form = breakdowns.get('recent_form', {}) if breakdowns else {} %}
+{% set by_confidence_tier = breakdowns.get('by_confidence_tier', []) %}
 {% set failure_rows = evaluation.get('failure_rows', []) if evaluation else [] %}
+{% set pass_rows = evaluation.get('pass_rows', []) if evaluation else [] %}
+{% set wf = walk_forward if walk_forward else {} %}
+{% set mlc = ml_comparison if ml_comparison else {} %}
+{% set pc = performance_comparison if performance_comparison else {} %}
 
-<section class="landing-hero performance-hero">
-  <div class="landing-copy">
-    <span class="page-kicker">Model Evaluation Dashboard</span>
-    <h1 class="landing-title">Quality, reliability, and strategy behavior in one view.</h1>
-    <p class="landing-subtitle">
-      Evaluate accuracy trends, confidence calibration, strategy performance, and failure patterns using live tracked outcomes.
-    </p>
+{% set best_label = mlc.get('best_model_label') or 'Stacking Ensemble' %}
+{% set eval_matches = (pc.get('evaluation_matches') or mlc.get('evaluation_matches') or 0) %}
+{% set accuracy_gap = mlc.get('accuracy_gap_display') or '—' %}
+{% set combined_acc = pc.get('combined_accuracy') %}
+
+{% set models = [
+  ('Logistic Regression', mlc.get('baseline_logistic_accuracy'),  'logistic',  'BENCHMARK', 'Offline benchmark — sets the accuracy floor'),
+  ('Random Forest',       mlc.get('random_forest_accuracy'),      'tree',      'BASE',      'Base learner — feeds stacking ensemble'),
+  ('XGBoost',             mlc.get('xgboost_accuracy'),            'boosted',   'BASE',      'Base learner — gradient boosting with regularization'),
+  ('LightGBM',            mlc.get('lightgbm_accuracy'),           'boosted',   'BASE',      'Base learner — fast gradient boosting'),
+  ('Stacking Ensemble',   mlc.get('ensemble_accuracy'),           'ensemble',  'RUNTIME ML','Primary ML signal — meta-learner combining all base models'),
+  ('Combined Signal',     combined_acc,                           'production','PRODUCTION','Decision layer — stacker + rules + policy + risk'),
+] %}
+
+{% set _all_accs = [] %}
+{% for nm, acc, role, badge, desc in models %}
+  {% if acc is not none %}{% set _ = _all_accs.append(acc) %}{% endif %}
+{% endfor %}
+
+{# ═══ Page Header ════════════════════════════════════════════════════════ #}
+<section class="sp-hero" style="padding-bottom:0">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:.75rem">
+    <div>
+      <span class="sp-kicker">ScorPred Platform</span>
+      <h1 style="font-size:1.4rem; font-weight:800; margin:.2rem 0 .3rem">Model Evaluation &amp; Strategy Intelligence</h1>
+      <p style="color:var(--text-2); font-size:.85rem">Track model quality, strategy behavior, and decision reliability.</p>
+    </div>
+    <div style="display:flex; gap:.4rem">
+      <span class="sp-badge sp-badge--muted">{{ data_source or 'Live mixed feeds' }}</span>
+      <span class="sp-badge sp-badge--muted">Updated {{ last_updated or 'Unknown' }}</span>
+    </div>
   </div>
 </section>
 
-<section class="eval-shell">
-  <div class="eval-kpi-grid">
-    <article class="eval-kpi-card">
-      <div class="eval-kpi-label">Overall Accuracy</div>
-      <div class="eval-kpi-value">{{ (kpis.overall_accuracy ~ '%') if kpis.overall_accuracy is not none else 'Awaiting sample' }}</div>
-      <div class="eval-kpi-meta">Finalized winner outcomes</div>
-    </article>
-    <article class="eval-kpi-card">
-      <div class="eval-kpi-label">Rolling Win Rate</div>
-      <div class="eval-kpi-value">{{ (kpis.rolling_win_rate ~ '%') if kpis.rolling_win_rate is not none else '--' }}</div>
-      <div class="eval-kpi-meta">Window {{ evaluation.rolling_window or 10 }}</div>
-    </article>
-    <article class="eval-kpi-card">
-      <div class="eval-kpi-label">Tracked Predictions</div>
-      <div class="eval-kpi-value">{{ kpis.total_tracked_predictions or 0 }}</div>
-      <div class="eval-kpi-meta">All saved predictions</div>
-    </article>
-    <article class="eval-kpi-card">
-      <div class="eval-kpi-label">Finalized Predictions</div>
-      <div class="eval-kpi-value">{{ kpis.finalized_predictions or 0 }}</div>
-      <div class="eval-kpi-meta">Included in grading</div>
-    </article>
-    <article class="eval-kpi-card">
-      <div class="eval-kpi-label">Avoids Skipped</div>
-      <div class="eval-kpi-value">{{ kpis.avoids_skipped or 0 }}</div>
-      <div class="eval-kpi-meta">Avoid recommendations</div>
-    </article>
-    <article class="eval-kpi-card">
-      <div class="eval-kpi-label">Current Best Strategy</div>
-      <div class="eval-kpi-value" style="font-size:1.02rem;">{{ kpis.current_best_strategy or 'Awaiting sample' }}</div>
-      <div class="eval-kpi-meta">Top evaluated strategy</div>
-    </article>
-    <article class="eval-kpi-card">
-      <div class="eval-kpi-label">ROI / Points</div>
-      <div class="eval-kpi-value">{{ kpis.roi_or_points if kpis.roi_or_points is not none else 0 }}</div>
-      <div class="eval-kpi-meta">Cumulative outcome proxy</div>
-    </article>
-  </div>
-
-  <div class="eval-grid-2">
-    <article class="eval-card">
-      <h3>Win Rate Over Time</h3>
-      <div class="sub">Rolling win percentage using finalized predictions. Toggle between match index and daily trend.</div>
-      <div style="display:flex; gap:.5rem; margin-bottom:.7rem;">
-        <button class="btn btn-secondary btn-sm" id="trendByMatch" type="button">Match Index</button>
-        <button class="btn btn-secondary btn-sm" id="trendByDay" type="button">Daily</button>
+{# ═══ Hero Summary ═══════════════════════════════════════════════════════ #}
+<div class="sp-split" style="margin-bottom:1rem">
+  <div class="sp-panel" style="flex:1.5">
+    <span class="sp-kicker">Best ML Model</span>
+    <h2 style="font-size:1.15rem; font-weight:700; margin:.2rem 0 .4rem">{{ best_label }}</h2>
+    <p style="font-size:.82rem; color:var(--text-2); margin-bottom:.6rem">Primary runtime ML — stacking ensemble consuming LR, RF, XGBoost, LightGBM.</p>
+    <div class="sp-kpi-strip" style="padding:0; background:none; gap:.5rem">
+      <div class="sp-kpi">
+        <span class="sp-kpi__label">Accuracy</span>
+        <strong class="sp-kpi__value">
+          {% if mlc.get('ensemble_accuracy') is not none %}{{ mlc.get('ensemble_accuracy')|round(1) }}%
+          {% elif kpis.overall_accuracy is not none %}{{ kpis.overall_accuracy|round(1) }}%
+          {% else %}—{% endif %}
+        </strong>
       </div>
-      <div class="eval-chart-wrap"><canvas id="rollingWinRateChart"></canvas></div>
-    </article>
-
-    <article class="eval-card">
-      <h3>Cumulative Performance Curve</h3>
-      <div class="sub">+1 correct, -1 incorrect, 0 avoid where present.</div>
-      <div class="eval-chart-wrap"><canvas id="cumulativePerformanceChart"></canvas></div>
-    </article>
-  </div>
-
-  <div class="eval-grid-2">
-    <article class="eval-card">
-      <h3>Confidence Calibration</h3>
-      <div class="sub">Predicted confidence bands vs realized hit rate.</div>
-      <div class="eval-chart-wrap compact"><canvas id="confidenceCalibrationChart"></canvas></div>
-    </article>
-
-    <article class="eval-card">
-      <h3>Strategy Comparison</h3>
-      <div class="sub">Rule, ML, combined, edge-filtered, and avoid-aware strategy outcomes.</div>
-      <div class="eval-chart-wrap compact"><canvas id="strategyComparisonChart"></canvas></div>
-    </article>
-  </div>
-
-  <div class="eval-grid-3">
-    <article class="eval-card">
-      <h3>By Sport Accuracy</h3>
-      <div class="sub">Compact sport-level performance split.</div>
-      <div class="eval-chart-wrap compact"><canvas id="bySportChart"></canvas></div>
-    </article>
-
-    <article class="eval-card">
-      <h3>By Confidence Tier</h3>
-      <div class="sub">High, medium, and low confidence hit rate.</div>
-      <div class="eval-chart-wrap compact"><canvas id="byConfidenceTierChart"></canvas></div>
-    </article>
-
-    <article class="eval-card">
-      <h3>Home / Away / Draw Accuracy</h3>
-      <div class="sub">Where predicted outcome classes are strongest or weakest.</div>
-      <div class="eval-chart-wrap compact"><canvas id="outcomeBreakdownChart"></canvas></div>
-    </article>
-  </div>
-
-  <article class="eval-card">
-    <h3>Recent Model Form</h3>
-    <div class="sub">Short-window model quality snapshot.</div>
-    <div class="eval-mini-grid">
-      <div class="eval-mini">
-        <div class="label">Last 10</div>
-        <div class="value">{{ (recent_form.last_10.accuracy ~ '%') if recent_form and recent_form.last_10 and recent_form.last_10.accuracy is not none else 'Awaiting sample' }}</div>
+      <div class="sp-kpi">
+        <span class="sp-kpi__label">Gap vs baseline</span>
+        <strong class="sp-kpi__value">{{ accuracy_gap }}</strong>
       </div>
-      <div class="eval-mini">
-        <div class="label">Last 20</div>
-        <div class="value">{{ (recent_form.last_20.accuracy ~ '%') if recent_form and recent_form.last_20 and recent_form.last_20.accuracy is not none else 'Awaiting sample' }}</div>
-      </div>
-      <div class="eval-mini">
-        <div class="label">Recent Sample</div>
-        <div class="value">{{ (recent_form.last_20.count if recent_form and recent_form.last_20 else 0) }} matches</div>
-      </div>
-      <div class="eval-mini">
-        <div class="label">Rolling Window</div>
-        <div class="value">{{ evaluation.rolling_window or 10 }}</div>
+      <div class="sp-kpi">
+        <span class="sp-kpi__label">Eval sample</span>
+        <strong class="sp-kpi__value">{{ eval_matches or '—' }}</strong>
       </div>
     </div>
-  </article>
+  </div>
+  <div class="sp-panel">
+    <span class="sp-kicker">Production Layer</span>
+    <strong style="font-size:1rem; display:block; margin:.2rem 0 .3rem">Combined Signal</strong>
+    <p style="font-size:.78rem; color:var(--text-2); margin-bottom:.5rem">Stacker + rules + policy + risk → final decisions</p>
+    {% if combined_acc is not none %}
+    <span class="sp-badge sp-badge--strong">{{ combined_acc|round(1) }}% combined accuracy</span>
+    {% else %}
+    <span class="sp-badge sp-badge--muted">Awaiting model run</span>
+    {% endif %}
+  </div>
+</div>
 
-  <article class="eval-card">
-    <h3>Failure Analysis</h3>
-    <div class="sub">Recent misses for debugging model blind spots and recommendation quality.</div>
-    <div class="eval-table-wrap">
-      <table class="eval-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Sport</th>
-            <th>Matchup</th>
-            <th>Predicted</th>
-            <th>Actual</th>
-            <th>Confidence</th>
-            <th>Recommendation</th>
-            <th>Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% if failure_rows %}
-            {% for row in failure_rows %}
-            <tr>
-              <td>{{ row.date }}</td>
-              <td>{{ row.sport }}</td>
-              <td>{{ row.matchup }}</td>
-              <td>{{ row.predicted_outcome }}</td>
-              <td>{{ row.actual_result }}</td>
-              <td>
-                {% set tone = 'warn' %}
-                {% if row.confidence_pct >= 80 %}{% set tone = 'good' %}{% endif %}
-                {% if row.confidence_pct < 60 %}{% set tone = 'risk' %}{% endif %}
-                <span class="eval-pill {{ tone }}">{{ row.confidence }} · {{ row.confidence_pct }}%</span>
-              </td>
-              <td>{{ row.recommendation }}</td>
-              <td>{{ row.notes or '—' }}</td>
-            </tr>
-            {% endfor %}
+{# ═══ KPI Strip ══════════════════════════════════════════════════════════ #}
+<div class="sp-kpi-strip">
+  {% set oa = kpis.overall_accuracy %}
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">Overall Accuracy</span>
+    <strong class="sp-kpi__value" style="color:{% if oa is not none and oa >= 55 %}var(--c-strong){% elif oa is not none and oa < 45 %}var(--c-danger){% else %}var(--text){% endif %}">{{ (oa|round(1) ~ '%') if oa is not none else '—' }}</strong>
+    <span style="font-size:.7rem; color:var(--text-3)">Finalized outcomes</span>
+  </div>
+
+  {% if wf.get('available') and wf.get('mean_combined_accuracy') is not none %}
+  {% set wfa = wf.get('mean_combined_accuracy')|round(1) %}
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">Walk-Forward</span>
+    <strong class="sp-kpi__value" style="color:{% if wfa >= 55 %}var(--c-strong){% elif wfa < 45 %}var(--c-danger){% else %}var(--text){% endif %}">{{ wfa }}%</strong>
+    <span style="font-size:.7rem; color:var(--text-3)">{{ wf.get('n_folds') }} folds · {{ wf.get('total_test_matches') }} matches</span>
+  </div>
+  {% else %}
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">Walk-Forward</span>
+    <strong class="sp-kpi__value">—</strong>
+    <span style="font-size:.7rem; color:var(--text-3)">Run weekly_retrain to generate</span>
+  </div>
+  {% endif %}
+
+  {% set roi = kpis.roi_or_points %}
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">ROI / Points</span>
+    <strong class="sp-kpi__value" style="color:{% if roi is not none and roi > 0 %}var(--c-strong){% elif roi is not none and roi < 0 %}var(--c-danger){% else %}var(--text){% endif %}">{{ roi if roi is not none else 0 }}</strong>
+    <span style="font-size:.7rem; color:var(--text-3)">Cumulative P&amp;L proxy</span>
+  </div>
+
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">Finalized</span>
+    <strong class="sp-kpi__value">{{ kpis.finalized_predictions or 0 }}</strong>
+    <span style="font-size:.7rem; color:var(--text-3)">of {{ kpis.total_tracked_predictions or 0 }} tracked</span>
+  </div>
+
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">Best Strategy</span>
+    <strong class="sp-kpi__value" style="font-size:.85rem">{{ kpis.current_best_strategy or 'Awaiting sample' }}</strong>
+  </div>
+
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">Avoids Skipped</span>
+    <strong class="sp-kpi__value">{{ kpis.avoids_skipped or 0 }}</strong>
+  </div>
+</div>
+
+{# ═══ Tabs ════════════════════════════════════════════════════════════════ #}
+<div data-sp-tabs>
+  <div class="sp-tabs">
+    <button class="sp-tab active" data-tab="models">Models</button>
+    <button class="sp-tab" data-tab="strategy">Strategy</button>
+    <button class="sp-tab" data-tab="trends">Trends</button>
+    <button class="sp-tab" data-tab="diagnostics">Diagnostics</button>
+  </div>
+
+  {# ── TAB: Models ────────────────────────────────────────────────────── #}
+  <div class="sp-tab-panel active" data-panel="models">
+
+    {# Model Stack Cards #}
+    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.6rem; margin-bottom:1rem">
+      {% for name, acc, role, badge, desc in models %}
+      {% set is_best = (name == best_label) %}
+      {% set is_prod = (role == 'production') %}
+      {% set rank = namespace(val=0) %}
+      {% if acc is not none %}
+        {% set sorted_accs = _all_accs | sort(reverse=true) %}
+        {% for v in sorted_accs %}
+          {% if v == acc and rank.val == 0 %}{% set rank.val = loop.index %}{% endif %}
+        {% endfor %}
+      {% endif %}
+      <div class="sp-panel sp-panel--tight {% if is_best %}sp-panel--highlight{% endif %}" style="{% if is_prod %}border-color:var(--c-active){% endif %}">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.3rem">
+          <strong style="font-size:.85rem">{{ name }}</strong>
+          <span class="sp-badge sp-badge--{{ 'strong' if badge == 'RUNTIME ML' else ('active' if badge == 'PRODUCTION' else 'muted') }}" style="font-size:.65rem">{{ badge }}</span>
+        </div>
+        <strong style="font-size:1.3rem; color:{% if acc is not none and acc >= 55 %}var(--c-strong){% elif acc is not none and acc < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+          {{ (acc|round(1) ~ '%') if acc is not none else '—' }}
+        </strong>
+        <div style="display:flex; justify-content:space-between; font-size:.72rem; color:var(--text-3); margin-top:.3rem">
+          <span>{{ eval_matches or '—' }} matches</span>
+          {% if rank.val > 0 %}<span>#{{ rank.val }}</span>{% endif %}
+        </div>
+        <p style="font-size:.72rem; color:var(--text-3); margin-top:.25rem">{{ desc }}</p>
+      </div>
+      {% endfor %}
+    </div>
+
+    {# Chart + Insights side-by-side #}
+    <div class="sp-split">
+      <div class="sp-panel" style="flex:1.5">
+        <span class="sp-kicker">Visual Comparison</span>
+        <h3 class="sp-section-title">Model Comparison</h3>
+        <div class="sp-chart" style="height:320px; margin-top:.5rem"><canvas id="chartModelBar"></canvas></div>
+      </div>
+      <div class="sp-panel">
+        <span class="sp-kicker">Ranked Summary</span>
+        <h3 class="sp-section-title">Model Insights</h3>
+        <div class="sp-list" style="margin-top:.5rem">
+          {% set valid_models = [] %}
+          {% for m in models %}{% if m[1] is not none %}{% set _ = valid_models.append(m) %}{% endif %}{% endfor %}
+          {% set sorted_models = valid_models | sort(attribute=1, reverse=true) %}
+          {% for name, acc, role, badge, desc in sorted_models %}
+          <div class="sp-stat-row">
+            <span>
+              <strong style="color:var(--c-{{ 'strong' if loop.index <= 2 else ('caution' if loop.index <= 4 else 'danger') }})">#{{ loop.index }}</strong>
+              {{ name }}
+            </span>
+            <span>
+              <strong>{{ acc|round(1) }}%</strong>
+              <span class="sp-badge sp-badge--{{ 'strong' if loop.index <= 2 else ('caution' if loop.index <= 4 else 'muted') }}" style="font-size:.6rem; margin-left:.3rem">{{ 'Strong' if loop.index <= 2 else ('Moderate' if loop.index <= 4 else 'Weak') }}</span>
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+        <div style="font-size:.78rem; color:var(--text-3); margin-top:.6rem; line-height:1.6">
+          <strong>Model ref:</strong> {{ best_label }}<br>
+          <strong>Production:</strong> Combined Signal<br>
+          {% if mlc.get('accuracy_gap_display') %}<strong>Gap:</strong> {{ mlc.get('accuracy_gap_display') }}<br>{% endif %}
+          {% if mlc.get('top_signals') %}<strong>Top signal:</strong> {{ mlc.get('top_signals')[0] }}{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── TAB: Strategy ─────────────────────────────────────────────────── #}
+  <div class="sp-tab-panel" data-panel="strategy">
+    <div class="sp-split">
+      <div class="sp-panel" style="flex:1.5">
+        <span class="sp-kicker">Head-to-Head</span>
+        <h3 class="sp-section-title">Strategy Intelligence</h3>
+        <div class="sp-table-wrap" style="margin-top:.5rem">
+          <table class="sp-table">
+            <thead><tr><th>Strategy</th><th>Accuracy</th><th>Sample</th><th>Source</th><th>Status</th></tr></thead>
+            <tbody>
+              {% if strategy_rows %}
+                {% for row in strategy_rows %}
+                <tr>
+                  <td><strong>{{ row.strategy }}</strong></td>
+                  <td><strong style="color:{% if row.accuracy is not none and row.accuracy >= 55 %}var(--c-strong){% elif row.accuracy is not none and row.accuracy < 45 %}var(--c-danger){% else %}var(--text){% endif %}">{{ (row.accuracy|round(1) ~ '%') if row.accuracy is not none else '—' }}</strong></td>
+                  <td>{{ row.sample_size if row.sample_size else '—' }}</td>
+                  <td><span class="sp-badge sp-badge--{{ 'strong' if row.source == 'live' else 'muted' }}">{{ 'Live' if row.source == 'live' else ('Offline' if row.source == 'offline' else '—') }}</span></td>
+                  <td><span class="sp-badge sp-badge--{{ 'strong' if loop.first else 'muted' }}">{{ row.status if row.status is defined else ('Active' if loop.first else 'Exp.') }}</span></td>
+                </tr>
+                {% endfor %}
+              {% else %}
+                <tr>
+                  <td><strong>Live Tracked</strong></td>
+                  <td><strong style="color:{% if kpis.overall_accuracy is not none and kpis.overall_accuracy >= 55 %}var(--c-strong){% endif %}">{{ (kpis.overall_accuracy|round(1) ~ '%') if kpis.overall_accuracy is not none else '—' }}</strong></td>
+                  <td>{{ kpis.finalized_predictions or '—' }}</td>
+                  <td><span class="sp-badge sp-badge--strong">Live</span></td>
+                  <td><span class="sp-badge sp-badge--strong">Active</span></td>
+                </tr>
+                <tr>
+                  <td>Stacking Ensemble</td>
+                  <td>{{ (mlc.get('ensemble_accuracy')|round(1) ~ '%') if mlc.get('ensemble_accuracy') is not none else '—' }}</td>
+                  <td>{{ mlc.get('evaluation_matches') or '—' }}</td>
+                  <td><span class="sp-badge sp-badge--muted">Offline</span></td>
+                  <td><span class="sp-badge sp-badge--active">ML</span></td>
+                </tr>
+                <tr>
+                  <td>Combined Signal</td>
+                  <td>{{ (combined_acc|round(1) ~ '%') if combined_acc is not none else '—' }}</td>
+                  <td>{{ mlc.get('evaluation_matches') or '—' }}</td>
+                  <td><span class="sp-badge sp-badge--muted">Offline</span></td>
+                  <td><span class="sp-badge sp-badge--active">Prod</span></td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="sp-panel">
+        <span class="sp-kicker">Recommendation</span>
+        <h3 class="sp-section-title">Best Strategy</h3>
+        <strong style="display:block; font-size:1.1rem; margin:.4rem 0; color:var(--c-strong)">{{ kpis.current_best_strategy or 'Awaiting sample' }}</strong>
+        <div style="display:flex; gap:.6rem; font-size:.82rem; margin:.5rem 0">
+          <div><span style="color:var(--text-3)">Accuracy</span><br><strong>{{ (kpis.overall_accuracy|round(1) ~ '%') if kpis.overall_accuracy is not none else '—' }}</strong></div>
+          <div><span style="color:var(--text-3)">Expected Range</span><br><strong>{% if kpis.overall_accuracy is not none %}{{ '%.1f'|format([kpis.overall_accuracy - 4.0, 0]|max) }}% – {{ '%.1f'|format(kpis.overall_accuracy + 4.0) }}%{% else %}—{% endif %}</strong></div>
+        </div>
+        <span class="sp-badge sp-badge--strong" style="margin:.5rem 0 .6rem; display:inline-block">Recommended</span>
+        <ul class="sp-insight-list" style="font-size:.78rem">
+          <li>Highest confidence-adjusted win rate across tracked predictions</li>
+          <li>Consistent edge over logistic baseline in walk-forward validation</li>
+          <li>Combined signal reduces single-model overconfidence noise</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  {# ── TAB: Trends ───────────────────────────────────────────────────── #}
+  <div class="sp-tab-panel" data-panel="trends">
+    <div class="sp-split">
+      <div class="sp-panel">
+        <span class="sp-kicker">Rolling Performance</span>
+        <h3 class="sp-section-title">Win Rate Trend</h3>
+        <div class="sp-chart" style="height:320px; margin-top:.5rem"><canvas id="chartRolling"></canvas></div>
+      </div>
+      <div class="sp-panel">
+        <span class="sp-kicker">Cumulative Results</span>
+        <h3 class="sp-section-title">P&amp;L / Points Curve</h3>
+        <div class="sp-chart" style="height:320px; margin-top:.5rem"><canvas id="chartCumulative"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  {# ── TAB: Diagnostics ──────────────────────────────────────────────── #}
+  <div class="sp-tab-panel" data-panel="diagnostics">
+
+    {# Confidence Calibration + Failure Analysis #}
+    <div class="sp-split">
+      <div class="sp-panel" style="flex:1.2">
+        <span class="sp-kicker">Model Reliability</span>
+        <h3 class="sp-section-title">Confidence Calibration</h3>
+        {% if confidence_calibration %}
+        <div class="sp-chart" style="height:280px; margin-top:.5rem"><canvas id="chartCalibration"></canvas></div>
+        <div style="display:flex; gap:.75rem; font-size:.72rem; color:var(--text-3); margin-top:.4rem">
+          <span><span style="color:var(--c-active)">■</span> Avg Confidence</span>
+          <span><span style="color:var(--c-strong)">■</span> Actual Hit Rate</span>
+          <span style="opacity:.5">⋯ Perfect Calibration</span>
+        </div>
+        {% else %}
+        <p style="color:var(--text-3); font-size:.82rem; margin-top:.5rem">Calibration data will appear once enough predictions are finalized.</p>
+        {% endif %}
+
+        {% if by_confidence_tier %}
+        <div style="display:flex; gap:.6rem; margin-top:.6rem">
+          {% for tier in by_confidence_tier %}
+          <div class="sp-panel sp-panel--tight" style="text-align:center; flex:1; margin-bottom:0">
+            <span class="sp-badge sp-badge--{{ 'strong' if tier.tier|lower == 'high' else ('caution' if tier.tier|lower == 'medium' else 'muted') }}">{{ tier.tier }}</span>
+            <strong style="display:block; font-size:1rem; margin:.2rem 0; color:{% if tier.accuracy is not none and tier.accuracy >= 55 %}var(--c-strong){% elif tier.accuracy is not none and tier.accuracy < 45 %}var(--c-danger){% else %}var(--text){% endif %}">{{ (tier.accuracy|round(1) ~ '%') if tier.accuracy is not none else '—' }}</strong>
+            <span style="font-size:.7rem; color:var(--text-3)">{{ tier.count }} matches</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="sp-panel">
+        <span class="sp-kicker">Recent Misses</span>
+        <h3 class="sp-section-title">Failure Analysis</h3>
+        {% if failure_rows %}
+        <div class="sp-list" style="margin-top:.5rem">
+          {% for row in failure_rows[:5] %}
+          <div style="padding:.4rem 0; border-bottom:1px solid var(--border)">
+            <div style="display:flex; justify-content:space-between; align-items:center">
+              <strong style="font-size:.82rem">{{ row.matchup }}</strong>
+              <span class="sp-badge sp-badge--{{ 'caution' if row.confidence_pct >= 60 else 'danger' }}" style="font-size:.6rem">{{ row.confidence }} · {{ row.confidence_pct }}%</span>
+            </div>
+            <div style="font-size:.75rem; color:var(--text-3); display:flex; gap:.5rem; margin-top:.15rem">
+              <span>{{ row.date }}</span>
+              <span>Pred: <strong>{{ row.predicted_outcome }}</strong></span>
+              <span>Actual: <strong style="color:var(--c-danger)">{{ row.actual_result }}</strong></span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p style="color:var(--text-3); font-size:.82rem; margin-top:.5rem">No failures recorded yet. Misses surface here once finalized outcomes are graded.</p>
+        {% endif %}
+        {% if pass_rows %}
+        <div style="margin-top:.6rem"><a href="{{ url_for('pass_analysis') }}" class="btn btn-secondary btn-sm">View recent wins →</a></div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# System Diagnostics #}
+    <div class="sp-panel">
+      <span class="sp-kicker">System Status</span>
+      <h3 class="sp-section-title">Decision System Summary</h3>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:1rem; margin-top:.6rem; font-size:.82rem">
+        <div>
+          <strong style="color:var(--text-2); font-size:.72rem; text-transform:uppercase; display:block; margin-bottom:.3rem">Model</strong>
+          <div class="sp-stat-row"><span>Best ML</span><strong>{{ best_label }}</strong></div>
+          <div class="sp-stat-row"><span>Production</span><strong>Combined Signal</strong></div>
+          {% if mlc.get('evaluation_matches') %}<div class="sp-stat-row"><span>Eval matches</span><strong>{{ eval_matches }}</strong></div>{% endif %}
+        </div>
+        <div>
+          <strong style="color:var(--text-2); font-size:.72rem; text-transform:uppercase; display:block; margin-bottom:.3rem">Policy</strong>
+          <div class="sp-stat-row"><span>Strategy</span><strong>{{ kpis.current_best_strategy or 'Awaiting sample' }}</strong></div>
+          <div class="sp-stat-row"><span>Avoids</span><strong>{{ kpis.avoids_skipped or 0 }} skipped</strong></div>
+          {% if wf.get('policy_hit_rate_pct') is not none %}<div class="sp-stat-row"><span>Policy hit rate</span><strong>{{ wf.get('policy_hit_rate_pct')|round(1) }}%</strong></div>{% endif %}
+        </div>
+        <div>
+          <strong style="color:var(--text-2); font-size:.72rem; text-transform:uppercase; display:block; margin-bottom:.3rem">Stability</strong>
+          {% if wf.get('available') %}
+          <div class="sp-stat-row"><span>WF trend</span><strong style="color:{% if wf.get('trend') == 'improving' %}var(--c-strong){% elif wf.get('trend') == 'declining' %}var(--c-danger){% else %}var(--text){% endif %}">{{ wf.get('trend')|capitalize if wf.get('trend') else '—' }}</strong></div>
+          <div class="sp-stat-row"><span>Best fold</span><strong>{{ (wf.get('best_model_accuracy')|round(1) ~ '%') if wf.get('best_model_accuracy') is not none else '—' }}</strong></div>
+          <div class="sp-stat-row"><span>Folds</span><strong>{{ wf.get('n_folds') or '—' }}</strong></div>
           {% else %}
-            <tr>
-              <td colspan="8">No recent failures available yet.</td>
-            </tr>
+          <div class="sp-stat-row"><span>Walk-forward</span><strong>Run weekly_retrain to generate</strong></div>
           {% endif %}
-        </tbody>
-      </table>
-    </div>
-  </article>
-
-  <article class="eval-card">
-    <h3>Model / Version Comparison</h3>
-    <div class="sub">Current reference comparison with room to expand into versioned model experiments.</div>
-    <div class="eval-mini-grid">
-      <div class="eval-mini">
-        <div class="label">Current Model</div>
-        <div class="value">{{ ml_comparison.best_model_label or 'Current production blend' }}</div>
-      </div>
-      <div class="eval-mini">
-        <div class="label">Baseline Logistic</div>
-        <div class="value">{{ (ml_comparison.baseline_logistic_accuracy ~ '%') if ml_comparison.baseline_logistic_accuracy is not none else 'N/A' }}</div>
-      </div>
-      <div class="eval-mini">
-        <div class="label">Random Forest</div>
-        <div class="value">{{ (ml_comparison.random_forest_accuracy ~ '%') if ml_comparison.random_forest_accuracy is not none else 'N/A' }}</div>
-      </div>
-      <div class="eval-mini">
-        <div class="label">Combined Signal</div>
-        <div class="value">{{ (performance_comparison.combined_accuracy ~ '%') if performance_comparison and performance_comparison.combined_accuracy is not none else 'N/A' }}</div>
-      </div>
-      <div class="eval-mini">
-        <div class="label">Prior Baseline (Rule)</div>
-        <div class="value">{{ (performance_comparison.rule_accuracy ~ '%') if performance_comparison and performance_comparison.rule_accuracy is not none else 'N/A' }}</div>
-      </div>
-      <div class="eval-mini">
-        <div class="label">Evaluation Sample</div>
-        <div class="value">{{ performance_comparison.evaluation_matches if performance_comparison else 0 }} matches</div>
+        </div>
       </div>
     </div>
-  </article>
-</section>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
+{% set mlc = ml_comparison if ml_comparison else {} %}
+{% set pc = performance_comparison if performance_comparison else {} %}
+{% set combined_acc = pc.get('combined_accuracy') %}
+{% set wf = walk_forward if walk_forward else {} %}
+{% set series = evaluation.get('series', {}) if evaluation else {} %}
 <script>
-(() => {
-  if (typeof Chart === 'undefined') return;
-
-  const rollingByMatch = {{ (rolling_by_match | default([], true)) | tojson }};
-  const rollingByDay = {{ (rolling_by_day | default([], true)) | tojson }};
-  const cumulativeSeries = {{ (cumulative_points | default([], true)) | tojson }};
-  const calibration = {{ (confidence_calibration | default([], true)) | tojson }};
-  const strategyRows = {{ (strategy_rows | default([], true)) | tojson }};
-  const bySport = {{ (by_sport | default([], true)) | tojson }};
-  const byConfidenceTier = {{ (by_confidence_tier | default([], true)) | tojson }};
-  const byOutcome = {{ (by_predicted_outcome | default([], true)) | tojson }};
-
-  const makeChart = (ctx, config) => new Chart(ctx, config);
-
-  const rollingCtx = document.getElementById('rollingWinRateChart');
-  let rollingChart;
-  const renderRollingChart = (mode) => {
-    const source = mode === 'day' ? rollingByDay : rollingByMatch;
-    const labels = source.map(p => p.label || p.match_index || p.day_index);
-    const values = source.map(p => p.rolling_accuracy || 0);
-
-    if (rollingChart) rollingChart.destroy();
-    rollingChart = makeChart(rollingCtx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Rolling Win %',
-          data: values,
-          borderColor: '#4ade80',
-          backgroundColor: 'rgba(74,222,128,.14)',
-          fill: true,
-          tension: .28,
-          pointRadius: 1.4,
-          pointHoverRadius: 3,
-        }],
-      },
-      options: {
-        maintainAspectRatio: false,
-        scales: {
-          y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } },
-        },
-      },
-    });
+(function () {
+  const P = {
+    cyan: '#22d3ee', cyanA: 'rgba(34,211,238,.13)',
+    violet: '#818cf8', violetA: 'rgba(129,140,248,.13)',
+    blue: '#60a5fa', blueA: 'rgba(96,165,250,.13)',
+    gray: 'rgba(152,168,209,.55)', grayA: 'rgba(152,168,209,.08)',
+    amber: '#fbbf24', amberA: 'rgba(251,191,36,.1)',
+    grid: 'rgba(148,163,184,.07)', muted: '#98a8d1',
   };
 
-  if (rollingCtx) {
-    renderRollingChart('match');
-    const byMatchBtn = document.getElementById('trendByMatch');
-    const byDayBtn = document.getElementById('trendByDay');
-    if (byMatchBtn) byMatchBtn.addEventListener('click', () => renderRollingChart('match'));
-    if (byDayBtn) byDayBtn.addEventListener('click', () => renderRollingChart('day'));
-  }
-
-  const cumulativeCtx = document.getElementById('cumulativePerformanceChart');
-  if (cumulativeCtx) {
-    makeChart(cumulativeCtx, {
-      type: 'line',
-      data: {
-        labels: cumulativeSeries.map(p => p.label || p.match_index),
-        datasets: [{
-          label: 'Cumulative Points',
-          data: cumulativeSeries.map(p => p.cumulative_points || 0),
-          borderColor: '#f59e0b',
-          backgroundColor: 'rgba(245,158,11,.14)',
-          fill: true,
-          tension: .2,
-          pointRadius: 1.3,
-        }],
+  const baseOpts = {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(8,13,32,.94)',
+        borderColor: 'rgba(129,140,248,.25)', borderWidth: 1,
+        titleFont: { family: 'Inter', size: 12 },
+        bodyFont: { family: 'Inter', size: 11 }, padding: 10,
       },
-      options: { maintainAspectRatio: false },
+    },
+    scales: {
+      x: { ticks: { color: P.muted, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { color: P.grid } },
+      y: { ticks: { color: P.muted, font: { size: 10 } }, grid: { color: P.grid } },
+    },
+  };
+
+  /* Model comparison bar */
+  const bestLabel = {{ (mlc.get('best_model_label') or '') | tojson }};
+  const modelNames = ['Logistic', 'Random Forest', 'XGBoost', 'LightGBM', 'Stacking', 'Combined'];
+  const modelValues = [
+    {{ mlc.get('baseline_logistic_accuracy') or 'null' }},
+    {{ mlc.get('random_forest_accuracy') or 'null' }},
+    {{ mlc.get('xgboost_accuracy') or 'null' }},
+    {{ mlc.get('lightgbm_accuracy') or 'null' }},
+    {{ mlc.get('ensemble_accuracy') or 'null' }},
+    {{ combined_acc or 'null' }},
+  ];
+  const fullNames = ['Logistic Regression','Random Forest','XGBoost','LightGBM','Stacking Ensemble','Combined Signal'];
+  const modelColors = fullNames.map(n => n === bestLabel ? P.cyan : n === 'Combined Signal' ? P.blue : n === 'Logistic Regression' ? P.gray : P.violet);
+  const modelColorsA = fullNames.map(n => n === bestLabel ? P.cyanA : n === 'Combined Signal' ? P.blueA : n === 'Logistic Regression' ? P.grayA : P.violetA);
+
+  const barEl = document.getElementById('chartModelBar');
+  if (barEl && modelValues.some(v => v !== null)) {
+    new Chart(barEl, {
+      type: 'bar',
+      data: { labels: modelNames, datasets: [{ data: modelValues, backgroundColor: modelColorsA, borderColor: modelColors, borderWidth: 1.5, borderRadius: 8 }] },
+      options: { ...baseOpts, plugins: { ...baseOpts.plugins, tooltip: { ...baseOpts.plugins.tooltip, callbacks: { label: ctx => ctx.raw !== null ? ctx.raw.toFixed(1) + '%' : 'N/A' } } }, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, suggestedMin: 30, suggestedMax: 70, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + '%' } } } },
     });
   }
 
-  const calibrationCtx = document.getElementById('confidenceCalibrationChart');
-  if (calibrationCtx) {
-    makeChart(calibrationCtx, {
+  /* Rolling win rate */
+  const rollingData = {{ (evaluation.get('series', {}).get('rolling_by_match', []) if evaluation else []) | tojson }};
+  const rollingEl = document.getElementById('chartRolling');
+  if (rollingEl && rollingData.length > 0) {
+    new Chart(rollingEl, {
+      type: 'line',
+      data: { labels: rollingData.map(d => d.label ?? '#' + d.match_index), datasets: [{ label: 'Rolling Win Rate', data: rollingData.map(d => d.rolling_accuracy), borderColor: P.cyan, backgroundColor: P.cyanA, fill: true, tension: .35, pointRadius: 0, borderWidth: 2 }] },
+      options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, suggestedMin: 20, suggestedMax: 90, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + '%' } } } },
+    });
+  } else if (rollingEl) { rollingEl.parentElement.innerHTML = '<p style="color:var(--text-3);font-size:.82rem">Not enough data yet</p>'; }
+
+  /* Cumulative P&L */
+  const cumulData = {{ (evaluation.get('series', {}).get('cumulative_points', []) if evaluation else []) | tojson }};
+  const cumulEl = document.getElementById('chartCumulative');
+  if (cumulEl && cumulData.length > 0) {
+    new Chart(cumulEl, {
+      type: 'line',
+      data: { labels: cumulData.map(d => d.label ?? '#' + d.match_index), datasets: [{ label: 'Cumulative P&L', data: cumulData.map(d => d.cumulative_points), borderColor: P.violet, backgroundColor: P.violetA, fill: true, tension: .3, pointRadius: 0, borderWidth: 2 }] },
+      options: baseOpts,
+    });
+  } else if (cumulEl) { cumulEl.parentElement.innerHTML = '<p style="color:var(--text-3);font-size:.82rem">Not enough data yet</p>'; }
+
+  /* Confidence calibration */
+  const calData = {{ (evaluation.get('confidence_calibration', []) if evaluation else []) | tojson }};
+  const calEl = document.getElementById('chartCalibration');
+  if (calEl && calData.length > 0) {
+    new Chart(calEl, {
       type: 'bar',
       data: {
-        labels: calibration.map(b => b.bucket),
+        labels: calData.map(d => d.bucket),
         datasets: [
-          {
-            label: 'Predicted Confidence',
-            data: calibration.map(b => b.avg_confidence || 0),
-            backgroundColor: 'rgba(59,130,246,.6)',
-            borderRadius: 6,
-          },
-          {
-            label: 'Actual Hit Rate',
-            data: calibration.map(b => b.actual_hit_rate || 0),
-            backgroundColor: 'rgba(34,197,94,.7)',
-            borderRadius: 6,
-          }
+          { label: 'Avg Confidence', data: calData.map(d => d.avg_confidence || 0), backgroundColor: P.blueA, borderColor: P.blue, borderWidth: 1.5, borderRadius: 5 },
+          { label: 'Actual Hit Rate', data: calData.map(d => d.actual_hit_rate || 0), backgroundColor: P.cyanA, borderColor: P.cyan, borderWidth: 1.5, borderRadius: 5 },
+          { type: 'line', label: 'Perfect Calibration', data: calData.map(d => d.avg_confidence || 0), borderColor: 'rgba(255,255,255,.28)', borderDash: [5, 4], pointRadius: 0, fill: false, tension: 0 },
         ],
       },
-      options: {
-        maintainAspectRatio: false,
-        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
-      },
-    });
-  }
-
-  const strategyCtx = document.getElementById('strategyComparisonChart');
-  if (strategyCtx) {
-    makeChart(strategyCtx, {
-      type: 'bar',
-      data: {
-        labels: strategyRows.map(r => r.strategy),
-        datasets: [{
-          label: 'Accuracy %',
-          data: strategyRows.map(r => r.accuracy ?? null),
-          backgroundColor: ['#22c55e', '#3b82f6', '#14b8a6', '#f59e0b', '#a78bfa'],
-          borderRadius: 6,
-        }],
-      },
-      options: {
-        maintainAspectRatio: false,
-        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
-      },
-    });
-  }
-
-  const bySportCtx = document.getElementById('bySportChart');
-  if (bySportCtx) {
-    makeChart(bySportCtx, {
-      type: 'bar',
-      data: {
-        labels: bySport.map(r => (r.sport || '').toUpperCase()),
-        datasets: [{
-          data: bySport.map(r => r.accuracy ?? null),
-          backgroundColor: ['#06b6d4', '#f97316'],
-          borderRadius: 6,
-        }],
-      },
-      options: {
-        plugins: { legend: { display: false } },
-        maintainAspectRatio: false,
-        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
-      },
-    });
-  }
-
-  const byConfidenceCtx = document.getElementById('byConfidenceTierChart');
-  if (byConfidenceCtx) {
-    makeChart(byConfidenceCtx, {
-      type: 'bar',
-      data: {
-        labels: byConfidenceTier.map(r => r.tier),
-        datasets: [{
-          data: byConfidenceTier.map(r => r.accuracy ?? null),
-          backgroundColor: ['#22c55e', '#f59e0b', '#ef4444'],
-          borderRadius: 6,
-        }],
-      },
-      options: {
-        plugins: { legend: { display: false } },
-        maintainAspectRatio: false,
-        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
-      },
-    });
-  }
-
-  const outcomeCtx = document.getElementById('outcomeBreakdownChart');
-  if (outcomeCtx) {
-    makeChart(outcomeCtx, {
-      type: 'bar',
-      data: {
-        labels: byOutcome.map(r => r.label),
-        datasets: [{
-          data: byOutcome.map(r => r.accuracy ?? null),
-          backgroundColor: ['#22c55e', '#0ea5e9', '#a78bfa'],
-          borderRadius: 6,
-        }],
-      },
-      options: {
-        plugins: { legend: { display: false } },
-        maintainAspectRatio: false,
-        scales: { y: { beginAtZero: true, suggestedMax: 100, ticks: { callback: v => `${v}%` } } },
-      },
+      options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, min: 0, max: 100, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + '%' } } } },
     });
   }
 })();

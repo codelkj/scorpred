@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Error{% endblock %}
 {% block content %}
-<div class="error-page">
+<section class="sp-hero" style="text-align:center">
   <h1>Something went wrong</h1>
-  <p class="error-msg">{{ msg }}</p>
-  <p>This may be an API connectivity issue. Check your API key in <code>.env</code> and ensure you have not exceeded your daily quota (100 requests/day on the free tier).</p>
-  <a href="/" class="btn btn-primary">Back to Home</a>
-</div>
+  <p style="color:var(--c-danger); font-size:1rem; margin:.5rem 0">{{ msg }}</p>
+  <p style="color:var(--text-3); font-size:.85rem; max-width:480px; margin:.5rem auto">This may be an API connectivity issue. Check your API key in <code>.env</code> and ensure you have not exceeded your daily quota (100 requests/day on the free tier).</p>
+  <a href="/" class="sp-badge sp-badge--strong" style="text-decoration:none; display:inline-block; margin-top:.75rem; font-size:.9rem; padding:.4rem 1rem">Back to Home</a>
+</section>
 {% endblock %}
