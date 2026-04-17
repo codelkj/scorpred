@@ -34,7 +34,13 @@ def build_opp_strengths(engine, standings: list) -> dict:
         return {}
 
 
-def load_upcoming_fixtures(
+def load_upcoming_fixtures(upcoming, engine, predictor, season, deep_limit, opp_strengths, logger):
+    fixtures_with_pred = []
+    load_error = None
+    data_source = None
+    now = datetime.now(UTC)
+    cache_key = (str(upcoming), season)
+    # ...existing code...
     for idx, fixture in enumerate(upcoming):
         prediction = None
         try:
