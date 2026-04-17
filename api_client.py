@@ -155,6 +155,8 @@ def api_get(
         return _load(path)
 
     if not API_KEY:
+        logger = logging.getLogger("api_client")
+        logger.error("[API_CLIENT] API_FOOTBALL_KEY not set in .env or environment!")
         raise RuntimeError("API_FOOTBALL_KEY not set in .env")
 
     if not RAPIDAPI_OK:
@@ -883,12 +885,15 @@ def get_team_fixtures(
 
     fixtures = []
     try:
+        logger = logging.getLogger("api_client")
+        logger.debug(f"[API_CLIENT] Fetching team fixtures: team_id={team_id}, league_id={league_id}, season={season}")
         for season_year in (season, season - 1):
             season_fixtures = api_get(
                 "fixtures",
                 {"team": team_id, "league": league_id, "season": season_year},
                 cache_hours=2,
             ).get("response", [])
+            logger.debug(f"[API_CLIENT] team_id={team_id} season={season_year} fetched {len(season_fixtures)} fixtures")
             if season_fixtures:
                 fixtures.extend(season_fixtures)
         if fixtures:
@@ -898,10 +903,10 @@ def get_team_fixtures(
                 key=lambda f: str((f.get("fixture") or {}).get("date") or ""),
                 reverse=True,
             )
+            logger.debug(f"[API_CLIENT] team_id={team_id} returning {len(fixtures[:last])} completed fixtures")
             return fixtures[:last]
-    except Exception:
-        pass
-
+    except Exception as exc:
+        logger.warning(f"[API_CLIENT] get_team_fixtures failed for team_id={team_id}: {exc}")
     fixtures = []
     for season_year in (season, season - 1):
         try:
@@ -973,16 +978,18 @@ def get_upcoming_fixtures(
     next_n: int = 20,
 ) -> list:
     try:
+        logger = logging.getLogger("api_client")
+        logger.debug(f"[API_CLIENT] Fetching upcoming fixtures: league_id={league_id}, season={season}, next_n={next_n}")
         response = api_get(
             "fixtures",
             {"league": league_id, "season": season, "next": next_n},
             cache_hours=2,
         ).get("response", [])
+        logger.debug(f"[API_CLIENT] get_upcoming_fixtures fetched {len(response)} fixtures")
         if response:
             return response
-    except Exception:
-        pass
-
+    except Exception as exc:
+        logger.warning(f"[API_CLIENT] get_upcoming_fixtures failed: {exc}")
     # ESPN fallback: scan ahead across the next few weeks (UTC) because many
     # leagues have multi-day gaps between matchdays. A short 2-3 day window can
     # look empty even when valid upcoming fixtures exist.

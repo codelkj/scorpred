@@ -35,75 +35,6 @@ def build_opp_strengths(engine, standings: list) -> dict:
 
 
 def load_upcoming_fixtures(
-    api_client,
-    predictor,
-    engine,
-    *,
-    league: int,
-    season: int,
-    logger,
-    football_data_source,
-    next_n: int = 20,
-    max_deep_predictions: int = 6,
-):
-    force_refresh = bool(getattr(api_client, "FORCE_REFRESH", False))
-    deep_limit = max(0, int(max_deep_predictions))
-    cache_key = (league, season, int(next_n), deep_limit, football_data_source())
-    now = datetime.now(UTC)
-
-    if not force_refresh:
-        cached = _UPCOMING_FIXTURE_CACHE.get(cache_key)
-        if cached and isinstance(cached.get("expires_at"), datetime) and cached["expires_at"] > now:
-            return deepcopy(cached["value"])
-
-    load_error = None
-    fixtures_with_pred = []
-    data_source = football_data_source()
-
-    try:
-        upcoming = api_client.get_upcoming_fixtures(league, season, next_n=next_n)
-    except Exception as exc:
-        upcoming = []
-        load_error = str(exc)
-        logger.error("Upcoming fixtures fetch failed: %s", exc)
-
-    standings_list = []
-    if deep_limit > 0:
-        try:
-            standings_list = api_client.get_standings(league, season)
-        except Exception as exc:
-            standings_list = []
-            logger.warning("Standings unavailable for quick predictions: %s", exc)
-
-    opp_strengths = build_opp_strengths(engine, standings_list)
-
-    # Avoid duplicate team API calls in the same page load.
-    team_fixtures_cache: dict[int, list] = {}
-    injuries_cache: dict[int, list] = {}
-    h2h_cache: dict[tuple[int, int], list] = {}
-
-    def _cached_team_fixtures(team_id: int) -> list:
-        if team_id in team_fixtures_cache:
-            return team_fixtures_cache[team_id]
-        rows = api_client.get_team_fixtures(team_id, league, season, last=10)
-        team_fixtures_cache[team_id] = rows
-        return rows
-
-    def _cached_injuries(team_id: int) -> list:
-        if team_id in injuries_cache:
-            return injuries_cache[team_id]
-        rows = clean_injuries(api_client.get_injuries(league, season, team_id))
-        injuries_cache[team_id] = rows
-        return rows
-
-    def _cached_h2h(home_id: int, away_id: int) -> list:
-        key = tuple(sorted((int(home_id), int(away_id))))
-        if key in h2h_cache:
-            return h2h_cache[key]
-        rows = api_client.get_h2h(home_id, away_id, last=10)
-        h2h_cache[key] = rows
-        return rows
-
     for idx, fixture in enumerate(upcoming):
         prediction = None
         try:
@@ -111,6 +42,8 @@ def load_upcoming_fixtures(
             away_id = fixture["teams"]["away"]["id"]
             home_name = fixture["teams"]["home"]["name"]
             away_name = fixture["teams"]["away"]["name"]
+
+            logger.debug(f"[EVIDENCE] Fixture {idx}: {home_name} (ID={home_id}) vs {away_name} (ID={away_id})")
 
             if idx >= deep_limit:
                 prediction = engine.scorpred_predict(
@@ -127,6 +60,7 @@ def load_upcoming_fixtures(
                     opp_strengths=opp_strengths,
                 )
                 fixtures_with_pred.append({**fixture, "prediction": prediction})
+                logger.warning(f"[EVIDENCE] Deep limit fallback: {home_name} vs {away_name} (no form attempted)")
                 continue
 
             h2h_raw = []
@@ -139,6 +73,81 @@ def load_upcoming_fixtures(
                 h2h_raw = _cached_h2h(home_id, away_id)
             except Exception:
                 logger.debug("Upcoming fixture h2h missing for %s vs %s", home_name, away_name)
+            try:
+                fixtures_home = _cached_team_fixtures(home_id)
+            except Exception:
+                logger.debug("Upcoming fixture home team form missing for %s", home_name)
+            try:
+                fixtures_away = _cached_team_fixtures(away_id)
+            except Exception:
+                logger.debug("Upcoming fixture away team form missing for %s", away_name)
+            try:
+                injuries_home = _cached_injuries(home_id)
+            except Exception:
+                logger.debug("Upcoming fixture home injuries missing for %s", home_name)
+            try:
+                injuries_away = _cached_injuries(away_id)
+            except Exception:
+                logger.debug("Upcoming fixture away injuries missing for %s", away_name)
+
+            h2h_raw = predictor.filter_recent_completed_fixtures(
+                h2h_raw,
+                current_season=season,
+                seasons_back=5,
+            )
+            fixtures_home = predictor.filter_recent_completed_fixtures(
+                fixtures_home,
+                current_season=season,
+            )
+            fixtures_away = predictor.filter_recent_completed_fixtures(
+                fixtures_away,
+                current_season=season,
+            )
+
+            logger.debug(f"[EVIDENCE] Team {home_name} completed fixtures: {len(fixtures_home)}; Team {away_name} completed fixtures: {len(fixtures_away)}")
+
+            form_home = predictor.extract_form(fixtures_home, home_id)[:5]
+            form_away = predictor.extract_form(fixtures_away, away_id)[:5]
+            h2h_form_home = predictor.extract_form(h2h_raw, home_id)[:5]
+            h2h_form_away = predictor.extract_form(h2h_raw, away_id)[:5]
+
+            logger.debug(f"[EVIDENCE] Team {home_name} form extracted: {len(form_home)}; Team {away_name} form extracted: {len(form_away)}")
+            if not form_home or not form_away:
+                logger.warning(f"[EVIDENCE] MISSING FORM: {home_name} vs {away_name} (form_home={len(form_home)}, form_away={len(form_away)})")
+
+            prediction = engine.scorpred_predict(
+                form_a=form_home,
+                form_b=form_away,
+                h2h_form_a=h2h_form_home,
+                h2h_form_b=h2h_form_away,
+                injuries_a=injuries_home,
+                injuries_b=injuries_away,
+                team_a_is_home=True,
+                team_a_name=home_name,
+                team_b_name=away_name,
+                sport="soccer",
+                opp_strengths=opp_strengths,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Upcoming fixture prediction failed for %s vs %s: %s",
+                fixture.get("fixture", {}).get("id"),
+                exc,
+            )
+            prediction = engine.scorpred_predict(
+                form_a=[],
+                form_b=[],
+                h2h_form_a=[],
+                h2h_form_b=[],
+                injuries_a=[],
+                injuries_b=[],
+                team_a_is_home=True,
+                team_a_name=fixture.get("teams", {}).get("home", {}).get("name", "Home"),
+                team_b_name=fixture.get("teams", {}).get("away", {}).get("name", "Away"),
+                sport="soccer",
+                opp_strengths=opp_strengths,
+            )
+        fixtures_with_pred.append({**fixture, "prediction": prediction})
             try:
                 fixtures_home = _cached_team_fixtures(home_id)
             except Exception:

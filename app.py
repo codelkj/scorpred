@@ -1132,16 +1132,28 @@ def today_soccer_predictions():
             "today_soccer_predictions: fixture payload size=%d",
             len(fixtures_with_pred),
         )
-        for fx in fixtures_with_pred[:3]:
+        for fx in fixtures_with_pred:
+            fx_id = (fx.get("fixture") or {}).get("id", "?")
             fx_date = (fx.get("fixture") or {}).get("date", "unknown")
             fx_status = (fx.get("fixture") or {}).get("status", {}).get("short", "?")
+            home = (fx.get("teams") or {}).get("home", {})
+            away = (fx.get("teams") or {}).get("away", {})
             app.logger.debug(
-                "today_soccer_predictions: fixture %s vs %s on %s [%s]",
-                (fx.get("teams") or {}).get("home", {}).get("name", "?"),
-                (fx.get("teams") or {}).get("away", {}).get("name", "?"),
-                fx_date,
-                fx_status,
+                "FIXTURE: id=%s %s vs %s on %s [%s]",
+                fx_id, home.get("name", "?"), away.get("name", "?"), fx_date, fx_status
             )
+            pred = fx.get("prediction") or {}
+            form_a = pred.get("form_a", []) if isinstance(pred, dict) else []
+            form_b = pred.get("form_b", []) if isinstance(pred, dict) else []
+            app.logger.debug(
+                "  Home team ID=%s, Away team ID=%s, form_a_len=%d, form_b_len=%d",
+                home.get("id", "?"), away.get("id", "?"), len(form_a), len(form_b)
+            )
+            if not form_a or not form_b:
+                app.logger.warning(
+                    "  MISSING FORM: fixture_id=%s home_id=%s away_id=%s (form_a_len=%d, form_b_len=%d)",
+                    fx_id, home.get("id", "?"), away.get("id", "?"), len(form_a), len(form_b)
+                )
     except Exception as exc:
         app.logger.error("Upcoming fixtures fetch failed: %s", exc, exc_info=True)
         load_error = sanitize_error(exc)
@@ -1155,6 +1167,10 @@ def today_soccer_predictions():
             best_pick = prediction.get("best_pick", {})
             probs = prediction.get("win_probabilities", {})
 
+            # Diagnostics for fallback/limited data
+            form_a = prediction.get("form_a", []) if isinstance(prediction, dict) else []
+            form_b = prediction.get("form_b", []) if isinstance(prediction, dict) else []
+            fallback_reason = None
             data_quality = prediction.get("data_quality", "Limited")
             has_data = data_quality != "Limited"
 
@@ -1165,6 +1181,12 @@ def today_soccer_predictions():
                 pa, pd, pb = probs.get("a", 0), probs.get("draw", 0), probs.get("b", 0)
                 if abs(pa - 37.0) < 0.5 and abs(pd - 26.0) < 0.5 and abs(pb - 37.0) < 0.5:
                     has_data = False
+                    fallback_reason = "Neutral fallback probabilities detected"
+
+            # If form is missing, set fallback reason
+            if not form_a or not form_b:
+                has_data = False
+                fallback_reason = "Missing recent form data"
 
             # Add to predictions list with fixture info
             predictions_for_fixtures.append({
@@ -1177,15 +1199,18 @@ def today_soccer_predictions():
                 "prob_home": probs.get("a", 33.3),
                 "prob_draw": probs.get("draw", 33.4),
                 "prob_away": probs.get("b", 33.3),
-                "reasoning": best_pick.get("reasoning", "") if has_data else "",
+                "reasoning": best_pick.get("reasoning", "") if has_data else fallback_reason or "",
                 "score_gap": prediction.get("score_gap", 0),
                 "data_quality": data_quality,
                 "has_data": has_data,
+                "form_a_len": len(form_a),
+                "form_b_len": len(form_b),
+                "fallback_reason": fallback_reason,
             })
         except Exception as exc:
             app.logger.warning("Prediction for fixture %s failed: %s", (row or {}).get("fixture", {}).get("id"), exc)
             continue
-    
+
     # Sort by confidence (High first) and score gap (larger gaps = more confident)
     conf_order = {"High": 0, "Medium": 1, "Low": 2}
     predictions_for_fixtures.sort(
@@ -1194,7 +1219,7 @@ def today_soccer_predictions():
             -x["score_gap"],
         )
     )
-    
+
     # ── Yesterday section: completed predictions from tracker ─────────────────
     yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
     today_str = date.today().strftime("%Y-%m-%d")
