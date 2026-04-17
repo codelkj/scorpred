@@ -154,46 +154,6 @@ def load_upcoming_fixtures(upcoming, engine, predictor, season, deep_limit, opp_
                 opp_strengths=opp_strengths,
             )
         fixtures_with_pred.append({**fixture, "prediction": prediction})
-    # ...existing code continues...
-
-            form_home = predictor.extract_form(fixtures_home, home_id)[:5]
-            form_away = predictor.extract_form(fixtures_away, away_id)[:5]
-            h2h_form_home = predictor.extract_form(h2h_raw, home_id)[:5]
-            h2h_form_away = predictor.extract_form(h2h_raw, away_id)[:5]
-
-            prediction = engine.scorpred_predict(
-                form_a=form_home,
-                form_b=form_away,
-                h2h_form_a=h2h_form_home,
-                h2h_form_b=h2h_form_away,
-                injuries_a=injuries_home,
-                injuries_b=injuries_away,
-                team_a_is_home=True,
-                team_a_name=home_name,
-                team_b_name=away_name,
-                sport="soccer",
-                opp_strengths=opp_strengths,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Upcoming fixture prediction failed for %s vs %s: %s",
-                fixture.get("fixture", {}).get("id"),
-                exc,
-            )
-            prediction = engine.scorpred_predict(
-                form_a=[],
-                form_b=[],
-                h2h_form_a=[],
-                h2h_form_b=[],
-                injuries_a=[],
-                injuries_b=[],
-                team_a_is_home=True,
-                team_a_name=fixture.get("teams", {}).get("home", {}).get("name", "Home"),
-                team_b_name=fixture.get("teams", {}).get("away", {}).get("name", "Away"),
-                sport="soccer",
-                opp_strengths={},
-            )
-        fixtures_with_pred.append({**fixture, "prediction": prediction})
 
     result = (fixtures_with_pred, load_error, data_source, "")
     _UPCOMING_FIXTURE_CACHE[cache_key] = {
