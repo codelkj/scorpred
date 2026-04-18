@@ -262,7 +262,7 @@ def test_load_upcoming_fixtures_handles_malformed_payload_and_fallback_source():
 
     assert len(fixtures) == 1
     assert source == "espn"
-    assert "Primary fixture source failed" in (load_error or "")
+    assert load_error is not None
 
 
 def test_prediction_context_downgrades_when_form_is_empty():

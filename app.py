@@ -19,7 +19,7 @@ except Exception:  # pragma: no cover
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-import analysis_assistant as assistant
+
 import api_client as ac
 import predictor as pred
 import props_engine as pe
@@ -32,6 +32,13 @@ import result_updater as ru
 from runtime_paths import ensure_runtime_dirs
 from security import check_chat_rate_limit, configure_security, sanitize_error
 from services import analysis_assistant as assistant_services
+
+try:
+    import nba_live_client as nc
+    import nba_predictor as np_nba
+except ImportError:  # pragma: no cover
+    nc = None  # type: ignore[assignment]
+    np_nba = None  # type: ignore[assignment]
 from services import evidence as evidence_services
 from services import strategy_lab as strategy_lab_services
 from services import tracking_bootstrap as bootstrap_services
@@ -49,16 +56,6 @@ try:
 except Exception:  # pragma: no cover
     anthropic = None
 
-try:
-    import nba_live_client as nc
-except Exception:  # pragma: no cover
-    nc = None
-
-try:
-    import nba_predictor as np_nba
-except Exception:  # pragma: no cover
-    np_nba = None
-
 load_dotenv()
 ensure_runtime_dirs()
 
@@ -67,15 +64,15 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 configure_security(app, os.getenv("SECRET_KEY", "").strip())
 
-# Initialize app config with tracking state
-app.config["TRACKING_LAST_BOOTSTRAP"] = None
-
-# ── Blueprints ─────────────────────────────────────────────────────────────────
+# ── Blueprints ──────────────────────────────────────────────────────────────────
 app.register_blueprint(nba_bp)
 app.register_blueprint(user_auth.user_auth_bp)
+
+
 @app.before_request
 def inject_user():
     g.current_user = user_auth.current_user()
+
 
 @app.context_processor
 def inject_auth_context():
@@ -84,18 +81,10 @@ def inject_auth_context():
         "is_guest": user_auth.current_user() is None,
     }
 
+
 LEAGUE = DEFAULT_LEAGUE_ID
 SEASON = CURRENT_SEASON
-LEAGUE_SESSION_KEY = "football_league_id"
-
-_EMPTY_METRICS = {
-    "finalized_predictions": 0,
-    "overall_accuracy": None,
-    "by_confidence": {},
-    "by_sport": {},
-    "by_league": {},
-    "recent_predictions": [],
-}
+LEAGUE_SESSION_KEY = "selected_league_id"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -198,6 +187,7 @@ def _normalise_probs(win_prob: dict) -> dict:
     return {key: rounded[idx] for idx, key in enumerate(keys)}
 
 
+def _football_supported_leagues() -> list[dict]:
     return bootstrap_services.football_supported_leagues(ac, LEAGUE_BY_ID)
 
 
@@ -231,6 +221,32 @@ def _format_prediction_date(value: str | None) -> str:
         except ValueError:
             continue
     return raw[:10]
+
+
+def _normalize_team_name(name: str) -> str:
+    if not name:
+        return ""
+    text = unicodedata.normalize("NFKD", str(name))
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
+
+
+def _natural_join(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def _predicted_outcome_probability(record: dict) -> float | None:
+    predicted_code = str(record.get("predicted_winner") or "").lower()
+    mapping = {"a": "prob_a", "b": "prob_b", "draw": "prob_draw"}
+    key = mapping.get(predicted_code)
+    if not key:
+        return None
+    raw = record.get(key)
+    return _safe_float(raw) if raw is not None else None
 
 
 def _team_names_match(left: str, right: str) -> bool:
@@ -278,56 +294,21 @@ def _prediction_pick_display(record: dict) -> str:
     if record.get("predicted_pick_label"):
         return str(record.get("predicted_pick_label") or "Unknown")
     winner_code = str(record.get("predicted_winner", "")).strip().lower()
+
     if winner_code == "a":
         return record.get("team_a", "Team A")
     if winner_code == "b":
         return record.get("team_b", "Team B")
     if winner_code == "draw":
-        return "Draw"
-    label = str(record.get("predicted_winner") or "Unknown").strip()
-    if label.lower().endswith(" win"):
-        label = label[:-4].strip()
-    return label or "Unknown"
-
-
-def _predicted_outcome_probability(record: dict) -> float | None:
-    predicted_code = str(record.get("predicted_winner_code") or record.get("predicted_winner") or "").lower()
-    mapping = {"a": "prob_a", "b": "prob_b", "draw": "prob_draw"}
-    key = mapping.get(predicted_code)
-    if not key:
-        return None
-    raw = record.get(key)
-    return _safe_float(raw) if raw is not None else None
-
-
-def _extract_totals_leg(prediction: dict) -> dict | None:
-    for pick in prediction.get("optional_picks") or []:
-        market = str(pick.get("market") or "")
-        lean = str(pick.get("lean") or "")
-        if "over" not in market.lower() and "under" not in market.lower() and "o/u" not in market.lower():
-            continue
-        line_match = re.search(r"(\d+(?:\.\d+)?)", market)
-        if not line_match:
-            continue
-        return {
-            "pick": lean,
-            "line": float(line_match.group(1)),
-            "market": market,
-        }
-    return None
-
-
-def _prediction_sentence(record: dict) -> str:
-    predicted = _prediction_pick_display(record)
-    return "Draw" if predicted == "Draw" else f"{predicted} to win"
-
-
-def _reality_sentence(record: dict) -> str:
-    actual_winner = record.get("actual_winner") or "Unknown"
-    final_score = record.get("final_score_display") or "Unknown"
-    if actual_winner == "Draw":
+        final_score = record.get("final_score_display") or "Unknown"
         return f"Match drawn {final_score}" if final_score != "Unknown" else "Match drawn"
-    return f"{actual_winner} won {final_score}" if final_score != "Unknown" else actual_winner
+
+    # Fallback to actual winner if available
+    actual_winner = record.get("actual_winner")
+    final_score = record.get("final_score_display") or "Unknown"
+    if actual_winner:
+        return f"{actual_winner} won {final_score}" if final_score != "Unknown" else actual_winner
+    return "Unknown"
 
 
 def _prepare_model_component_sections(record: dict) -> list[dict]:
@@ -383,66 +364,10 @@ def _outcome_range_label(actual_prob: float | None) -> str | None:
 
 
 def _score_margin_from_display(final_score_display: str | None) -> int | None:
-    match = re.match(r"^\s*(\d+)\s*-\s*(\d+)\s*$", str(final_score_display or ""))
-    if not match:
+    m = re.match(r"^\s*(\d+)\s*-\s*(\d+)\s*$", str(final_score_display or ""))
+    if not m:
         return None
-    return abs(int(match.group(1)) - int(match.group(2)))
-
-
-def _natural_join(items: list[str]) -> str:
-    cleaned = [str(item).strip() for item in items if str(item).strip()]
-    if not cleaned:
-        return ""
-    if len(cleaned) == 1:
-        return cleaned[0]
-    if len(cleaned) == 2:
-        return f"{cleaned[0]} and {cleaned[1]}"
-    return f"{', '.join(cleaned[:-1])}, and {cleaned[-1]}"
-
-
-def _filter_useful_injury_context(injuries: dict[str, dict]) -> dict[str, dict]:
-    useful = {}
-    for team_name, row in (injuries or {}).items():
-        count = _safe_int((row or {}).get("count"))
-        notable = [str(name).strip() for name in (row or {}).get("notable") or [] if str(name).strip()]
-        if count <= 0 and not notable:
-            continue
-        useful[team_name] = {
-            "count": count,
-            "notable": notable,
-        }
-    return useful
-
-
-def _summarize_form_compare(form_compare: dict[str, dict], actual_winner: str | None = None) -> str | None:
-    if not form_compare:
-        return None
-
-    segments = []
-    strength = {}
-    for team_name, row in form_compare.items():
-        wins = _safe_int(row.get("wins"))
-        losses = _safe_int(row.get("losses"))
-        if row.get("draws") is not None:
-            draws = _safe_int(row.get("draws"))
-            strength[team_name] = wins * 3 + draws
-            segments.append(f"{team_name} entered at {wins}W-{draws}D-{losses}L")
-        else:
-            strength[team_name] = wins
-            segments.append(f"{team_name} entered at {wins}W-{losses}L")
-
-    if len(strength) == 2 and actual_winner in strength:
-        other_team = next((name for name in strength if name != actual_winner), None)
-        if other_team:
-            if strength[actual_winner] > strength[other_team]:
-                prefix = "Recent form already leaned toward the eventual result"
-            elif strength[actual_winner] < strength[other_team]:
-                prefix = "Recent form did not clearly support the eventual winner"
-            else:
-                prefix = "Recent form was balanced before kickoff"
-            return f"{prefix}: {segments[0]}, while {segments[1]}."
-
-    return f"Recent form entering kickoff: {'; '.join(segments)}."
+    return abs(int(m.group(1)) - int(m.group(2)))
 
 
 def _summarize_injury_context(injuries: dict[str, dict]) -> str | None:
@@ -3184,52 +3109,7 @@ def prediction():
         }
     )
     prediction = mastermind.get("ui_prediction") or {}
-    )
-    prediction = mastermind.get("ui_prediction") or {}
-
-    _assistant_store_soccer_matchup_context(
-        team_a=team_a,
-        team_b=team_b,
-        prediction=prediction,
-        league_name=(LEAGUE_BY_ID.get(league_id) or {}).get("name", ""),
-        form_a=form_a,
-        form_b=form_b,
-        injuries_a=injuries_a,
-        injuries_b=injuries_b,
-    )
-
-    return render_template(
-        "matchup.html",
-        **_page_context(
-            team_a=team_a,
-            team_b=team_b,
-            selected_fixture=selected_fixture,
-            h2h=h2h_enriched,
-            form_a=form_a,
-            form_b=form_b,
-            split_a=split_a,
-            split_b=split_b,
-            h2h_rec=h2h_rec,
-            injuries_a=injuries_a,
-            injuries_b=injuries_b,
-            stats_compare=stats_compare,
-            prediction=prediction,
-            scorpred=prediction,
-            **_league_context(league_id),
-        ),
-    )
-
-
-@app.route("/prediction", methods=["GET"])
-def prediction():
-    _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
-    team_a, team_b = _require_teams()
-    if not team_a:
-        return redirect(url_for("soccer", league=league_id))
-
-    id_a, id_b = team_a["id"], team_b["id"]
-
 
     try:
         best_pick = prediction.get("best_pick", {})
@@ -3258,9 +3138,9 @@ def prediction():
         **_page_context(
             team_a=team_a,
             team_b=team_b,
-            prediction=result,
-            scorpred=result,
-            selected_fixture=_selected_fixture(),
+            prediction=mastermind,
+            scorpred=mastermind,
+            selected_fixture=selected_fixture,
             **_league_context(league_id),
         ),
     )
@@ -3307,92 +3187,45 @@ def players():
 @app.route("/props", methods=["GET"])
 def props():
     _set_data_refresh()
-
-    load_error = None
-    fixtures_with_pred = []
-
-    now_utc = datetime.now(timezone.utc)
-    app.logger.info(
-        "today_soccer_predictions: UTC=%s, league=%s",
-        now_utc.strftime("%Y-%m-%d %H:%M"),
-        LEAGUE,
-=======
     league_id = _set_active_league(_active_league_id())
     team_a, team_b = _require_teams()
-    if not team_a:
-        return redirect(url_for("soccer", league=league_id))
-
-    squad_a = []
-    squad_b = []
-    players = []
-
-    try:
-        squad_a = _fetch_team_squad(team_a["id"], SEASON, league_id)
-    except Exception as exc:
-        app.logger.warning("Props squad fetch failed for %s: %s", team_a["name"], exc)
-
-    try:
-        squad_b = _fetch_team_squad(team_b["id"], SEASON, league_id)
-    except Exception as exc:
-        app.logger.warning("Props squad fetch failed for %s: %s", team_b["name"], exc)
-
-    for team_side, squad, opponent in (
-        ("home", squad_a, team_b),
-        ("away", squad_b, team_a),
-    ):
-        for item in squad or []:
-            player = item.get("player") or item
-            if not isinstance(player, dict):
-                continue
-            pid = player.get("id")
-            if not pid:
-                continue
-            players.append(
-                {
-                    "id": pid,
-                    "name": player.get("name", "Unknown Player"),
-                    "firstname": player.get("firstname", ""),
-                    "lastname": player.get("lastname", ""),
-                    "age": player.get("age"),
-                    "photo": player.get("photo", ""),
-                    "position": (
-                        (item.get("statistics") or [{}])[0].get("games", {}).get("position", "")
-                        if isinstance(item, dict)
-                        else ""
-                    ),
-                    "team_id": team_a["id"] if team_side == "home" else team_b["id"],
-                    "team_name": team_a["name"] if team_side == "home" else team_b["name"],
-                    "opponent_id": opponent["id"],
-                    "opponent_name": opponent["name"],
-                    "is_home": team_side == "home",
-                }
-            )
-
-    players = sorted(players, key=lambda p: p["name"])
-    markets = [
-        {"key": "goals", "label": "Goals"},
-        {"key": "assists", "label": "Assists"},
-        {"key": "shots", "label": "Shots"},
-        {"key": "shots_on_target", "label": "Shots on Target"},
-        {"key": "key_passes", "label": "Key Passes"},
-        {"key": "minutes", "label": "Minutes"},
-    ]
+    squad_a: list = []
+    squad_b: list = []
+    tasks: dict[str, tuple[Callable[[], Any], Any, str]] = {}
+    if team_a:
+        tasks["squad_a"] = (
+            lambda: ac.get_squad(team_a["id"], SEASON),
+            [],
+            "Props page squad A fetch error",
+        )
+    if team_b:
+        tasks["squad_b"] = (
+            lambda: ac.get_squad(team_b["id"], SEASON),
+            [],
+            "Props page squad B fetch error",
+        )
+    results = _run_parallel(tasks)
+    squad_a = results.get("squad_a") or []
+    squad_b = results.get("squad_b") or []
 
     return render_template(
         "props.html",
         **_page_context(
-            sport="soccer",
-            team_a=team_a,
-            team_b=team_b,
+            team_a=team_a or {},
+            team_b=team_b or {},
             squad_a=squad_a,
             squad_b=squad_b,
-            players=players,
-            markets=markets,
-            selected_fixture=_selected_fixture(),
+            sport="soccer",
+            supported_leagues=_football_supported_leagues(),
+            default_league_id=LEAGUE,
+            football_markets=ac.get_market_catalog(),
+            football_position_default_markets=ac.POSITION_DEFAULT_MARKETS,
+            football_supported_league_ids=SUPPORTED_LEAGUE_IDS,
             current_season=SEASON,
+            football_mock_mode=False,
+            selected_fixture=_selected_fixture(),
             **_league_context(league_id),
         ),
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     )
 
 
@@ -3425,141 +3258,28 @@ def props_generate():
     markets = [m.strip() for m in markets_str.split(",") if m.strip()]
 
     try:
-<<<<<<< HEAD
-        fixtures_with_pred, load_error, _, _ = _load_upcoming_fixtures(next_n=20, max_deep_predictions=6)
-        app.logger.info(
-            "today_soccer_predictions: fixture payload size=%d",
-            len(fixtures_with_pred),
-        )
-        for fx in fixtures_with_pred:
-            fx_id = (fx.get("fixture") or {}).get("id", "?")
-            fx_date = (fx.get("fixture") or {}).get("date", "unknown")
-            fx_status = (fx.get("fixture") or {}).get("status", {}).get("short", "?")
-            home = (fx.get("teams") or {}).get("home", {})
-            away = (fx.get("teams") or {}).get("away", {})
-            app.logger.debug(
-                "FIXTURE: id=%s %s vs %s on %s [%s]",
-                fx_id, home.get("name", "?"), away.get("name", "?"), fx_date, fx_status
-            )
-            pred = fx.get("prediction") or {}
-            form_a = pred.get("form_a", []) if isinstance(pred, dict) else []
-            form_b = pred.get("form_b", []) if isinstance(pred, dict) else []
-            app.logger.debug(
-                "  Home team ID=%s, Away team ID=%s, form_a_len=%d, form_b_len=%d",
-                home.get("id", "?"), away.get("id", "?"), len(form_a), len(form_b)
-            )
-            if not form_a or not form_b:
-                app.logger.warning(
-                    "  MISSING FORM: fixture_id=%s home_id=%s away_id=%s (form_a_len=%d, form_b_len=%d)",
-                    fx_id, home.get("id", "?"), away.get("id", "?"), len(form_a), len(form_b)
-                )
-    except Exception as exc:
-        app.logger.error("Upcoming fixtures fetch failed: %s", exc, exc_info=True)
-        load_error = sanitize_error(exc)
-
-    # Build response payload from shared fixture predictions
-    predictions_for_fixtures = []
-    for row in fixtures_with_pred or []:
-        try:
-            fixture = row or {}
-            prediction = fixture.get("prediction") or {}
-            best_pick = prediction.get("best_pick", {})
-            probs = prediction.get("win_probabilities", {})
-
-            # Diagnostics for fallback/limited data
-            form_a = prediction.get("form_a", []) if isinstance(prediction, dict) else []
-            form_b = prediction.get("form_b", []) if isinstance(prediction, dict) else []
-            fallback_reason = None
-            data_quality = prediction.get("data_quality", "Limited")
-            has_data = data_quality != "Limited"
-
-            # Guard against neutral-fallback predictions that slipped through
-            # quality checks (e.g. stale cache served empty form data).
-            score_gap = prediction.get("score_gap", 0)
-            if has_data and score_gap == 0:
-                pa, pd, pb = probs.get("a", 0), probs.get("draw", 0), probs.get("b", 0)
-                if abs(pa - 37.0) < 0.5 and abs(pd - 26.0) < 0.5 and abs(pb - 37.0) < 0.5:
-                    has_data = False
-                    fallback_reason = "Neutral fallback probabilities detected"
-
-            # If form is missing, set fallback reason
-            if not form_a or not form_b:
-                has_data = False
-                fallback_reason = "Missing recent form data"
-
-            # Add to predictions list with fixture info
-            predictions_for_fixtures.append({
-                "fixture": fixture,
-                "home_team": fixture["teams"]["home"],
-                "away_team": fixture["teams"]["away"],
-                "prediction": prediction,
-                "predicted_winner": best_pick.get("prediction", "—") if has_data else "—",
-                "confidence": best_pick.get("confidence", "Low") if has_data else "Low",
-                "prob_home": probs.get("a", 33.3),
-                "prob_draw": probs.get("draw", 33.4),
-                "prob_away": probs.get("b", 33.3),
-                "reasoning": best_pick.get("reasoning", "") if has_data else fallback_reason or "",
-                "score_gap": prediction.get("score_gap", 0),
-                "data_quality": data_quality,
-                "has_data": has_data,
-                "form_a_len": len(form_a),
-                "form_b_len": len(form_b),
-                "fallback_reason": fallback_reason,
-            })
-        except Exception as exc:
-            app.logger.warning("Prediction for fixture %s failed: %s", (row or {}).get("fixture", {}).get("id"), exc)
-            continue
-
-    # Sort by confidence (High first) and score gap (larger gaps = more confident)
-    conf_order = {"High": 0, "Medium": 1, "Low": 2}
-    predictions_for_fixtures.sort(
-        key=lambda x: (
-            conf_order.get(x["confidence"], 3),
-            -x["score_gap"],
-        )
-    )
-
-    # ── Yesterday section: completed predictions from tracker ─────────────────
-    yesterday_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-    today_str = date.today().strftime("%Y-%m-%d")
-    try:
-        recent = mt.get_recent_predictions(limit=50)
-        yesterday_results = [
-            p for p in recent
-            if p.get("sport") == "soccer"
-            and p.get("date", "") in (yesterday_str, today_str)
-            and p.get("is_correct") is not None
-        ]
-    except Exception:
-        yesterday_results = []
-=======
         result = pe.generate_props(
-            sport="soccer",
-            player_id=player_id,
-            player_name=player_name,
-            player_team_id=player_team_id,
-            opponent_team_id=opponent_id,
-            opponent_name=opponent_name,
-            is_home=is_home,
-            markets=markets,
-            player_position=player_position,
-            season=season,
-            league=league,
-            include_all_comps=include_all_comps,
-            league_ids=league_ids or None,
+            sport             = "soccer",
+            player_id         = player_id,
+            player_name       = player_name,
+            player_team_id    = player_team_id,
+            opponent_team_id  = opponent_id,
+            opponent_name     = opponent_name,
+            is_home           = is_home,
+            markets           = markets,
+            player_position   = player_position,
+            season            = season,
+            league            = league,
+            include_all_comps = include_all_comps,
+            league_ids        = league_ids or None,
         )
         result["data_source"] = _football_data_source()
         result["last_updated"] = _now_stamp()
         return jsonify(result)
     except Exception as exc:
         app.logger.error("Props generation failed: %s", exc)
-        return jsonify(
-            {
-                "error": str(exc),
-                "data_source": _football_data_source(),
-                "last_updated": _now_stamp(),
-            }
-        ), 500
+        return jsonify({"error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 500
+
 
 
 @app.route("/chat", methods=["POST"])
@@ -3713,22 +3433,14 @@ def today_soccer_predictions():
     for group in grouped_fixtures:
         items = [item for item in (_build_prediction_item(fixture) for fixture in group.get("fixtures", [])) if item]
         grouped_predictions.append({**group, "predictions": items})
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
     return render_template(
         "today_predictions.html",
         **_page_context(
-<<<<<<< HEAD
-            sport="soccer",
-            predictions=predictions_for_fixtures,
-            total_fixtures=len(fixtures_with_pred),
-            total_predictions=len(predictions_for_fixtures),
-=======
             predictions=predictions,
             grouped_predictions=grouped_predictions,
             total_fixtures=len(fixtures_with_pred),
             total_predictions=len(predictions),
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             load_error=load_error,
             data_source=data_source,
             **_league_context(league_id),
@@ -3849,7 +3561,6 @@ def top_picks_today():
 
 @app.route("/model-performance")
 def model_performance():
-<<<<<<< HEAD
     """Display model evaluation dashboard with trends, calibration, and strategy analytics."""
     sport_filter = request.args.get('sport', '').lower()
     rolling_window = request.args.get('window', default=10, type=int) or 10
@@ -3881,19 +3592,6 @@ def model_performance():
             ]
         
         # Guarantee every key the template expects is present
-=======
-    try:
-        sport_filter = request.args.get("sport", "").lower()
-        metrics = mt.get_summary_metrics()
-        completed_predictions = mt.get_completed_predictions()
-        pending_predictions = mt.get_pending_predictions()
-
-        if sport_filter in ["soccer", "nba"]:
-            completed_predictions = [
-                p for p in completed_predictions if p.get("sport", "").lower() == sport_filter
-            ]
-
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         metrics.setdefault("finalized_predictions", 0)
         metrics.setdefault("by_confidence", {})
         metrics.setdefault("by_sport", {})
@@ -3951,7 +3649,6 @@ def model_performance():
     )
 
 
-<<<<<<< HEAD
 @app.route("/pass-analysis")
 def pass_analysis():
     """Display recent successful picks to complement failure analysis."""
@@ -3977,26 +3674,26 @@ def pass_analysis():
         **_page_context(
             evaluation=evaluation,
             pass_rows=pass_rows,
-            sport_filter=sport_filter,
-=======
-@app.route("/prediction-result/<prediction_id>")
-def prediction_result_detail(prediction_id: str):
-    record = mt.get_prediction_by_id(prediction_id)
-    if not record:
-        return _critical_error("Prediction result not found for the provided ID.", status_code=404)
-
-    evidence = (
-        _build_soccer_evidence(record)
-        if str(record.get("sport") or "").lower() == "soccer"
-        else _build_nba_evidence(record)
+        ),
     )
 
-    comparison = _build_prediction_vs_reality(record, evidence_summary=evidence.get("summary"))
-    _assistant_store_result_context(record, comparison, evidence)
+
+@app.route("/prediction-result/<prediction_id>")
+def prediction_result_detail(prediction_id: str):
+    record = mt.get_prediction(prediction_id) or {}
+    if not record:
+        return _critical_error("Prediction not found.", 404)
+
+    sport = str(record.get("sport") or "soccer").lower()
+    if sport == "nba":
+        evidence = _build_nba_evidence(record)
+    else:
+        evidence = _build_soccer_evidence(record)
+    comparison = _build_prediction_vs_reality(record)
 
     probability_rows = [
         {"label": record.get("team_a") or "Team A", "value": _safe_float(record.get("prob_a"), 0.0)},
-        {"label": "Draw", "value": _safe_float(record.get("prob_draw"), 0.0)} if str(record.get("sport") or "").lower() == "soccer" else None,
+        {"label": "Draw", "value": _safe_float(record.get("prob_draw"), 0.0)} if sport == "soccer" else None,
         {"label": record.get("team_b") or "Team B", "value": _safe_float(record.get("prob_b"), 0.0)},
     ]
     probability_rows = [row for row in probability_rows if row]
@@ -4014,12 +3711,10 @@ def prediction_result_detail(prediction_id: str):
             evidence=evidence,
             comparison=comparison,
             model_component_sections=model_component_sections,
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         ),
     )
 
 
-<<<<<<< HEAD
 @app.route("/strategy-lab")
 def strategy_lab():
     """Display product-facing strategy and ML comparison context."""
@@ -4049,8 +3744,6 @@ def strategy_lab():
     )
 
 
-=======
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 @app.route("/update-prediction-results", methods=["GET", "POST"])
 def update_prediction_results():
     summary = ru.get_update_summary()
@@ -4111,196 +3804,23 @@ def worldcup():
     )
 
 
-<<<<<<< HEAD
-# ── Props Bet Builder ─────────────────────────────────────────────────────────
-
-@app.route("/props/generate", methods=["GET", "POST"])
-def props_generate():
-    _set_data_refresh()
-    payload = request.get_json(silent=True) or request.values
-
-    player_id = int(payload.get("player_id", 0) or 0)
-    player_name = payload.get("player_name", "Unknown Player")
-    player_team_id = int(payload.get("player_team_id", 0) or 0)
-    opponent_id = int(payload.get("opponent_id", 0) or 0)
-    opponent_name = payload.get("opponent_name", "Opponent")
-    is_home_str = str(payload.get("is_home", "true")).lower()
-    markets_str = str(payload.get("markets", "goals,assists,shots_on_target,key_passes"))
-    season = int(payload.get("season", SEASON) or SEASON)
-    league = int(payload.get("league", LEAGUE) or LEAGUE)
-    player_position = payload.get("player_position", "")
-    include_all_comps = str(payload.get("include_all_comps", "false")).lower() in ("true", "1", "yes", "on")
-    league_ids_raw = str(payload.get("league_ids", ""))
-    league_ids = [int(value) for value in league_ids_raw.split(",") if value.strip().isdigit()]
-
-    if not player_id or not player_team_id or not opponent_id:
-        return jsonify({"error": "Required: player_id, player_team_id, opponent_id"}), 400
-
-    is_home = is_home_str not in ("false", "0", "no")
-    markets = [m.strip() for m in markets_str.split(",") if m.strip()]
-
-    try:
-        result = pe.generate_props(
-            sport             = "soccer",
-            player_id         = player_id,
-            player_name       = player_name,
-            player_team_id    = player_team_id,
-            opponent_team_id  = opponent_id,
-            opponent_name     = opponent_name,
-            is_home           = is_home,
-            markets           = markets,
-            player_position   = player_position,
-            season            = season,
-            league            = league,
-            include_all_comps = include_all_comps,
-            league_ids        = league_ids or None,
-        )
-        result["data_source"] = _football_data_source()
-        result["last_updated"] = _now_stamp()
-        return jsonify(result)
-    except Exception as exc:
-        app.logger.error("Props generation failed: %s", exc)
-        return jsonify({"error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 500
-
-
-@app.route("/chat", methods=["POST"])
-def chat():
-    retry_after = check_chat_rate_limit(
-        limit=int(app.config.get("CHAT_RATE_LIMIT_COUNT", 8)),
-        window_seconds=int(app.config.get("CHAT_RATE_LIMIT_WINDOW_SECONDS", 60)),
-    )
-    if retry_after:
-        return jsonify(
-            {
-                "error": "Chat rate limit exceeded. Please wait before sending another message.",
-                "retry_after": retry_after,
-            }
-        ), 429
-
-    message = (request.get_json(silent=True) or request.form or {}).get("message", "")
-    message = str(message).strip()
-    if not message:
-        return jsonify({"error": "message is required"}), 400
-
-    history = session.get("chat_history", [])[-8:]
-    reply = _chat_reply(message, history=history)
-    history.extend(
-        [
-            {"role": "user", "content": message, "timestamp": _now_stamp()},
-            {"role": "assistant", "content": reply, "timestamp": _now_stamp()},
-        ]
-    )
-    session["chat_history"] = history[-10:]
-    return jsonify({"reply": reply, "history": session["chat_history"], "last_updated": _now_stamp()})
-
-
-@app.route("/chat/clear", methods=["POST"])
-def chat_clear():
-    session.pop("chat_history", None)
-    return jsonify({"status": "cleared", "last_updated": _now_stamp()})
-
-
-@app.route("/top-picks-today")
-def top_picks_today():
-    """
-    Show the strongest model-backed picks across soccer and NBA for today.
-    Only displays high-confidence recommendations.
-    """
-    _set_data_refresh()
-    load_error = None
-    
-    # ── Soccer Totals ───────────────────────────────────────────────────
-    soccer_totals = []
-    try:
-        upcoming_fixtures = ac.get_upcoming_fixtures(LEAGUE, SEASON, next_n=20)
-        standings_list = ac.get_standings(LEAGUE, SEASON)
-        opp_strengths = _build_opp_strengths(standings_list)
-        with ThreadPoolExecutor(max_workers=min(8, len(upcoming_fixtures or [])) or 1) as executor:
-            futures = [
-                executor.submit(_build_soccer_total_pick, fixture, opp_strengths)
-                for fixture in (upcoming_fixtures or [])
-            ]
-            for future in futures:
-                result = future.result()
-                if result:
-                    soccer_totals.append(result)
-
-    except Exception as exc:
-        app.logger.error("Failed to process soccer totals: %s", exc)
-
-    # ── NBA Winners ────────────────────────────────────────────────────────
-    
-    nba_winners = []
-    try:
-        if nc is None or np_nba is None:
-            raise ImportError("NBA client not available")
-
-        today_games = nc.get_today_games()
-        if not today_games:
-            today_games = nc.get_upcoming_games(next_n=12, days_ahead=2)
-        
-        team_map = {str(t["id"]): t for t in nc.get_teams()}
-        
-        # Build opponent strengths
-        nba_opp_strengths = {}
-        try:
-            nba_standings = nc.get_standings()
-            flat_standings = []
-            if isinstance(nba_standings, dict):
-                for conf_teams in nba_standings.values():
-                    if isinstance(conf_teams, list):
-                        flat_standings.extend(conf_teams)
-            
-            ranked = []
-            for i, entry in enumerate(flat_standings):
-                if isinstance(entry, dict):
-                    team_info = entry.get("team") or entry
-                    name = team_info.get("name") or team_info.get("nickname", "")
-                    rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
-                    if name:
-                        ranked.append({"team": {"name": name}, "rank": rank})
-            
-            nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
-        except Exception:
-            pass
-        
-        with ThreadPoolExecutor(max_workers=min(8, len(today_games or [])) or 1) as executor:
-            futures = [
-                executor.submit(_build_nba_winner_pick, game, team_map, nba_opp_strengths, nc, np_nba)
-                for game in (today_games or [])
-            ]
-            for future in futures:
-                result = future.result()
-                if result:
-                    nba_winners.append(result)
-                
-    except Exception as exc:
-        app.logger.error("Failed to fetch NBA data: %s", exc)
-        if not load_error:
-            load_error = sanitize_error(exc)
-    
-    # Sort each section by confidence then probability
-    conf_order = {"High": 0, "Medium": 1, "Low": 2}
-    
-    soccer_totals.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["probability"]))
-    nba_winners.sort(key=lambda x: (conf_order.get(x["confidence"], 3), -x["win_probability"]))
-    
-    return render_template(
-        "top_picks_today.html",
-        **_page_context(
-            soccer_totals=soccer_totals,
-            nba_winners=nba_winners,
-            load_error=load_error,
-        ),
-    )
 
 
 @app.route("/api/football/leagues")
 def football_leagues_api():
-=======
+    return jsonify(
+        {
+            "leagues": _football_supported_leagues(),
+            "default_league_id": LEAGUE,
+            "season": SEASON,
+            "data_source": _football_data_source(),
+            "last_updated": _now_stamp(),
+        }
+    )
+
+
 @app.route("/health")
 def health():
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     return jsonify(
         {
             "ok": True,
@@ -4311,7 +3831,6 @@ def health():
     )
 
 
-<<<<<<< HEAD
 @app.route("/api/football/teams")
 def football_teams_api():
     _set_data_refresh()
@@ -4453,49 +3972,6 @@ def football_prefetch_competition_api():
         }), 200
 
 
-@app.route("/props")
-def props_page():
-    _set_data_refresh()
-    team_a, team_b = _require_teams()
-    squad_a = []
-    squad_b = []
-    tasks: dict[str, tuple[Callable[[], Any], Any, str]] = {}
-    if team_a:
-        tasks["squad_a"] = (
-            lambda: ac.get_squad(team_a["id"], SEASON),
-            [],
-            "Props page squad A fetch error",
-        )
-    if team_b:
-        tasks["squad_b"] = (
-            lambda: ac.get_squad(team_b["id"], SEASON),
-            [],
-            "Props page squad B fetch error",
-        )
-    results = _run_parallel(tasks)
-    squad_a = results.get("squad_a") or []
-    squad_b = results.get("squad_b") or []
-
-    return render_template(
-        "props.html",
-        **_page_context(
-            team_a=team_a or {},
-            team_b=team_b or {},
-            squad_a=squad_a,
-            squad_b=squad_b,
-            sport="soccer",
-            supported_leagues=_football_supported_leagues(),
-            default_league_id=LEAGUE,
-            football_markets=ac.get_market_catalog(),
-            football_position_default_markets=ac.POSITION_DEFAULT_MARKETS,
-            football_supported_league_ids=SUPPORTED_LEAGUE_IDS,
-            current_season=SEASON,
-            football_mock_mode=False,
-            selected_fixture=_selected_fixture(),
-        ),
-    )
-
-
 # ── Error page ────────────────────────────────────────────────────────────────
 
 @app.errorhandler(404)
@@ -4523,9 +3999,3 @@ if __name__ == "__main__":
             )
         else:
             raise
-=======
-if __name__ == "__main__":
-    debug = str(os.getenv("FLASK_DEBUG", "0")).strip().lower() in {"1", "true", "yes", "on"}
-    port = int(os.getenv("PORT", "5001"))
-    app.run(debug=debug, port=port)
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561

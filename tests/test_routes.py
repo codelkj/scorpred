@@ -16,12 +16,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import app as flask_app_module
-<<<<<<< HEAD
 import security
 import nba_predictor as np_nba_module
-=======
-import nba_predictor as np_nba_module
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -404,18 +400,7 @@ class TestSelectRoute:
         with patch("api_client.get_teams", return_value=_mock_teams()):
             rv = client.post("/select", data={"team_a": "33", "team_b": "33"})
         assert rv.status_code in (302, 303)
-<<<<<<< HEAD
         assert "/soccer?selection_error=" in rv.headers.get("Location", "")
-=======
-        assert "/soccer?league=" in rv.headers.get("Location", "")
-
-    def test_select_stores_league_context(self, client):
-        with patch("api_client.get_teams", return_value=_mock_teams()):
-            rv = client.post("/select", data={"team_a": "33", "team_b": "40", "league_id": "140"})
-        assert rv.status_code in (302, 303)
-        with client.session_transaction() as sess:
-            assert sess.get("football_league_id") == 140
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
     def test_select_missing_team_redirects_to_soccer_with_notice(self, client):
         with patch("api_client.get_teams", return_value=_mock_teams()):
@@ -495,11 +480,7 @@ class TestPredictionRoute:
             rv = client.get("/prediction")
         assert rv.status_code == 200
 
-<<<<<<< HEAD
     def test_prediction_tracks_selected_fixture_date(self, client):
-=======
-    def test_prediction_handles_upstream_failures(self, client):
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         with client.session_transaction() as sess:
             sess["team_a_id"] = 33
             sess["team_a_name"] = "Manchester United"
@@ -507,7 +488,6 @@ class TestPredictionRoute:
             sess["team_b_id"] = 40
             sess["team_b_name"] = "Liverpool"
             sess["team_b_logo"] = ""
-<<<<<<< HEAD
             sess["selected_fixture"] = {
                 "date": "2026-04-21T19:45:00+00:00",
                 "data_source": "configured",
@@ -1054,87 +1034,6 @@ class TestModelPerformanceRoute:
         assert rv.status_code == 200
         # Report is no longer auto-generated at request time (offline pipeline)
         assert not report_path.exists()
-=======
-
-        with patch("api_client.get_h2h", side_effect=Exception("h2h down")), \
-             patch("api_client.get_team_fixtures", side_effect=Exception("fixtures down")), \
-             patch("api_client.get_injuries", side_effect=Exception("injuries down")), \
-             patch("api_client.get_standings", side_effect=Exception("standings down")):
-            rv = client.get("/prediction")
-        assert rv.status_code == 200
-
-
-# ── Players page ──────────────────────────────────────────────────────────────
-
-class TestPlayersRoute:
-    def test_players_without_session_redirects(self, client):
-        rv = client.get("/players")
-        assert rv.status_code in (302, 303)
-
-    def test_players_uses_squad_fallback_and_renders(self, client):
-        with client.session_transaction() as sess:
-            sess["team_a_id"] = 33
-            sess["team_a_name"] = "Manchester United"
-            sess["team_a_logo"] = ""
-            sess["team_b_id"] = 40
-            sess["team_b_name"] = "Liverpool"
-            sess["team_b_logo"] = ""
-
-        squad = [
-            {"id": 1, "name": "Player A", "position": "Goalkeeper", "photo": "", "number": 1},
-            {"id": 2, "name": "Player B", "position": "Forward", "photo": "", "number": 9},
-        ]
-        with patch("app.ac.get_squad", return_value=squad), \
-             patch("app.ac.get_injuries", return_value=[]):
-            rv = client.get("/players")
-        assert rv.status_code == 200
-        assert b"Full Squads" in rv.data
-
-    def test_players_handles_squad_fetch_failure(self, client):
-        with client.session_transaction() as sess:
-            sess["team_a_id"] = 33
-            sess["team_a_name"] = "Manchester United"
-            sess["team_a_logo"] = ""
-            sess["team_b_id"] = 40
-            sess["team_b_name"] = "Liverpool"
-            sess["team_b_logo"] = ""
-
-        with patch("app.ac.get_squad", side_effect=Exception("squad down")):
-            rv = client.get("/players")
-        assert rv.status_code == 200
-
-
-class TestPropsRoute:
-    def test_props_without_session_redirects(self, client):
-        rv = client.get("/props")
-        assert rv.status_code in (302, 303)
-
-    def test_props_with_session_renders(self, client):
-        with client.session_transaction() as sess:
-            sess["team_a_id"] = 33
-            sess["team_a_name"] = "Manchester United"
-            sess["team_a_logo"] = ""
-            sess["team_b_id"] = 40
-            sess["team_b_name"] = "Liverpool"
-            sess["team_b_logo"] = ""
-
-        with patch("app.ac.get_squad", return_value=[]):
-            rv = client.get("/props")
-        assert rv.status_code == 200
-
-    def test_props_handles_squad_fetch_failure(self, client):
-        with client.session_transaction() as sess:
-            sess["team_a_id"] = 33
-            sess["team_a_name"] = "Manchester United"
-            sess["team_a_logo"] = ""
-            sess["team_b_id"] = 40
-            sess["team_b_name"] = "Liverpool"
-            sess["team_b_logo"] = ""
-
-        with patch("app.ac.get_squad", side_effect=Exception("squad down")):
-            rv = client.get("/props")
-        assert rv.status_code == 200
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 
 # ── Chat API ──────────────────────────────────────────────────────────────────

@@ -8,8 +8,9 @@ On error: returns empty list or empty dict — never raises to caller
 """
 
 
-import logging
 from __future__ import annotations
+
+import logging
 
 import hashlib
 import json

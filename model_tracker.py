@@ -10,12 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-<<<<<<< HEAD
 from datetime import datetime, timezone
-=======
-import re
-from datetime import UTC, datetime
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 from typing import Any
 import uuid
 import re
@@ -32,7 +27,7 @@ def _utc_now() -> datetime:
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _ensure_tracking_file() -> None:
@@ -142,21 +137,7 @@ def _migrate_predictions() -> None:
             with open(_TRACKING_FILE, "w", encoding="utf-8") as f:
                 json.dump({"predictions": predictions}, f, indent=2)
     except Exception:
-<<<<<<< HEAD
         logger.warning("Prediction migration failed", exc_info=True)
-=======
-        pass  # Silent fail if migration fails
-
-
-def _normalize_date(date_str: str | None) -> str:
-    """Return YYYY-MM-DD for any date-like string, or today if missing."""
-    if not date_str:
-        return _utc_now().strftime("%Y-%m-%d")
-    try:
-        return str(date_str)[:10]
-    except Exception:
-        return _utc_now().strftime("%Y-%m-%d")
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 
 def _load_predictions() -> list[dict]:
@@ -623,16 +604,8 @@ def save_prediction(
     win_probs: dict[str, float],  # {"a": x, "b": y, "draw": z}
     confidence: str,  # "High" | "Medium" | "Low"
     game_date: str | None = None,
-<<<<<<< HEAD
     team_a_id: str | int | None = None,
     team_b_id: str | int | None = None,
-    league_id: int | None = None,
-    season: int | None = None,
-    model_probability: float | None = None,   # model's top class probability (0-1)
-    implied_probability: float | None = None,  # market implied probability (reserved)
-    form_a_length: int | None = None,          # home team's form list length (for recency_bias detection)
-    elo_diff: float | None = None,             # home_elo - away_elo (for popular_team_overrating)
-=======
     league_id: int | None = None,
     league_name: str | None = None,
     prediction_notes: str | None = None,
@@ -642,19 +615,19 @@ def save_prediction(
     totals_pick: str | None = None,
     totals_line: float | int | None = None,
     totals_market: str | None = None,
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
+    season: int | None = None,
+    model_probability: float | None = None,   # model's top class probability (0-1)
+    implied_probability: float | None = None,  # market implied probability (reserved)
+    form_a_length: int | None = None,          # home team's form list length (for recency_bias detection)
+    elo_diff: float | None = None,             # home_elo - away_elo (for popular_team_overrating)
 ) -> str:
     """
     Save or update a prediction in the tracking file.
     
     Returns the prediction ID for later updates.
-<<<<<<< HEAD
     Checks for duplicates based on sport, date, and teams.
     If a duplicate exists, returns the existing ID without saving.
     If no concrete game date is available, the prediction is not tracked.
-=======
-    If a matching game already exists, update the existing record instead of creating a duplicate.
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     """
     predictions = _load_predictions()
     normalized_pick = _winner_choice_code(predicted_winner, team_a, team_b) or str(predicted_winner or "").strip()
@@ -672,15 +645,10 @@ def save_prediction(
         totals_line_value = _default_totals_line(sport)
     totals_market_value = str(totals_market or _default_totals_market(sport)).strip().lower() if normalized_totals_pick else None
     
-<<<<<<< HEAD
     game_date_normalized = normalize_date(game_date)
     if not game_date_normalized:
         return ""
     game_key = _get_game_key(sport, game_date_normalized, team_a, team_b)
-=======
-    game_date_normalized = _normalize_date(game_date)
-    game_key = _get_game_key(sport, game_date_normalized, team_a, team_b, league_id)
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     
     # Check for existing prediction with same game key
     for existing in predictions:
@@ -832,28 +800,10 @@ def update_prediction_result(
     
     for pred in predictions:
         if pred.get("id") == pred_id:
-<<<<<<< HEAD
             pred["actual_result"] = actual_result
             pred["status"] = "completed"
             pred["final_score"] = final_score
             _apply_grading(pred)
-=======
-            pred["actual_result"] = _winner_choice_code(
-                actual_result,
-                pred.get("team_a", ""),
-                pred.get("team_b", ""),
-            ) or str(actual_result or "")
-            pred["status"] = "completed"
-            pred["final_score"] = final_score
-            if fixture_id is not None and str(fixture_id).strip():
-                pred["fixture_id"] = str(fixture_id).strip()
-            outcome = _compute_prediction_outcome(pred)
-            pred["is_correct"] = outcome["game_win"]
-            pred["actual_winner"] = outcome["actual_winner"]
-            pred["winner_result"] = outcome["winner_result"]
-            pred["totals_result"] = outcome["totals_result"]
-            pred["overall_result"] = outcome["overall_result"]
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             pred["updated_at"] = _utc_now().isoformat().replace("+00:00", "Z")
             _save_predictions(predictions)
             return True
@@ -863,7 +813,6 @@ def update_prediction_result(
 
 def get_summary_metrics(exclude_seeded: bool = True) -> dict[str, Any]:
     """
-<<<<<<< HEAD
     Compute summary metrics across tracked winner predictions.
 
     Completed predictions are graded from the persisted winner outcome stored in
@@ -872,12 +821,6 @@ def get_summary_metrics(exclude_seeded: bool = True) -> dict[str, Any]:
     Args:
         exclude_seeded: When True (default), exclude predictions with is_seeded=True.
 
-=======
-    Compute summary metrics across all predictions.
-
-    Accuracy is based on the tracked overall result for completed games.
-    
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     Returns:
         {
             "total_predictions": int,
@@ -885,27 +828,11 @@ def get_summary_metrics(exclude_seeded: bool = True) -> dict[str, Any]:
             "wins": int,
             "losses": int,
             "overall_accuracy": float,  # 0-100%
-<<<<<<< HEAD
             "by_confidence": {...},
             "by_sport": {...},
             "calibration": {...},
             "seeded_count": int,         # number of seeded predictions excluded
             "recent_predictions": list   # Last 10
-=======
-            "by_confidence": {
-                "High": {"accuracy": float, "count": int, "wins": int, "losses": int},
-                "Medium": {"accuracy": float, "count": int, "wins": int, "losses": int},
-                "Low": {"accuracy": float, "count": int, "wins": int, "losses": int},
-            },
-            "by_sport": {
-                "soccer": {"accuracy": float, "count": int, "wins": int, "losses": int},
-                "nba": {"accuracy": float, "count": int, "wins": int, "losses": int},
-            },
-            "by_league": {
-                "Premier League": {"accuracy": float, "count": int, "wins": int, "losses": int},
-            },
-            "recent_predictions": list  # Last 10
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         }
     """
     all_predictions = _load_predictions()
@@ -944,7 +871,6 @@ def get_summary_metrics(exclude_seeded: bool = True) -> dict[str, Any]:
             "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
         }
     
-<<<<<<< HEAD
     def is_game_win(pred: dict[str, Any]) -> bool:
         if pred.get("is_correct") is not None:
             return bool(pred.get("is_correct"))
@@ -953,12 +879,6 @@ def get_summary_metrics(exclude_seeded: bool = True) -> dict[str, Any]:
         if pred.get("game_win") is not None:
             return bool(pred.get("game_win"))
         return False
-=======
-    # Calculate game-level wins/losses from the tracked overall result.
-    def is_game_win(pred):
-        outcome = _compute_prediction_outcome(pred)
-        return outcome["game_win"]
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     
     wins = sum(1 for p in finalized if is_game_win(p))
     losses = len(finalized) - wins
@@ -1044,14 +964,26 @@ def get_summary_metrics(exclude_seeded: bool = True) -> dict[str, Any]:
         "overall_accuracy": round(overall_accuracy, 1),
         "by_confidence": by_confidence,
         "by_sport": by_sport,
-<<<<<<< HEAD
+        "by_league": by_league,
         "calibration": calibration,
         "seeded_count": seeded_count,
-=======
-        "by_league": by_league,
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         "recent_predictions": sorted(predictions, key=lambda p: p.get("created_at", ""), reverse=True)[:10],
     }
+
+
+def get_prediction_by_id(pred_id: str) -> dict | None:
+    """Fetch a prediction by its stable tracking ID with derived display fields."""
+    lookup = str(pred_id or "").strip()
+    if not lookup:
+        return None
+    for pred in _load_predictions():
+        if str(pred.get("id") or "") == lookup:
+            return _enhance_prediction_record(pred)
+    return None
+
+
+# Alias used by app.py prediction_result_detail route
+get_prediction = get_prediction_by_id
 
 
 def get_recent_predictions(limit: int = 20) -> list[dict]:
@@ -1083,7 +1015,6 @@ def get_completed_predictions(limit: int = 50) -> list[dict]:
     # Sort by most recent first
     completed = sorted(completed, key=lambda p: p.get("updated_at", ""), reverse=True)[:limit]
     
-<<<<<<< HEAD
     # Enhance with calculated fields
     for pred in completed:
         _apply_grading(pred)
@@ -1507,18 +1438,3 @@ def get_evaluation_dashboard(
         "seeded_count": seeded_count,
         "exclude_seeded": exclude_seeded,
     }
-=======
-    return [_enhance_prediction_record(pred) for pred in completed]
-
-
-def get_prediction_by_id(pred_id: str) -> dict | None:
-    """Fetch a prediction by its stable tracking ID with derived display fields."""
-    lookup = str(pred_id or "").strip()
-    if not lookup:
-        return None
-
-    for pred in _load_predictions():
-        if str(pred.get("id") or "") == lookup:
-            return _enhance_prediction_record(pred)
-    return None
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561

@@ -240,66 +240,30 @@ def fetch_nba_result(
         }
         or None if not found
     """
-<<<<<<< HEAD
     all_games = []
 
     for candidate in _candidate_nba_scoreboard_dates(date_str):
         try:
             all_games.extend(nc.get_scoreboard_games(candidate))
-=======
-    target_date = _parse_date(date_str)
-    
-    all_games: list[dict] = []
-    seen_ids: set[str] = set()
-
-    candidate_days: list[datetime] = []
-    try:
-        if target_date:
-            candidate_days.append(datetime.fromisoformat(target_date))
-    except Exception:
-        pass
-    now = datetime.now()
-    candidate_days.extend([now - timedelta(days=1), now, now + timedelta(days=1)])
-
-    for day in candidate_days:
-        try:
-            for game in nc.get_scoreboard_games(day):
-                game_id = str(game.get("id") or "")
-                if game_id and game_id in seen_ids:
-                    continue
-                seen_ids.add(game_id)
-                all_games.append(game)
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         except Exception:
             continue
     
     for game in all_games:
         try:
             game_date = _parse_date((game.get("date") or {}).get("start", ""))
-<<<<<<< HEAD
             target_date = _parse_date(date_str)
-=======
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             if game_date != target_date:
                 continue
             
             # Check if game is finished
-<<<<<<< HEAD
             status = game.get("status") or {}
             status_state = str(status.get("state", "")).lower()
             status_long = str(status.get("long", "")).upper()
             if status_state != "post" and "FINAL" not in status_long:
-=======
-            status_info = game.get("status") or {}
-            status = str(status_info.get("long") or status_info.get("short") or "").upper()
-            state = str(status_info.get("state") or "").lower()
-            if state != "post" and "FINAL" not in status:
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
                 continue
             
             # Get team names
             teams = game.get("teams") or {}
-<<<<<<< HEAD
             scores = game.get("scores") or {}
             home = teams.get("home") or {}
             away = teams.get("visitors") or {}
@@ -321,16 +285,6 @@ def fetch_nba_result(
             away_match = _team_ids_match(team_a_id, team_b_id, away_id, home_id) or (
                 _teams_match(team_a, away_name) and _teams_match(team_b, home_name)
             )
-=======
-            home_team = teams.get("home") or {}
-            away_team = teams.get("visitors") or {}
-            home_name = home_team.get("name") or home_team.get("nickname", "")
-            away_name = away_team.get("name") or away_team.get("nickname", "")
-            
-            scores = game.get("scores") or {}
-            home_score = int((scores.get("home") or {}).get("points") or 0)
-            away_score = int((scores.get("visitors") or {}).get("points") or 0)
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             
             # Check if teams match (try both orderings)
             if home_match:
@@ -339,38 +293,30 @@ def fetch_nba_result(
                     winner = "A"
                 else:
                     winner = "B"
-                
+
                 return {
-<<<<<<< HEAD
                     "status": status_long or "FINAL",
-=======
-                    "status": status,
-                    "fixture_id": game.get("id"),
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
                     "score": {"a": home_score, "b": away_score},
                     "winner": winner,
                     "teams": {"a": home_name, "b": away_name},
                     "found": True,
+                    "fixture_id": str(game.get("id", "")),
                 }
-            
+
             elif away_match:
                 # team_a is away
                 if away_score > home_score:
                     winner = "A"
                 else:
                     winner = "B"
-                
+
                 return {
-<<<<<<< HEAD
                     "status": status_long or "FINAL",
-=======
-                    "status": status,
-                    "fixture_id": game.get("id"),
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
                     "score": {"a": away_score, "b": home_score},
                     "winner": winner,
                     "teams": {"a": away_name, "b": home_name},
                     "found": True,
+                    "fixture_id": str(game.get("id", "")),
                 }
         except Exception:
             continue
@@ -436,14 +382,10 @@ def update_pending_predictions() -> dict[str, Any]:
                     team_a,
                     team_b,
                     date_str,
-<<<<<<< HEAD
                     league_id=int(league_id),
                     season=int(season),
                     team_a_id=team_a_id,
                     team_b_id=team_b_id,
-=======
-                    league_id=int(pred.get("league_id") or 39),
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
                 )
             elif sport == "nba":
                 result = fetch_nba_result(

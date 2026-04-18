@@ -109,18 +109,11 @@ def _espn_get(
     path = _cache_path(f"espn:{endpoint}", params)
 
     if _cache_valid(path, ttl_seconds):
-<<<<<<< HEAD
         logger.debug("ESPN cache HIT  %s", endpoint)
         return _load_cache(path)
-=======
-        payload = _load_cache(path)
-        _MEM_CACHE[mem_key] = (now_ts + ttl_seconds, payload)
-        return payload
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
     logger.debug("ESPN cache MISS %s", endpoint)
     url = f"{NBA_ESPN_BASE_URL}/{endpoint.lstrip('/')}"
-<<<<<<< HEAD
     timeout_seconds, retry_attempts, retry_backoff_seconds = _request_settings(request_profile)
     last_exc: Exception | None = None
     for attempt in range(retry_attempts):
@@ -152,21 +145,6 @@ def _espn_get(
         logger.warning("ESPN STALE fallback for %s", endpoint)
         return _load_cache(path)
     raise RuntimeError(f"NBA ESPN request failed for {endpoint}") from last_exc
-=======
-    with requests.Session() as session:
-        session.trust_env = False
-        response = session.get(
-            url,
-            params=params,
-            headers={"Accept": "application/json"},
-            timeout=20,
-        )
-    response.raise_for_status()
-    payload = response.json()
-    _save_cache(path, payload)
-    _MEM_CACHE[mem_key] = (now_ts + ttl_seconds, payload)
-    return payload
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 
 def _feature_catalog() -> dict[str, dict[str, str]]:
@@ -449,18 +427,7 @@ def get_game_summary(event_id: str, request_profile: str = "default") -> dict:
     )
 
 
-<<<<<<< HEAD
 def _team_schedule(team_id: str, season: int | None = None, request_profile: str = "default") -> list[dict]:
-=======
-def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
-    season_key = "none" if season is None else str(season)
-    mem_key = f"team_schedule:{team_id}:{season_key}"
-    now_ts = time.time()
-    mem_cached = _SCHEDULE_MEM.get(mem_key)
-    if mem_cached and mem_cached[0] > now_ts:
-        return mem_cached[1]
-
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     params: dict = {}
     if season is not None:
         params["season"] = season
@@ -478,18 +445,8 @@ def _team_schedule(team_id: str, season: int | None = None) -> list[dict]:
     return events
 
 
-<<<<<<< HEAD
 def _completed_team_games_for_season(team_id: str, season: int, request_profile: str = "default") -> list[dict]:
     finished = [game for game in _team_schedule(team_id, season=season, request_profile=request_profile) if game["status"]["state"] == "post"]
-=======
-def get_team_recent_form(team_id, season: int = NBA_SEASON, n: int = 10) -> list[dict]:
-    team_id = str(team_id)
-    finished = [
-        game
-        for game in _team_schedule(team_id, season=season)
-        if game["status"]["state"] == "post"
-    ]
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     finished.sort(key=lambda game: game["date"]["start"], reverse=True)
     return finished
 
