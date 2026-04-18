@@ -1,82 +1,77 @@
 {% extends "base.html" %}
 
 {% block title %}NBA Predictor | ScorPred{% endblock %}
-{% else %}
-<div class="sp-panel" style="text-align:center; padding:2rem">
-  <span class="sp-kicker">Prediction unavailable</span>
-  <h2 style="margin:.3rem 0">No ScorPred output was produced</h2>
-  <p style="color:var(--text-2); font-size:.85rem">Re-select the game from the NBA home page and try again.</p>
+
+{% block content %}
+<section class="sp-hero sp-nba">
+  <span class="sp-kicker">NBA Predictor</span>
+  <h1 style="font-size:1.4rem; font-weight:800; margin:.2rem 0 .3rem">NBA analysis with a sharper intelligence workspace.</h1>
+  <p style="color:var(--text-2); font-size:.85rem">
+    Move from live game selection to matchup analysis, prop context, and final prediction review.
+  </p>
+</section>
+
+{% if route_support %}
+<div class="sp-panel sp-panel--tight" style="display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.75rem">
+  {% for key, info in route_support.items() %}
+  <span class="sp-badge sp-badge--{{ 'strong' if info.state == 'live' else ('caution' if info.state in ('fallback', 'mock') else 'muted') }}">{{ info.title }}</span>
+  {% endfor %}
 </div>
 {% endif %}
 
-{% block scripts %}
-{% if scorpred %}
-<script>
-const ctx = document.getElementById('probChart');
-if (ctx) {
-  new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: ['Form (40%)', 'Attack (15%)', 'Defense (15%)', 'H2H (10%)', 'Venue (8%)', 'Opp. Quality (7%)', 'Squad (5%)'],
-      datasets: [
-        {
-          label: '{{ team_a.nickname or team_a.name }}',
-          data: [
-            {{ scorpred.components_a.form }},
-            {{ scorpred.components_a.offense }},
-            {{ scorpred.components_a.defense }},
-            {{ scorpred.components_a.h2h }},
-            {{ scorpred.components_a.home_away }},
-            {{ scorpred.components_a.opp_strength }},
-            {{ scorpred.components_a.squad }}
-          ],
-          backgroundColor: 'rgba(245,158,11,.7)',
-          borderColor: '#f59e0b',
-          borderWidth: 1,
-        },
-        {
-          label: '{{ team_b.nickname or team_b.name }}',
-          data: [
-            {{ scorpred.components_b.form }},
-            {{ scorpred.components_b.offense }},
-            {{ scorpred.components_b.defense }},
-            {{ scorpred.components_b.h2h }},
-            {{ scorpred.components_b.home_away }},
-            {{ scorpred.components_b.opp_strength }},
-            {{ scorpred.components_b.squad }}
-          ],
-          backgroundColor: 'rgba(59,130,246,.5)',
-          borderColor: '#3b82f6',
-          borderWidth: 1,
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      indexAxis: 'y',
-      plugins: {
-        legend: { labels: { color: '#e8edf5', font: { family: 'Inter' } } } 
-      },
-      scales: {
-        x: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' }, max: 10 },
-        y: { ticks: { color: '#7a90b0' }, grid: { color: '#1e2f4a' } }      
-      }
-    }
-  });
-}
-</script>
+{% if load_error %}
+<div class="sp-notice sp-notice--error"><strong>{{ load_error }}</strong></div>
 {% endif %}
 
-<p style="font-size:.72rem; color:var(--text-3); text-align:center; margin-top:1rem">Predictions are model-based analysis for informational purposes only, not betting advice or guaranteed outcomes.</p>
-{% endblock %}
+{% if selection_notice %}
+<div class="sp-notice sp-notice--warn">{{ selection_notice }}</div>
+{% endif %}
+
+{% if selected_game %}
+<div class="sp-panel sp-panel--highlight" style="margin-bottom:1rem">
+  <span class="sp-kicker">Selected Game</span>
+  <h2 style="font-size:1.1rem; font-weight:700; margin:.2rem 0 .3rem">
+    {{ selected_game.short_name if selected_game.short_name else selected_game.home_name ~ ' vs ' ~ selected_game.away_name }}
+  </h2>
+  <p style="font-size:.82rem; color:var(--text-2); margin-bottom:.5rem">
+    {% if selected_game.status %}{{ selected_game.status }}{% endif %}
+    {% if selected_game.date %} · {{ selected_game.date[:10] }}{% if selected_game.date|length > 10 %} {{ selected_game.date[11:16] }} UTC{% endif %}{% endif %}
+    {% if selected_game.venue_name %} · {{ selected_game.venue_name }}{% endif %}
+  </p>
+  <div style="display:flex; gap:.5rem; flex-wrap:wrap">
+    <a href="{{ url_for('nba.prediction') }}" class="sp-badge sp-badge--strong" style="text-decoration:none">Match Analysis</a>
+    <a href="{{ url_for('nba.matchup') }}" class="sp-badge sp-badge--active" style="text-decoration:none">Advanced Matchup</a>
+    <a href="{{ url_for('nba.player') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Rosters</a>
+  </div>
+</div>
+{% endif %}
+
+{# ── Upcoming Games ────────────────────────────────────────────────────────── #}
+<div class="sp-panel">
+  <span class="sp-kicker">Upcoming Games</span>
+  <h2 class="sp-section-title">Jump into the next NBA slate</h2>
+  <p style="font-size:.82rem; color:var(--text-2); margin-bottom:.75rem">Pick a real scheduled game to carry the fixture date and venue into the prediction tracker.</p>
+
+  {% if upcoming_games %}
+  <div style="display:grid; gap:.6rem">
+    {% for g in upcoming_games %}
+    {% set home = g.teams.home %}
+    {% set visit = g.teams.visitors %}
+    {% set sc = g.scores %}
+    {% set h_pts = sc.home.points %}
+    {% set v_pts = sc.visitors.points %}
+    <div class="sp-panel sp-panel--tight" style="margin-bottom:0">
+      <div style="display:flex; flex-wrap:wrap; gap:.4rem; font-size:.75rem; color:var(--text-3); margin-bottom:.35rem">
+        <span>{{ g.date.start[:10] }}</span>
+        {% if g.date.start|length > 10 %}<span>{{ g.date.start[11:16] }} UTC</span>{% endif %}
+        {% if g.venue and g.venue.name %}<span>{{ g.venue.name }}</span>{% endif %}
+        {% if g.prediction and g.prediction.best_pick %}
+        <span class="sp-badge sp-badge--{{ 'strong' if g.prediction.best_pick.confidence == 'High' else ('caution' if g.prediction.best_pick.confidence == 'Medium' else 'muted') }}" style="font-size:.65rem">
+          {{ g.prediction.best_pick.confidence_label or (g.prediction.best_pick.confidence ~ ' Confidence') }}
+        </span>
+        {% else %}
         <span class="sp-badge sp-badge--muted" style="font-size:.65rem">Limited Data</span>
         {% endif %}
-          <div style="margin-top:.2rem;">
-            <strong>Predicted winner: {{ g.prediction.best_pick.prediction }}</strong>
-          </div>
-          <span class="sp-badge sp-badge--{{ 'strong' if g.prediction.best_pick.confidence == 'High' else ('caution' if g.prediction.best_pick.confidence == 'Medium' else 'muted') }}" style="font-size:.65rem">
-            {{ g.prediction.best_pick.confidence_label or (g.prediction.best_pick.confidence ~ ' Confidence') }}
-          </span>
       </div>
 
       <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.35rem">

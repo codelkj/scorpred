@@ -801,12 +801,7 @@ def _build_soccer_evidence(record: dict) -> dict:
     team_a_name = str(record.get("team_a") or "")
     team_b_name = str(record.get("team_b") or "")
 
-    teams_result = ac.get_teams(league_id, SEASON)
-    if teams_result.get("status") == "fail":
-        print(f"[ROUTE] get_teams failed: {teams_result.get('error')}")
-        teams = []
-    else:
-        teams = teams_result.get("data", {}).get("response", [])
+    teams = ac.get_teams(league_id, SEASON)
 
     team_a = _resolve_provider_team_by_name(team_a_name, teams)
     team_b = _resolve_provider_team_by_name(team_b_name, teams)
@@ -2461,11 +2456,7 @@ def soccer():
     print("[ROUTE] /soccer hit")
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
-    teams_result = ac.get_teams(league_id, SEASON)
-    if teams_result.get("status") == "fail":
-        print(f"[ROUTE] get_teams failed: {teams_result.get('error')}")
-        return render_template("error.html", message=teams_result.get("error", "Unable to load teams."))
-    teams = teams_result.get("data", {}).get("response", [])
+    teams = ac.get_teams(league_id, SEASON)
     fixtures_result = ac.api_get("fixtures", {"league": league_id, "season": SEASON})
     if fixtures_result.get("status") == "fail":
         print(f"[ROUTE] fixtures API failed: {fixtures_result.get('error')}")
