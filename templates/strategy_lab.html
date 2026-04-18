@@ -60,24 +60,34 @@
     <span style="font-size:.7rem; color:var(--text-3)">{{ live_sample_size }} tracked</span>
   </div>
   <div class="sp-kpi">
-    <span class="sp-kpi__label">Offline Accuracy</span>
-    <strong class="sp-kpi__value" style="color:{% if offline_accuracy is not none and offline_accuracy >= 55 %}var(--c-strong){% elif offline_accuracy is not none and offline_accuracy < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
-      {{ ('%.1f'|format(offline_accuracy) ~ '%') if offline_accuracy is not none else 'Awaiting' }}
-    </strong>
-    <span style="font-size:.7rem; color:var(--text-3)">holdout eval</span>
+    <span class="sp-kpi__label">Live Accuracy</span>
+    {% if live_sample_size == 0 %}
+      <strong class="sp-kpi__value" style="color:var(--text-3)">Collecting data</strong>
+      <span class="sp-badge sp-badge--muted" style="margin-left:.3rem">Warming up</span>
+    {% else %}
+      <strong class="sp-kpi__value" style="color:{% if live_hit_rate is not none and live_hit_rate >= 55 %}var(--c-strong){% elif live_hit_rate is not none and live_hit_rate < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+        {{ ('%.1f'|format(live_hit_rate) ~ '%') if live_hit_rate is not none else '—' }}
+      </strong>
+      <span style="font-size:.7rem; color:var(--text-3)">{{ live_sample_size }} tracked</span>
+    {% endif %}
   </div>
   <div class="sp-kpi">
-    <span class="sp-kpi__label">Edge vs Baseline</span>
-    <strong class="sp-kpi__value">{{ edge_display }}</strong>
+    <span class="sp-kpi__label">Last 7 Days</span>
+    <strong class="sp-kpi__value">{{ metrics.last_7d_accuracy or '—' }}</strong>
+    <span style="font-size:.7rem; color:var(--text-3)">recent</span>
   </div>
   <div class="sp-kpi">
-    <span class="sp-kpi__label">Finalized</span>
-    <strong class="sp-kpi__value">{{ live_sample_size or 0 }}</strong>
-    <span style="font-size:.7rem; color:var(--text-3)">of {{ metrics.total_predictions or 0 }}</span>
+    <span class="sp-kpi__label">Total Predictions</span>
+    <strong class="sp-kpi__value">{{ metrics.total_predictions or 0 }}</strong>
   </div>
   <div class="sp-kpi">
-    <span class="sp-kpi__label">W / L</span>
-    <strong class="sp-kpi__value">{{ metrics.wins or 0 }} / {{ metrics.losses or 0 }}</strong>
+    <span class="sp-kpi__label">Breakdown</span>
+    <strong class="sp-kpi__value">BET: {{ metrics.bet_count or 0 }} / LEAN: {{ metrics.lean_count or 0 }} / AVOID: {{ metrics.avoid_count or 0 }}</strong>
+  </div>
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">Last Updated</span>
+    <strong class="sp-kpi__value">{{ metrics.last_updated or '—' }}</strong>
+    <span style="font-size:.7rem; color:var(--text-3)">Based on {{ metrics.finalized_predictions or 0 }} tracked</span>
   </div>
   {% if wf.get('available') and wf.get('mean_combined_accuracy') is not none %}
   <div class="sp-kpi">
@@ -124,54 +134,49 @@
     </div>
 
     {# Strategy Comparison Table #}
-    <div class="sp-panel">
-      <span class="sp-kicker">Head-to-Head</span>
-      <h3 class="sp-section-title">Strategy Comparison</h3>
-      <div class="sp-table-wrap" style="margin-top:.5rem">
-        <table class="sp-table">
-          <thead><tr><th>Strategy</th><th>Accuracy</th><th>Sample</th><th>Source</th><th>Status</th></tr></thead>
-          <tbody>
-            <tr>
-              <td><strong>Live Tracked</strong></td>
-              <td>{{ backtest_summary.overall_accuracy_display }}</td>
-              <td>{{ metrics.finalized_predictions or 0 }}</td>
-              <td><span class="sp-badge sp-badge--strong">Live</span></td>
-              <td><span class="sp-badge sp-badge--strong">Active</span></td>
-            </tr>
-            {% if backtest_summary.best_sport %}
-            <tr>
-              <td><strong>{{ backtest_summary.best_sport.label }} Segment</strong></td>
-              <td>{{ backtest_summary.best_sport.accuracy_display }}</td>
-              <td>{{ backtest_summary.best_sport.count or '—' }}</td>
-              <td><span class="sp-badge sp-badge--strong">Live</span></td>
-              <td><span class="sp-badge sp-badge--active">Best</span></td>
-            </tr>
-            {% endif %}
-            <tr>
-              <td>Logistic Benchmark</td>
-              <td>{% if ml_comparison.available %}{{ ml_comparison.baseline_logistic_accuracy }}%{% else %}—{% endif %}</td>
-              <td>{{ ml_comparison.evaluation_matches or '—' }}</td>
-              <td><span class="sp-badge sp-badge--muted">Offline</span></td>
-              <td><span class="sp-badge sp-badge--muted">Bench</span></td>
-            </tr>
-            <tr>
-              <td>Stacking Ensemble</td>
-              <td>{% if ml_comparison.available and ml_comparison.ensemble_accuracy is not none %}{{ ml_comparison.ensemble_accuracy }}%{% elif ml_comparison.available %}{{ ml_comparison.random_forest_accuracy }}%{% else %}—{% endif %}</td>
-              <td>{{ ml_comparison.evaluation_matches or '—' }}</td>
-              <td><span class="sp-badge sp-badge--muted">Offline</span></td>
-              <td><span class="sp-badge sp-badge--active">ML</span></td>
-            </tr>
-            <tr>
-              <td>Combined Signal</td>
-              <td>{% if performance_comparison.combined_accuracy is not none %}{{ performance_comparison.combined_accuracy }}%{% else %}—{% endif %}</td>
-              <td>{{ performance_comparison.evaluation_matches or '—' }}</td>
-              <td><span class="sp-badge sp-badge--muted">Offline</span></td>
-              <td><span class="sp-badge sp-badge--active">Prod</span></td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="sp-panel">
+        <span class="sp-kicker">Head-to-Head</span>
+        <h3 class="sp-section-title">Strategy Comparison</h3>
+        {% set all_live_empty = (metrics.finalized_predictions or 0) == 0 %}
+        {% if all_live_empty %}
+          <div class="sp-notice sp-notice--info" style="margin-bottom:.7rem">
+            <strong>Live performance is being tracked.</strong> Results will appear after matches complete.
+          </div>
+        {% endif %}
+        <div class="sp-table-wrap" style="margin-top:.5rem">
+          <table class="sp-table sp-table--compare">
+            <thead>
+              <tr>
+                <th>Strategy</th>
+                <th>Accuracy</th>
+                <th>Sample</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="sp-row-prod">
+                <td><strong>Combined Signal</strong> <span class="sp-badge sp-badge--active" title="Production model — used for live picks">Prod</span></td>
+                <td>{% if performance_comparison.combined_accuracy is not none %}{{ performance_comparison.combined_accuracy }}%{% else %}{% if all_live_empty %}<span class="sp-badge sp-badge--muted">Warming up</span>{% else %}—{% endif %}{% endif %}</td>
+                <td>{{ performance_comparison.evaluation_matches or (all_live_empty and '—') or '—' }}</td>
+              </tr>
+              <tr>
+                <td><strong>Live Tracked</strong> <span class="sp-badge sp-badge--strong" title="Live — real results">Live</span></td>
+                <td>{% if all_live_empty %}<span class="sp-badge sp-badge--muted">Collecting data</span>{% else %}{{ backtest_summary.overall_accuracy_display }}{% endif %}</td>
+                <td>{{ metrics.finalized_predictions or (all_live_empty and '—') or '—' }}</td>
+              </tr>
+              <tr>
+                <td>Stacking Ensemble <span class="sp-badge sp-badge--muted" title="Offline — backtested">Offline</span></td>
+                <td>{% if ml_comparison.available and ml_comparison.ensemble_accuracy is not none %}{{ ml_comparison.ensemble_accuracy }}%{% elif ml_comparison.available %}{{ ml_comparison.random_forest_accuracy }}%{% else %}—{% endif %}</td>
+                <td>{{ ml_comparison.evaluation_matches or '—' }}</td>
+              </tr>
+              <tr>
+                <td>Logistic Benchmark <span class="sp-badge sp-badge--muted" title="Offline — backtested">Offline</span></td>
+                <td>{% if ml_comparison.available %}{{ ml_comparison.baseline_logistic_accuracy }}%{% else %}—{% endif %}</td>
+                <td>{{ ml_comparison.evaluation_matches or '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
 
     {# Final Recommendation #}
     <div class="sp-panel" style="border-color:var(--c-strong)">
@@ -407,3 +412,45 @@
   </div>
 </div>
 {% endblock %}
+
+{# --- VISUALIZATION: Win Rate Trend --- #}
+  <div class="sp-panel" style="margin:1.5rem 0 0 0">
+    <span class="sp-kicker">Performance Trend</span>
+    <h3 class="sp-section-title">Win Rate Over Time</h3>
+    <div id="winrate-chart" style="height:180px; width:100%; margin-top:.5rem"></div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      // Example: expects window.winrate_data = [{date: '2026-04-01', win_rate: 60}, ...]
+      document.addEventListener('DOMContentLoaded', function() {
+        if (window.winrate_data && document.getElementById('winrate-chart')) {
+          const ctx = document.getElementById('winrate-chart').getContext('2d');
+          new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: window.winrate_data.map(d => d.date),
+              datasets: [{
+                label: 'Win Rate (%)',
+                data: window.winrate_data.map(d => d.win_rate),
+                borderColor: '#3CF2A4',
+                backgroundColor: 'rgba(60,242,164,0.08)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2
+              }]
+            },
+            options: {
+              scales: {
+                y: {min: 0, max: 100, ticks: {stepSize: 20}},
+                x: {ticks: {autoSkip: true, maxTicksLimit: 10}}
+              },
+              plugins: {
+                legend: {display: false},
+                tooltip: {enabled: true}
+              }
+            }
+          });
+        }
+      });
+    </script>
+  </div>
+  {# --- END VISUALIZATION --- #}
