@@ -1,3 +1,7 @@
+import logging
+
+# Global logger for this module
+logger = logging.getLogger(__name__)
 """Evidence-building helpers for soccer matchup and prediction routes."""
 
 from __future__ import annotations
@@ -281,7 +285,7 @@ def load_upcoming_fixtures(
     *,
     league: int | None = None,
     season: int | None = None,
-    logger,
+    logger=logger,
     football_data_source: Callable[[], str] | None = None,
     next_n: int = 20,
     max_deep_predictions: int = 6,
@@ -345,8 +349,11 @@ def load_upcoming_fixtures(
         source = source_hint
         logger.info("[EVIDENCE] fixture_fetch primary_ok count=%d source=%s", len(upcoming_raw), source)
     except Exception as exc:
-        load_error = f"Primary fixture source failed: {exc}"
-        logger.warning("[EVIDENCE] fixture_fetch primary_failed league=%s season=%s error=%s", league, season, exc)
+        load_error = "Live data temporarily unavailable. Showing fallback data."
+        try:
+            logger.exception("[EVIDENCE] fixture_fetch primary_failed league=%s season=%s error=%s", league, season, exc)
+        except Exception:
+            print(f"[LOG FAILSAFE] {exc}")
 
     # Layer 2: explicit fallback source when available
     if not upcoming_raw and hasattr(api_client, "get_espn_fixtures"):
@@ -358,9 +365,12 @@ def load_upcoming_fixtures(
                 source = "espn"
                 logger.info("[EVIDENCE] fixture_fetch fallback_espn_ok slug=%s count=%d", espn_slug, len(upcoming_raw))
             except Exception as exc:
-                logger.warning("[EVIDENCE] fixture_fetch fallback_espn_failed slug=%s error=%s", espn_slug, exc)
+                try:
+                    logger.exception("[EVIDENCE] fixture_fetch fallback_espn_failed slug=%s error=%s", espn_slug, exc)
+                except Exception:
+                    print(f"[LOG FAILSAFE] {exc}")
                 load_error = (load_error + " | ") if load_error else ""
-                load_error = f"{load_error}Fallback fixture source failed: {exc}"
+                load_error = f"{load_error}Fallback fixture source failed."
 
     # Layer 3: stale cache rescue
     if not upcoming_raw:
@@ -375,7 +385,10 @@ def load_upcoming_fixtures(
             return stale
 
     if not upcoming_raw:
-        logger.warning("[EVIDENCE] fixture_fetch empty after all sources league=%s season=%s", league, season)
+        try:
+            logger.warning("[EVIDENCE] fixture_fetch empty after all sources league=%s season=%s", league, season)
+        except Exception as exc:
+            print(f"[LOG FAILSAFE] {exc}")
         result = ([], load_error or "No upcoming fixtures available.", source, espn_slug)
         _cache_set(_UPCOMING_FIXTURE_CACHE, cache_key, result, now, _UPCOMING_FIXTURE_CACHE_TTL_SECONDS)
         return result
