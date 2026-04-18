@@ -58,17 +58,30 @@
         </div>
         <div class="sp-topbar__auth">
           {% if is_guest %}
-            <span class="sp-badge sp-badge--muted">Guest</span>
-            <a href="/login" class="btn btn-link btn-sm">Login</a>
-            <a href="/signup" class="btn btn-link btn-sm">Sign up</a>
+            <span class="sp-auth-chip sp-auth-chip--guest">Guest mode</span>
+            <a href="/login" class="sp-auth-link">Login</a>
+            <a href="/signup" class="sp-auth-link sp-auth-link--primary">Sign up</a>
           {% else %}
-            <span class="sp-badge sp-badge--strong">{{ current_user.email }}</span>
-            <a href="/logout" class="btn btn-link btn-sm">Logout</a>
+            <span class="sp-auth-chip sp-auth-chip--user">{{ current_user.email }}</span>
+            <a href="/logout" class="sp-auth-link">Logout</a>
           {% endif %}
         </div>
       </header>
 
       <main class="sp-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="sp-flash-stack" role="status" aria-live="polite">
+              {% for category, message in messages %}
+                {% set kind = 'info' %}
+                {% if category in ['danger', 'error'] %}{% set kind = 'error' %}{% endif %}
+                {% if category in ['warning', 'warn'] %}{% set kind = 'warn' %}{% endif %}
+                {% if category in ['success', 'ok'] %}{% set kind = 'success' %}{% endif %}
+                <div class="sp-flash sp-flash--{{ kind }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
         {% block content %}{% endblock %}
       </main>
 

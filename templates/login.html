@@ -1,20 +1,41 @@
 {% extends "base.html" %}
 {% block title %}Login | ScorPred{% endblock %}
+{% block body_class %}sp-auth-page{% endblock %}
+
 {% block content %}
-<div class="sp-auth-form">
-  <h2>Login</h2>
-  <form method="POST" action="/login">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <div class="form-group">
-      <label for="email">Email</label>
-      <input type="email" name="email" id="email" class="form-control" required autofocus />
+<section class="sp-auth-wrap">
+  <div class="sp-auth-card">
+    <div class="sp-auth-brand">
+      <span class="sp-auth-brand__icon">SP</span>
+      <div>
+        <span class="sp-auth-brand__name">ScorPred</span>
+        <span class="sp-auth-brand__sub">Decision Intelligence</span>
+      </div>
     </div>
-    <div class="form-group">
-      <label for="password">Password</label>
-      <input type="password" name="password" id="password" class="form-control" required />
+
+    <h1 class="sp-auth-title">Welcome back</h1>
+    <p class="sp-auth-subtitle">Sign in to access your saved picks, tracking history, and strategy tools.</p>
+
+    <form method="POST" action="/login" class="sp-auth-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+      <div class="sp-auth-field">
+        <label for="email" class="sp-label">Email</label>
+        <input type="email" name="email" id="email" class="sp-input sp-auth-input" placeholder="you@example.com" required autofocus />
+      </div>
+
+      <div class="sp-auth-field">
+        <label for="password" class="sp-label">Password</label>
+        <input type="password" name="password" id="password" class="sp-input sp-auth-input" placeholder="Enter your password" required />
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-full sp-auth-submit">Sign in</button>
+    </form>
+
+    <div class="sp-auth-links">
+      <a href="/signup" class="sp-auth-secondary">Create an account</a>
+      <a href="/" class="sp-auth-guest">Continue in guest mode</a>
     </div>
-    <button type="submit" class="btn btn-primary">Login</button>
-    <a href="/signup" class="btn btn-link">Sign up</a>
-  </form>
-</div>
+  </div>
+</section>
 {% endblock %}
