@@ -47,11 +47,14 @@ def _migrate_predictions() -> None:
     """Migrate existing predictions to add status field if missing."""
     try:
         with open(_TRACKING_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        
+            try:
+                data = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                data = {"predictions": []}
+
         predictions = data.get("predictions", [])
         migrated = False
-        
+
         for pred in predictions:
             if "status" not in pred:
                 # Set status based on whether result is known
@@ -132,7 +135,7 @@ def _migrate_predictions() -> None:
                 if pred.get("overall_result") != outcome["overall_result"]:
                     pred["overall_result"] = outcome["overall_result"]
                     migrated = True
-        
+
         if migrated:
             with open(_TRACKING_FILE, "w", encoding="utf-8") as f:
                 json.dump({"predictions": predictions}, f, indent=2)
