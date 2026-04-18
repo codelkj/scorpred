@@ -65,6 +65,8 @@ ensure_runtime_dirs()
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 configure_security(app, os.getenv("SECRET_KEY", "").strip())
+# --- Persistent session config ---
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 # ── Blueprints ──────────────────────────────────────────────────────────────────
 app.register_blueprint(nba_bp)

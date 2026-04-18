@@ -79,9 +79,11 @@ def login():
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
+        remember = bool(request.form.get("remember"))
         user = _load_user(email)
         if user and _verify_password(password, user["password_hash"]):
             session[USER_SESSION_KEY] = email
+            session.permanent = remember or True  # Always keep session permanent for now
             flash("Logged in successfully!", "success")
             next_url = request.args.get("next") or url_for("index")
             return redirect(next_url)
