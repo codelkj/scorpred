@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover
     np_nba = None  # type: ignore[assignment]
 from services import evidence as evidence_services
 from services import strategy_lab as strategy_lab_services
+from services.strategy_lab import _EMPTY_METRICS
 from services import tracking_bootstrap as bootstrap_services
 from league_config import (
     CURRENT_SEASON,
