@@ -273,6 +273,12 @@ class TestFixturesRoute:
         assert rv.status_code == 200
         assert b'name="csrf_token"' in rv.data
 
+    def test_soccer_route_survives_fixture_loader_degrade(self, client):
+        with patch("api_client.get_teams", return_value=_mock_teams()), \
+             patch("app._load_upcoming_fixtures", side_effect=TypeError("unexpected keyword argument 'league'")):
+            rv = client.get("/soccer")
+        assert rv.status_code == 200
+
 
 # ── Select / team selection ───────────────────────────────────────────────────
 

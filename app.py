@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta, UTC
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
 try:
@@ -1132,7 +1132,7 @@ def today_soccer_predictions():
     load_error = None
     fixtures_with_pred = []
 
-    now_utc = datetime.now(UTC)
+    now_utc = datetime.now(timezone.utc)
     app.logger.info(
         "today_soccer_predictions: UTC=%s, league=%s",
         now_utc.strftime("%Y-%m-%d %H:%M"),
