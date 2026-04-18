@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-04-18T04:15:03.243573+00:00",
+  "based_on_report": "2026-04-18T04:15:03.240579+00:00",
+  "adjustments": {
+    "soccer": {
+      "bet_min_confidence_pct": 2.5,
+      "min_top_two_gap_pct": 4.5,
+      "lean_min_confidence_pct": 5.0
+    },
+    "nba": {
+      "bet_min_confidence_pct": 2.5,
+      "min_top_two_gap_pct": 4.5,
+      "lean_min_confidence_pct": 5.0
+    }
+  },
+  "reasoning": [
+    "High-confidence misses: 11 (25.0%). Proposing bet threshold raise of +2.5%.",
+    "Weak-edge bets: 20 (45.5%). Proposing gap threshold raise of +4.5%.",
+    "Balanced-match overcommits: 20 (45.5%). Proposing lean threshold raise of +5.0%."
+  ]
+}

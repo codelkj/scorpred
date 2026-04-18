@@ -1,0 +1,627 @@
+{
+  "generated_at": "2026-04-18T04:15:03.240579+00:00",
+  "total_analysed": 44,
+  "total_correct": 23,
+  "total_wrong": 21,
+  "accuracy_pct": 52.3,
+  "categories": {
+    "draw_underestimated": {
+      "count": 4,
+      "rate": 9.1,
+      "examples": [
+        {
+          "id": "seed_007_3896",
+          "date": "2026-04-07",
+          "sport": "soccer",
+          "team_a": "Manchester United",
+          "team_b": "Liverpool",
+          "predicted": "A",
+          "actual": "draw",
+          "confidence": "Medium",
+          "prob_a": 0.6,
+          "prob_b": 0.2,
+          "prob_draw": 0.2,
+          "tags": [
+            "draw_underestimated",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_000_9525",
+          "date": "2026-03-18",
+          "sport": "soccer",
+          "team_a": "Nottingham Forest",
+          "team_b": "Bournemouth",
+          "predicted": "A",
+          "actual": "draw",
+          "confidence": "High",
+          "prob_a": 0.79,
+          "prob_b": 0.1,
+          "prob_draw": 0.11,
+          "tags": [
+            "draw_underestimated",
+            "home_bias_overconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_008_3787",
+          "date": "2026-03-03",
+          "sport": "soccer",
+          "team_a": "Manchester City",
+          "team_b": "Chelsea",
+          "predicted": "B",
+          "actual": "draw",
+          "confidence": "Medium",
+          "prob_a": 0.56,
+          "prob_b": 0.22,
+          "prob_draw": 0.22,
+          "tags": [
+            "draw_underestimated",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_006_4124",
+          "date": "2026-02-12",
+          "sport": "soccer",
+          "team_a": "Brighton",
+          "team_b": "Newcastle",
+          "predicted": "A",
+          "actual": "draw",
+          "confidence": "High",
+          "prob_a": 0.71,
+          "prob_b": 0.15,
+          "prob_draw": 0.14,
+          "tags": [
+            "draw_underestimated",
+            "home_bias_overconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        }
+      ]
+    },
+    "home_bias_overconfidence": {
+      "count": 9,
+      "rate": 20.5,
+      "examples": [
+        {
+          "id": "seed_nba_007_6101",
+          "date": "2026-04-07",
+          "sport": "nba",
+          "team_a": "Los Angeles Lakers",
+          "team_b": "Denver Nuggets",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.7,
+          "prob_b": 0.3,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_001_2573",
+          "date": "2026-04-03",
+          "sport": "nba",
+          "team_a": "Chicago Bulls",
+          "team_b": "Atlanta Hawks",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.77,
+          "prob_b": 0.23,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_000_9525",
+          "date": "2026-03-18",
+          "sport": "soccer",
+          "team_a": "Nottingham Forest",
+          "team_b": "Bournemouth",
+          "predicted": "A",
+          "actual": "draw",
+          "confidence": "High",
+          "prob_a": 0.79,
+          "prob_b": 0.1,
+          "prob_draw": 0.11,
+          "tags": [
+            "draw_underestimated",
+            "home_bias_overconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_009_1051",
+          "date": "2026-03-02",
+          "sport": "nba",
+          "team_a": "Golden State Warriors",
+          "team_b": "Sacramento Kings",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.75,
+          "prob_b": 0.25,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_000_8645",
+          "date": "2026-02-19",
+          "sport": "nba",
+          "team_a": "Los Angeles Clippers",
+          "team_b": "Houston Rockets",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.66,
+          "prob_b": 0.34,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        }
+      ]
+    },
+    "away_bias_underconfidence": {
+      "count": 12,
+      "rate": 27.3,
+      "examples": [
+        {
+          "id": "3a5ad414",
+          "date": "2026-04-16",
+          "sport": "nba",
+          "team_a": "Clippers",
+          "team_b": "Warriors",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "Limited Data",
+          "prob_a": 52.2,
+          "prob_b": 47.8,
+          "prob_draw": 0,
+          "tags": [
+            "away_bias_underconfidence",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_007_6101",
+          "date": "2026-04-07",
+          "sport": "nba",
+          "team_a": "Los Angeles Lakers",
+          "team_b": "Denver Nuggets",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.7,
+          "prob_b": 0.3,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_009_2978",
+          "date": "2026-04-06",
+          "sport": "soccer",
+          "team_a": "Ipswich Town",
+          "team_b": "Southampton",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "Medium",
+          "prob_a": 0.57,
+          "prob_b": 0.22,
+          "prob_draw": 0.21,
+          "tags": [
+            "away_bias_underconfidence",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_021_6143",
+          "date": "2026-04-03",
+          "sport": "soccer",
+          "team_a": "Brighton",
+          "team_b": "Newcastle",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "Medium",
+          "prob_a": 0.61,
+          "prob_b": 0.2,
+          "prob_draw": 0.19,
+          "tags": [
+            "away_bias_underconfidence",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_001_2573",
+          "date": "2026-04-03",
+          "sport": "nba",
+          "team_a": "Chicago Bulls",
+          "team_b": "Atlanta Hawks",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.77,
+          "prob_b": 0.23,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        }
+      ]
+    },
+    "low_data_miss": {
+      "count": 1,
+      "rate": 2.3,
+      "examples": [
+        {
+          "id": "seed_nba_002_2036",
+          "date": "2026-02-06",
+          "sport": "nba",
+          "team_a": "Milwaukee Bucks",
+          "team_b": "New York Knicks",
+          "predicted": "B",
+          "actual": "A",
+          "confidence": "Low",
+          "prob_a": 0.52,
+          "prob_b": 0.48,
+          "prob_draw": 0.0,
+          "tags": [
+            "weak_edge_bet",
+            "balanced_match_overcommit",
+            "low_data_miss"
+          ]
+        }
+      ]
+    },
+    "high_confidence_miss": {
+      "count": 11,
+      "rate": 25.0,
+      "examples": [
+        {
+          "id": "seed_nba_007_6101",
+          "date": "2026-04-07",
+          "sport": "nba",
+          "team_a": "Los Angeles Lakers",
+          "team_b": "Denver Nuggets",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.7,
+          "prob_b": 0.3,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_001_2573",
+          "date": "2026-04-03",
+          "sport": "nba",
+          "team_a": "Chicago Bulls",
+          "team_b": "Atlanta Hawks",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.77,
+          "prob_b": 0.23,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_000_9525",
+          "date": "2026-03-18",
+          "sport": "soccer",
+          "team_a": "Nottingham Forest",
+          "team_b": "Bournemouth",
+          "predicted": "A",
+          "actual": "draw",
+          "confidence": "High",
+          "prob_a": 0.79,
+          "prob_b": 0.1,
+          "prob_draw": 0.11,
+          "tags": [
+            "draw_underestimated",
+            "home_bias_overconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_012_2190",
+          "date": "2026-03-18",
+          "sport": "soccer",
+          "team_a": "Crystal Palace",
+          "team_b": "Wolverhampton",
+          "predicted": "draw",
+          "actual": "A",
+          "confidence": "High",
+          "prob_a": 0.44,
+          "prob_b": 0.28,
+          "prob_draw": 0.28,
+          "tags": [
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_004_8765",
+          "date": "2026-03-04",
+          "sport": "nba",
+          "team_a": "Phoenix Suns",
+          "team_b": "Dallas Mavericks",
+          "predicted": "B",
+          "actual": "A",
+          "confidence": "High",
+          "prob_a": 0.27,
+          "prob_b": 0.73,
+          "prob_draw": 0.0,
+          "tags": [
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        }
+      ]
+    },
+    "weak_edge_bet": {
+      "count": 20,
+      "rate": 45.5,
+      "examples": [
+        {
+          "id": "3a5ad414",
+          "date": "2026-04-16",
+          "sport": "nba",
+          "team_a": "Clippers",
+          "team_b": "Warriors",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "Limited Data",
+          "prob_a": 52.2,
+          "prob_b": 47.8,
+          "prob_draw": 0,
+          "tags": [
+            "away_bias_underconfidence",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_007_6101",
+          "date": "2026-04-07",
+          "sport": "nba",
+          "team_a": "Los Angeles Lakers",
+          "team_b": "Denver Nuggets",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.7,
+          "prob_b": 0.3,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_007_3896",
+          "date": "2026-04-07",
+          "sport": "soccer",
+          "team_a": "Manchester United",
+          "team_b": "Liverpool",
+          "predicted": "A",
+          "actual": "draw",
+          "confidence": "Medium",
+          "prob_a": 0.6,
+          "prob_b": 0.2,
+          "prob_draw": 0.2,
+          "tags": [
+            "draw_underestimated",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_009_2978",
+          "date": "2026-04-06",
+          "sport": "soccer",
+          "team_a": "Ipswich Town",
+          "team_b": "Southampton",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "Medium",
+          "prob_a": 0.57,
+          "prob_b": 0.22,
+          "prob_draw": 0.21,
+          "tags": [
+            "away_bias_underconfidence",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_016_9951",
+          "date": "2026-04-06",
+          "sport": "soccer",
+          "team_a": "Everton",
+          "team_b": "Leicester",
+          "predicted": "draw",
+          "actual": "A",
+          "confidence": "Medium",
+          "prob_a": 0.32,
+          "prob_b": 0.34,
+          "prob_draw": 0.34,
+          "tags": [
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        }
+      ]
+    },
+    "balanced_match_overcommit": {
+      "count": 20,
+      "rate": 45.5,
+      "examples": [
+        {
+          "id": "3a5ad414",
+          "date": "2026-04-16",
+          "sport": "nba",
+          "team_a": "Clippers",
+          "team_b": "Warriors",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "Limited Data",
+          "prob_a": 52.2,
+          "prob_b": 47.8,
+          "prob_draw": 0,
+          "tags": [
+            "away_bias_underconfidence",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_nba_007_6101",
+          "date": "2026-04-07",
+          "sport": "nba",
+          "team_a": "Los Angeles Lakers",
+          "team_b": "Denver Nuggets",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "High",
+          "prob_a": 0.7,
+          "prob_b": 0.3,
+          "prob_draw": 0.0,
+          "tags": [
+            "home_bias_overconfidence",
+            "away_bias_underconfidence",
+            "high_confidence_miss",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_007_3896",
+          "date": "2026-04-07",
+          "sport": "soccer",
+          "team_a": "Manchester United",
+          "team_b": "Liverpool",
+          "predicted": "A",
+          "actual": "draw",
+          "confidence": "Medium",
+          "prob_a": 0.6,
+          "prob_b": 0.2,
+          "prob_draw": 0.2,
+          "tags": [
+            "draw_underestimated",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_009_2978",
+          "date": "2026-04-06",
+          "sport": "soccer",
+          "team_a": "Ipswich Town",
+          "team_b": "Southampton",
+          "predicted": "A",
+          "actual": "B",
+          "confidence": "Medium",
+          "prob_a": 0.57,
+          "prob_b": 0.22,
+          "prob_draw": 0.21,
+          "tags": [
+            "away_bias_underconfidence",
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        },
+        {
+          "id": "seed_016_9951",
+          "date": "2026-04-06",
+          "sport": "soccer",
+          "team_a": "Everton",
+          "team_b": "Leicester",
+          "predicted": "draw",
+          "actual": "A",
+          "confidence": "Medium",
+          "prob_a": 0.32,
+          "prob_b": 0.34,
+          "prob_draw": 0.34,
+          "tags": [
+            "weak_edge_bet",
+            "balanced_match_overcommit"
+          ]
+        }
+      ]
+    },
+    "recency_bias": {
+      "count": 0,
+      "rate": 0.0,
+      "examples": []
+    },
+    "popular_team_overrating": {
+      "count": 0,
+      "rate": 0.0,
+      "examples": []
+    }
+  }
+}

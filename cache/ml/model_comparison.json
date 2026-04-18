@@ -14,12 +14,12 @@
       "top_features": []
     },
     {
-      "model": "random_forest",
-      "accuracy": 0.4038,
+      "model": "combined",
+      "accuracy": 0.4231,
       "top_features": []
     },
     {
-      "model": "combined",
+      "model": "random_forest",
       "accuracy": 0.4038,
       "top_features": []
     },
@@ -70,11 +70,11 @@
       "accuracy": 0.4231,
       "top_features": []
     },
-    "random_forest": {
-      "accuracy": 0.4038,
+    "combined": {
+      "accuracy": 0.4231,
       "top_features": []
     },
-    "combined": {
+    "random_forest": {
       "accuracy": 0.4038,
       "top_features": []
     },
@@ -181,8 +181,8 @@
   "performance": {
     "rule_accuracy": 0.4231,
     "ml_accuracy": 0.4231,
-    "combined_accuracy": 0.4038,
+    "combined_accuracy": 0.4231,
     "evaluation_matches": 52
   },
-  "generated_at": "2026-04-16T03:38:34.707178Z"
+  "generated_at": "2026-04-18T04:15:12.224168Z"
 }

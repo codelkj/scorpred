@@ -1,6 +1,8 @@
 {
   "version": 1,
-  "generated_at": "2026-04-15T22:10:48.510886Z",
+  "generated_at": "2026-04-18T04:15:04.687354Z",
+  "soccer_ml_blend_weight": 0.4,
+  "nba_ml_blend_weight": 0.2,
   "sports": {
     "soccer": {
       "min_confidence_pct": 53.0,
@@ -10,16 +12,16 @@
       "draw_min_top_prob_pct": 37.0
     },
     "nba": {
-      "min_confidence_pct": 53.0,
-      "min_top_two_gap_pct": 3.0,
-      "lean_min_confidence_pct": 51.0,
-      "bet_min_confidence_pct": 70.0,
+      "min_confidence_pct": 49.0,
+      "min_top_two_gap_pct": 2.0,
+      "lean_min_confidence_pct": 49.0,
+      "bet_min_confidence_pct": 64.0,
       "draw_min_top_prob_pct": 37.0
     }
   },
   "metadata": {
     "source": "backtest_optimizer",
-    "sample_size": 40,
+    "sample_size": 44,
     "sports": {
       "soccer": {
         "sample_size": 25,
@@ -36,18 +38,18 @@
         "note": "Tuned from finalized tracked predictions."
       },
       "nba": {
-        "sample_size": 15,
+        "sample_size": 19,
         "metrics": {
-          "score": 30.933,
-          "coverage_pct": 66.67,
-          "hit_rate_pct": 30.0,
-          "unit_rate_pct": -26.67,
-          "placed": 10,
-          "wins": 3,
-          "losses": 7,
-          "avoided": 5
+          "score": 31.838,
+          "coverage_pct": 68.42,
+          "hit_rate_pct": 30.77,
+          "unit_rate_pct": -26.32,
+          "placed": 13,
+          "wins": 4,
+          "losses": 9,
+          "avoided": 6
         },
-        "note": "Insufficient finalized sample for reliable tuning; defaults retained."
+        "note": "Tuned from finalized tracked predictions."
       }
     }
   }
