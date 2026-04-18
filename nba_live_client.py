@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import time
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +59,7 @@ def _cache_path(endpoint: str, params: dict[str, Any] | None = None) -> Path:
 def _cache_valid(path: Path, ttl_seconds: int) -> bool:
     if not path.exists():
         return False
-    age = datetime.now(UTC) - datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    age = datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
     return age.total_seconds() < ttl_seconds
 
 

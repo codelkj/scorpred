@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -162,7 +162,7 @@ def build_mistake_report(completed_predictions: list[dict]) -> dict:
         }
 
     return {
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_analysed": total,
         "total_correct": len(correct),
         "total_wrong": len(wrong),
@@ -188,7 +188,7 @@ def propose_adjustments(report: dict) -> dict:
     if total < _MIN_SAMPLE_SIZE:
         reasoning.append(f"Insufficient data ({total} predictions). No adjustments proposed.")
         return {
-            "generated_at": datetime.now(UTC).isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "based_on_report": report.get("generated_at"),
             "adjustments": adjustments,
             "reasoning": reasoning,
@@ -270,7 +270,7 @@ def propose_adjustments(report: dict) -> dict:
         reasoning.append("No category reached the minimum sample threshold for adjustments.")
 
     return {
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "based_on_report": report.get("generated_at"),
         "adjustments": adjustments,
         "reasoning": reasoning,

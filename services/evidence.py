@@ -3,12 +3,164 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import UTC, datetime, timedelta
-from typing import Any
-
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable
 
 _UPCOMING_FIXTURE_CACHE_TTL_SECONDS = 600
+_TEAM_FORM_CACHE_TTL_SECONDS = 900
+_H2H_CACHE_TTL_SECONDS = 900
+_INJURY_CACHE_TTL_SECONDS = 900
+_STANDINGS_CACHE_TTL_SECONDS = 1800
+
 _UPCOMING_FIXTURE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_TEAM_FORM_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_H2H_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_INJURY_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_STANDINGS_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+
+def _cache_get(cache: dict[tuple[Any, ...], dict[str, Any]], key: tuple[Any, ...], now: datetime) -> Any | None:
+    entry = cache.get(key)
+    if not entry:
+        return None
+    if entry.get("expires_at") and entry["expires_at"] > now:
+        return deepcopy(entry.get("value"))
+    return None
+
+
+def _cache_get_stale(cache: dict[tuple[Any, ...], dict[str, Any]], key: tuple[Any, ...]) -> Any | None:
+    entry = cache.get(key)
+    if not entry:
+        return None
+    return deepcopy(entry.get("value"))
+
+
+def _cache_set(
+    cache: dict[tuple[Any, ...], dict[str, Any]],
+    key: tuple[Any, ...],
+    value: Any,
+    now: datetime,
+    ttl_seconds: int,
+) -> None:
+    cache[key] = {
+        "expires_at": now + timedelta(seconds=max(1, int(ttl_seconds))),
+        "value": deepcopy(value),
+    }
+
+
+def _parse_fixture_dt(value: str) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _normalize_team(team: dict | None) -> dict:
+    team = team or {}
+    return {
+        "id": int(team.get("id") or 0),
+        "name": str(team.get("name") or "").strip() or "Unknown",
+        "logo": str(team.get("logo") or ""),
+    }
+
+
+def _normalize_fixture_shape(fixture: dict, *, league: int, logger) -> dict | None:
+    if not isinstance(fixture, dict):
+        logger.warning("[EVIDENCE] Dropping malformed fixture entry: not a dict")
+        return None
+
+    fx = fixture.get("fixture") or {}
+    teams = fixture.get("teams") or {}
+    league_data = fixture.get("league") or {}
+
+    home = _normalize_team(teams.get("home"))
+    away = _normalize_team(teams.get("away"))
+    if not home["id"] or not away["id"]:
+        logger.warning("[EVIDENCE] Dropping fixture with invalid team IDs: home=%s away=%s", home.get("id"), away.get("id"))
+        return None
+
+    date_raw = str(fx.get("date") or "")
+    parsed_date = _parse_fixture_dt(date_raw)
+    if parsed_date is None:
+        logger.warning("[EVIDENCE] Dropping fixture with invalid date: fixture_id=%s date=%s", fx.get("id"), date_raw)
+        return None
+
+    league_id = int(league_data.get("id") or league or 0)
+    normalized = {
+        **fixture,
+        "fixture": {
+            **fx,
+            "id": int(fx.get("id") or 0),
+            "date": parsed_date.isoformat(),
+            "status": fx.get("status") or {"short": "NS", "long": "Not Started"},
+            "venue": fx.get("venue") or {},
+        },
+        "teams": {"home": home, "away": away},
+        "league": {
+            **league_data,
+            "id": league_id,
+            "name": str(league_data.get("name") or f"League {league_id}").strip(),
+            "season": league_data.get("season"),
+            "round": league_data.get("round") or "",
+        },
+    }
+    return normalized
+
+
+def _fixture_in_window(fixture: dict, now: datetime, days: int | None) -> bool:
+    if not days:
+        return True
+    fixture_dt = _parse_fixture_dt(str((fixture.get("fixture") or {}).get("date") or ""))
+    if fixture_dt is None:
+        return False
+    return now <= fixture_dt <= now + timedelta(days=max(1, int(days)))
+
+
+def _safe_call(call: Callable[[], Any], *, logger, label: str, default: Any) -> Any:
+    logger.debug("[EVIDENCE] %s: start", label)
+    try:
+        value = call()
+        count = len(value) if isinstance(value, list) else (len(value.keys()) if isinstance(value, dict) else None)
+        if count is not None:
+            logger.debug("[EVIDENCE] %s: success (count=%d)", label, count)
+        else:
+            logger.debug("[EVIDENCE] %s: success", label)
+        return value
+    except Exception as exc:  # pragma: no cover - defensive logging path
+        logger.warning("[EVIDENCE] %s: failed (%s)", label, exc)
+        return default
+
+
+def _limited_prediction(engine, *, team_a_name: str, team_b_name: str, opp_strengths: dict, reason: str) -> dict:
+    pred = engine.scorpred_predict(
+        form_a=[],
+        form_b=[],
+        h2h_form_a=[],
+        h2h_form_b=[],
+        injuries_a=[],
+        injuries_b=[],
+        team_a_is_home=True,
+        team_a_name=team_a_name,
+        team_b_name=team_b_name,
+        sport="soccer",
+        opp_strengths=opp_strengths,
+    )
+    if isinstance(pred, dict):
+        pred.setdefault("form_a", [])
+        pred.setdefault("form_b", [])
+        pred.setdefault("h2h_form_a", [])
+        pred.setdefault("h2h_form_b", [])
+        pred["data_quality"] = "Limited"
+        pred["fallback_reason"] = reason
+    return pred
 
 
 def clean_injuries(items: list[dict]) -> list[dict]:
@@ -34,98 +186,322 @@ def build_opp_strengths(engine, standings: list) -> dict:
         return {}
 
 
-def load_upcoming_fixtures(upcoming, engine, predictor, season, deep_limit, opp_strengths, logger):
-    fixtures_with_pred = []
-    load_error = None
-    data_source = None
-    now = datetime.now(UTC)
-    cache_key = (str(upcoming), season)
-    # ...existing code...
-    for idx, fixture in enumerate(upcoming):
-        prediction = None
-        try:
-            home_id = fixture["teams"]["home"]["id"]
-            away_id = fixture["teams"]["away"]["id"]
-            home_name = fixture["teams"]["home"]["name"]
-            away_name = fixture["teams"]["away"]["name"]
+def _cached_team_form(
+    api_client,
+    predictor,
+    *,
+    team_id: int,
+    league: int,
+    season: int,
+    now: datetime,
+    logger,
+) -> tuple[list[dict], list[dict]]:
+    key = (league, season, team_id)
+    cached = _cache_get(_TEAM_FORM_CACHE, key, now)
+    if cached is not None:
+        return cached.get("form", []), cached.get("fixtures", [])
 
-            logger.debug(f"[EVIDENCE] Fixture {idx}: {home_name} (ID={home_id}) vs {away_name} (ID={away_id})")
+    fixtures = _safe_call(
+        lambda: api_client.get_team_fixtures(team_id, league, season, last=20),
+        logger=logger,
+        label=f"team_form_fetch(team_id={team_id}, league={league})",
+        default=[],
+    )
+    fixtures = predictor.filter_recent_completed_fixtures(fixtures, current_season=season)
+    form = predictor.extract_form(fixtures, team_id)[:5]
 
-            if idx >= deep_limit:
-                prediction = engine.scorpred_predict(
-                    form_a=[],
-                    form_b=[],
-                    h2h_form_a=[],
-                    h2h_form_b=[],
-                    injuries_a=[],
-                    injuries_b=[],
-                    team_a_is_home=True,
-                    team_a_name=home_name,
-                    team_b_name=away_name,
-                    sport="soccer",
-                    opp_strengths=opp_strengths,
-                )
-                fixtures_with_pred.append({**fixture, "prediction": prediction})
-                logger.warning(f"[EVIDENCE] Deep limit fallback: {home_name} vs {away_name} (no form attempted)")
+    if form:
+        logger.info("[EVIDENCE] team_form_fetch ok team_id=%s rows=%d", team_id, len(form))
+    else:
+        logger.warning("[EVIDENCE] team_form_fetch empty team_id=%s (fixtures=%d)", team_id, len(fixtures))
+
+    value = {"form": form, "fixtures": fixtures}
+    _cache_set(_TEAM_FORM_CACHE, key, value, now, _TEAM_FORM_CACHE_TTL_SECONDS)
+    return form, fixtures
+
+
+def _cached_h2h(api_client, predictor, *, home_id: int, away_id: int, season: int, now: datetime, logger) -> tuple[list[dict], list[dict], list[dict]]:
+    key = tuple(sorted((home_id, away_id)))
+    cached = _cache_get(_H2H_CACHE, key, now)
+    if cached is not None:
+        return cached.get("raw", []), cached.get("home", []), cached.get("away", [])
+
+    h2h_raw = _safe_call(
+        lambda: api_client.get_h2h(home_id, away_id, last=12),
+        logger=logger,
+        label=f"h2h_fetch(home_id={home_id}, away_id={away_id})",
+        default=[],
+    )
+    h2h_raw = predictor.filter_recent_completed_fixtures(h2h_raw, current_season=season, seasons_back=5)
+    h2h_home = predictor.extract_form(h2h_raw, home_id)[:5]
+    h2h_away = predictor.extract_form(h2h_raw, away_id)[:5]
+
+    value = {"raw": h2h_raw, "home": h2h_home, "away": h2h_away}
+    _cache_set(_H2H_CACHE, key, value, now, _H2H_CACHE_TTL_SECONDS)
+    return h2h_raw, h2h_home, h2h_away
+
+
+def _cached_injuries(api_client, *, team_id: int, league: int, season: int, now: datetime, logger) -> list[dict]:
+    key = (league, season, team_id)
+    cached = _cache_get(_INJURY_CACHE, key, now)
+    if cached is not None:
+        return cached
+
+    injuries = _safe_call(
+        lambda: api_client.get_injuries(league, season, team_id),
+        logger=logger,
+        label=f"injury_fetch(team_id={team_id}, league={league})",
+        default=[],
+    )
+    injuries = clean_injuries(injuries)
+    _cache_set(_INJURY_CACHE, key, injuries, now, _INJURY_CACHE_TTL_SECONDS)
+    return injuries
+
+
+def _cached_standings(api_client, *, league: int, season: int, now: datetime, logger) -> list[dict]:
+    key = (league, season)
+    cached = _cache_get(_STANDINGS_CACHE, key, now)
+    if cached is not None:
+        return cached
+
+    standings = _safe_call(
+        lambda: api_client.get_standings(league, season),
+        logger=logger,
+        label=f"standings_fetch(league={league}, season={season})",
+        default=[],
+    )
+    _cache_set(_STANDINGS_CACHE, key, standings, now, _STANDINGS_CACHE_TTL_SECONDS)
+    return standings
+
+
+def load_upcoming_fixtures(
+    api_client,
+    predictor,
+    engine,
+    *,
+    league: int | None = None,
+    season: int | None = None,
+    logger,
+    football_data_source: Callable[[], str] | None = None,
+    next_n: int = 20,
+    max_deep_predictions: int = 6,
+    competition: str | None = None,
+    days: int | None = None,
+    **legacy_kwargs,
+) -> tuple[list[dict], str | None, str, str]:
+    """Load and score upcoming soccer fixtures with robust fallbacks and diagnostics.
+
+    Backward-compatible keyword aliases supported:
+    - ``league`` (canonical league id)
+    - ``competition`` (canonical league-name filter string)
+    - ``league_name`` (legacy alias for ``competition``)
+    """
+    if season is None:
+        season = int(getattr(api_client, "CURRENT_SEASON", datetime.now(timezone.utc).year))
+
+    legacy_league = legacy_kwargs.pop("league", None)
+    if league is None and legacy_league is not None:
+        league = legacy_league
+    if league is None:
+        league = int(getattr(api_client, "DEFAULT_LEAGUE_ID", 39))
+    league = int(league)
+
+    legacy_competition = legacy_kwargs.pop("league_name", None)
+    if not competition and legacy_competition:
+        competition = str(legacy_competition)
+
+    if legacy_kwargs:
+        logger.debug("[EVIDENCE] fixture_fetch ignoring legacy kwargs: %s", sorted(legacy_kwargs.keys()))
+    now = datetime.now(timezone.utc)
+    source = "configured"
+    load_error: str | None = None
+    espn_slug = ""
+
+    source_hint = (football_data_source() if callable(football_data_source) else "configured") or "configured"
+    force_refresh = bool(getattr(api_client, "FORCE_REFRESH", False))
+    cache_key = (league, season, int(next_n), int(max_deep_predictions), competition or "", int(days or 0), source_hint)
+
+    if not force_refresh:
+        cached = _cache_get(_UPCOMING_FIXTURE_CACHE, cache_key, now)
+        if cached is not None:
+            logger.info("[EVIDENCE] fixture_fetch cache_hit key=%s", cache_key)
+            return cached
+
+    logger.info(
+        "[EVIDENCE] fixture_fetch start league=%s season=%s next_n=%s max_deep=%s competition=%s days=%s",
+        league,
+        season,
+        next_n,
+        max_deep_predictions,
+        competition or "*",
+        days or "*",
+    )
+
+    upcoming_raw: list[dict] = []
+
+    # Layer 1: primary provider
+    try:
+        upcoming_raw = api_client.get_upcoming_fixtures(league, season, next_n=next_n)
+        source = source_hint
+        logger.info("[EVIDENCE] fixture_fetch primary_ok count=%d source=%s", len(upcoming_raw), source)
+    except Exception as exc:
+        load_error = f"Primary fixture source failed: {exc}"
+        logger.warning("[EVIDENCE] fixture_fetch primary_failed league=%s season=%s error=%s", league, season, exc)
+
+    # Layer 2: explicit fallback source when available
+    if not upcoming_raw and hasattr(api_client, "get_espn_fixtures"):
+        slug_map = getattr(api_client, "ESPN_SLUG_BY_LEAGUE", {}) or {}
+        espn_slug = str(slug_map.get(league, ""))
+        if espn_slug:
+            try:
+                upcoming_raw = api_client.get_espn_fixtures(espn_slug, next_n=next_n)
+                source = "espn"
+                logger.info("[EVIDENCE] fixture_fetch fallback_espn_ok slug=%s count=%d", espn_slug, len(upcoming_raw))
+            except Exception as exc:
+                logger.warning("[EVIDENCE] fixture_fetch fallback_espn_failed slug=%s error=%s", espn_slug, exc)
+                load_error = (load_error + " | ") if load_error else ""
+                load_error = f"{load_error}Fallback fixture source failed: {exc}"
+
+    # Layer 3: stale cache rescue
+    if not upcoming_raw:
+        stale = _cache_get_stale(_UPCOMING_FIXTURE_CACHE, cache_key)
+        if stale:
+            fixtures, _, cached_source, cached_slug = stale
+            logger.warning(
+                "[EVIDENCE] fixture_fetch stale_cache_rescue count=%d source=%s",
+                len(fixtures or []),
+                cached_source,
+            )
+            return stale
+
+    if not upcoming_raw:
+        logger.warning("[EVIDENCE] fixture_fetch empty after all sources league=%s season=%s", league, season)
+        result = ([], load_error or "No upcoming fixtures available.", source, espn_slug)
+        _cache_set(_UPCOMING_FIXTURE_CACHE, cache_key, result, now, _UPCOMING_FIXTURE_CACHE_TTL_SECONDS)
+        return result
+
+    standings = _cached_standings(api_client, league=league, season=season, now=now, logger=logger)
+    opp_strengths = build_opp_strengths(engine, standings)
+
+    normalized: list[dict] = []
+    for fixture in upcoming_raw:
+        item = _normalize_fixture_shape(fixture, league=league, logger=logger)
+        if not item:
+            continue
+        if competition and competition.strip():
+            league_name = str((item.get("league") or {}).get("name") or "").strip().lower()
+            if competition.strip().lower() not in league_name:
                 continue
+        if not _fixture_in_window(item, now, days):
+            continue
+        normalized.append(item)
 
-            h2h_raw = []
-            fixtures_home = []
-            fixtures_away = []
-            injuries_home = []
-            injuries_away = []
+    normalized.sort(key=lambda row: str((row.get("fixture") or {}).get("date") or ""))
+    fixtures_with_pred: list[dict] = []
 
-            try:
-                h2h_raw = _cached_h2h(home_id, away_id)
-            except Exception:
-                logger.debug("Upcoming fixture h2h missing for %s vs %s", home_name, away_name)
-            try:
-                fixtures_home = _cached_team_fixtures(home_id)
-            except Exception:
-                logger.debug("Upcoming fixture home team form missing for %s", home_name)
-            try:
-                fixtures_away = _cached_team_fixtures(away_id)
-            except Exception:
-                logger.debug("Upcoming fixture away team form missing for %s", away_name)
-            try:
-                injuries_home = _cached_injuries(home_id)
-            except Exception:
-                logger.debug("Upcoming fixture home injuries missing for %s", home_name)
-            try:
-                injuries_away = _cached_injuries(away_id)
-            except Exception:
-                logger.debug("Upcoming fixture away injuries missing for %s", away_name)
+    for idx, fixture in enumerate(normalized[:next_n]):
+        teams = fixture.get("teams") or {}
+        home = teams.get("home") or {}
+        away = teams.get("away") or {}
+        home_id = int(home.get("id") or 0)
+        away_id = int(away.get("id") or 0)
+        home_name = str(home.get("name") or "Home")
+        away_name = str(away.get("name") or "Away")
 
-            h2h_raw = predictor.filter_recent_completed_fixtures(
-                h2h_raw,
-                current_season=season,
-                seasons_back=5,
+        logger.debug(
+            "[EVIDENCE] prediction_context start fixture_id=%s home_id=%s away_id=%s",
+            (fixture.get("fixture") or {}).get("id"),
+            home_id,
+            away_id,
+        )
+
+        if not home_id or not away_id:
+            prediction = _limited_prediction(
+                engine,
+                team_a_name=home_name,
+                team_b_name=away_name,
+                opp_strengths=opp_strengths,
+                reason="Missing team IDs",
             )
-            fixtures_home = predictor.filter_recent_completed_fixtures(
-                fixtures_home,
-                current_season=season,
+            fixtures_with_pred.append({**fixture, "prediction": prediction})
+            continue
+
+        if idx >= max_deep_predictions:
+            prediction = _limited_prediction(
+                engine,
+                team_a_name=home_name,
+                team_b_name=away_name,
+                opp_strengths=opp_strengths,
+                reason="Deep prediction cap reached",
             )
-            fixtures_away = predictor.filter_recent_completed_fixtures(
-                fixtures_away,
-                current_season=season,
+            fixtures_with_pred.append({**fixture, "prediction": prediction})
+            logger.info("[EVIDENCE] prediction_context degraded fixture_id=%s reason=deep_limit", (fixture.get("fixture") or {}).get("id"))
+            continue
+
+        try:
+            form_home, fixtures_home = _cached_team_form(
+                api_client,
+                predictor,
+                team_id=home_id,
+                league=league,
+                season=season,
+                now=now,
+                logger=logger,
+            )
+            form_away, fixtures_away = _cached_team_form(
+                api_client,
+                predictor,
+                team_id=away_id,
+                league=league,
+                season=season,
+                now=now,
+                logger=logger,
+            )
+            _, h2h_home, h2h_away = _cached_h2h(
+                api_client,
+                predictor,
+                home_id=home_id,
+                away_id=away_id,
+                season=season,
+                now=now,
+                logger=logger,
+            )
+            injuries_home = _cached_injuries(
+                api_client,
+                team_id=home_id,
+                league=league,
+                season=season,
+                now=now,
+                logger=logger,
+            )
+            injuries_away = _cached_injuries(
+                api_client,
+                team_id=away_id,
+                league=league,
+                season=season,
+                now=now,
+                logger=logger,
             )
 
-            logger.debug(f"[EVIDENCE] Team {home_name} completed fixtures: {len(fixtures_home)}; Team {away_name} completed fixtures: {len(fixtures_away)}")
-
-            form_home = predictor.extract_form(fixtures_home, home_id)[:5]
-            form_away = predictor.extract_form(fixtures_away, away_id)[:5]
-            h2h_form_home = predictor.extract_form(h2h_raw, home_id)[:5]
-            h2h_form_away = predictor.extract_form(h2h_raw, away_id)[:5]
-
-            logger.debug(f"[EVIDENCE] Team {home_name} form extracted: {len(form_home)}; Team {away_name} form extracted: {len(form_away)}")
+            fallback_reason = None
             if not form_home or not form_away:
-                logger.warning(f"[EVIDENCE] MISSING FORM: {home_name} vs {away_name} (form_home={len(form_home)}, form_away={len(form_away)})")
+                reason_bits = []
+                if not form_home:
+                    reason_bits.append(f"home form empty (team_id={home_id}, fixtures={len(fixtures_home)})")
+                if not form_away:
+                    reason_bits.append(f"away form empty (team_id={away_id}, fixtures={len(fixtures_away)})")
+                fallback_reason = "; ".join(reason_bits)
+                logger.warning(
+                    "[EVIDENCE] prediction_context downgraded fixture_id=%s reason=%s",
+                    (fixture.get("fixture") or {}).get("id"),
+                    fallback_reason,
+                )
 
             prediction = engine.scorpred_predict(
                 form_a=form_home,
                 form_b=form_away,
-                h2h_form_a=h2h_form_home,
-                h2h_form_b=h2h_form_away,
+                h2h_form_a=h2h_home,
+                h2h_form_b=h2h_away,
                 injuries_a=injuries_home,
                 injuries_b=injuries_away,
                 team_a_is_home=True,
@@ -134,32 +510,42 @@ def load_upcoming_fixtures(upcoming, engine, predictor, season, deep_limit, opp_
                 sport="soccer",
                 opp_strengths=opp_strengths,
             )
+            if isinstance(prediction, dict):
+                prediction["form_a"] = form_home
+                prediction["form_b"] = form_away
+                prediction["h2h_form_a"] = h2h_home
+                prediction["h2h_form_b"] = h2h_away
+                if fallback_reason:
+                    prediction["data_quality"] = "Limited"
+                    prediction["fallback_reason"] = fallback_reason
+
+            logger.debug(
+                "[EVIDENCE] prediction_context end fixture_id=%s form_home=%d form_away=%d h2h_home=%d h2h_away=%d",
+                (fixture.get("fixture") or {}).get("id"),
+                len(form_home),
+                len(form_away),
+                len(h2h_home),
+                len(h2h_away),
+            )
         except Exception as exc:
             logger.warning(
-                "Upcoming fixture prediction failed for %s vs %s: %s",
-                fixture.get("fixture", {}).get("id"),
+                "[EVIDENCE] prediction_context failed fixture_id=%s reason=%s",
+                (fixture.get("fixture") or {}).get("id"),
                 exc,
             )
-            prediction = engine.scorpred_predict(
-                form_a=[],
-                form_b=[],
-                h2h_form_a=[],
-                h2h_form_b=[],
-                injuries_a=[],
-                injuries_b=[],
-                team_a_is_home=True,
-                team_a_name=fixture.get("teams", {}).get("home", {}).get("name", "Home"),
-                team_b_name=fixture.get("teams", {}).get("away", {}).get("name", "Away"),
-                sport="soccer",
+            prediction = _limited_prediction(
+                engine,
+                team_a_name=home_name,
+                team_b_name=away_name,
                 opp_strengths=opp_strengths,
+                reason=f"Prediction context failure: {exc}",
             )
+
         fixtures_with_pred.append({**fixture, "prediction": prediction})
 
-    result = (fixtures_with_pred, load_error, data_source, "")
-    _UPCOMING_FIXTURE_CACHE[cache_key] = {
-        "expires_at": now + timedelta(seconds=_UPCOMING_FIXTURE_CACHE_TTL_SECONDS),
-        "value": deepcopy(result),
-    }
+    logger.info("[EVIDENCE] fixture_fetch end parsed=%d predicted=%d", len(normalized), len(fixtures_with_pred))
+    result = (fixtures_with_pred, load_error, source, espn_slug)
+    _cache_set(_UPCOMING_FIXTURE_CACHE, cache_key, result, now, _UPCOMING_FIXTURE_CACHE_TTL_SECONDS)
     return result
 
 

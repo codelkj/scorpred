@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
@@ -207,7 +207,7 @@ def save_comparison_report(
     target = _report_path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = json.loads(json.dumps(report))
-    payload.setdefault("generated_at", datetime.now(UTC).isoformat().replace("+00:00", "Z"))
+    payload.setdefault("generated_at", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
     target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return target
 

@@ -11,7 +11,7 @@ Session keys use the nba_ prefix to avoid collisions with the football section.
 
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
 import json
@@ -1668,7 +1668,7 @@ def _today_predictions_inner():
         _log_err("Teams fetch for today predictions", e)
 
     # Fetch today's NBA scoreboard
-    now_utc = datetime.now(UTC)
+    now_utc = datetime.now(timezone.utc)
     current_app.logger.info(
         "today_predictions: UTC=%s — fetching today's scoreboard",
         now_utc.strftime("%Y-%m-%d %H:%M"),

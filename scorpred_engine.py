@@ -31,7 +31,7 @@ Data Quality:
 """
 
 from __future__ import annotations
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -285,7 +285,7 @@ def _match_context_score(form: list[dict], sport: str = "soccer") -> tuple[float
     if not most_recent:
         return 5.0, {"days_since_last": None, "category": "neutral", "note": "No valid dates"}
 
-    days_since_last = max(0, (datetime.now(UTC) - most_recent).days)
+    days_since_last = max(0, (datetime.now(timezone.utc) - most_recent).days)
     if days_since_last <= 3:
         score = 4.2
         category = "short_rest"

@@ -6,7 +6,7 @@ Usage:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 from typing import Any
 
@@ -237,7 +237,7 @@ def build_tuned_policy(predictions: list[dict[str, Any]] | None = None) -> dict[
 
     payload = {
         "version": 1,
-        "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         # ── ML blend weights (swept from [0.2, 0.3, 0.4, 0.5] by _select_blend_weight) ──
         "soccer_ml_blend_weight": soccer["blend_weight"],
         "nba_ml_blend_weight":    nba["blend_weight"],

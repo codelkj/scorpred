@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 import uuid
 import re
@@ -23,7 +23,7 @@ _TRACKING_FILE = str(prediction_tracking_path())
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def _ensure_tracking_file() -> None:
@@ -627,7 +627,7 @@ def _prediction_timestamp(pred: dict[str, Any]) -> datetime:
             return datetime.fromisoformat(raw)
         except Exception:
             continue
-    return datetime(1970, 1, 1, tzinfo=UTC)
+    return datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def _is_win(pred: dict[str, Any]) -> bool:

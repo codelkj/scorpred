@@ -26,7 +26,10 @@ def cache_root() -> Path:
 
 
 def data_dir() -> Path:
-    return _REPO_ROOT / "data"
+    # Keep generated/runtime data under SCORPRED_DATA_ROOT when configured.
+    # When SCORPRED_DATA_ROOT is unset, data_root() falls back to repo root so
+    # this remains <repo>/data for local development.
+    return data_root() / "data"
 
 
 def cache_dir(*parts: str) -> Path:

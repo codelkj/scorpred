@@ -6,7 +6,7 @@ while preserving safe defaults when no tuned profile is available.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 from typing import Any
 
@@ -142,7 +142,7 @@ def save_policy(policy: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     normalized = normalize_policy(policy)
     if not normalized.get("generated_at"):
-        normalized["generated_at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        normalized["generated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     path.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
     _cache[str(path)] = normalized
 

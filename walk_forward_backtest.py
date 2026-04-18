@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -625,7 +625,7 @@ def run_walk_forward(
     all_dates = [r.get("date", "") for r in rows if r.get("date")]
 
     report = {
-        "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "config": {
             "n_folds": len(folds),
             "min_train_pct": min_train_pct,

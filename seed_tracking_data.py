@@ -12,7 +12,7 @@ Usage:
 import argparse
 import json
 import os
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import random
 
@@ -59,7 +59,7 @@ def _generate_realistic_soccer_predictions(days_back: int = 90, count: int = 25)
         List of completed prediction records
     """
     predictions = []
-    now_utc = datetime.now(UTC)
+    now_utc = datetime.now(timezone.utc)
     
     confidence_weights = {
         "High": 0.40,    # 40% High confidence
@@ -183,7 +183,7 @@ def _generate_realistic_nba_predictions(days_back: int = 90, count: int = 15) ->
         List of completed prediction records
     """
     predictions = []
-    now_utc = datetime.now(UTC)
+    now_utc = datetime.now(timezone.utc)
     
     confidence_weights = {"High": 0.40, "Medium": 0.35, "Low": 0.25}
     win_rate = 0.63  # NBA slightly higher variance
