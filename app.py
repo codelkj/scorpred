@@ -94,6 +94,102 @@ def _now_stamp() -> str:
     return assistant_services.now_stamp()
 
 
+# --- Restored missing backend helpers for prediction/result display ---
+def _summarize_form_compare(form_compare: dict, actual_winner: str | None = None) -> str | None:
+    """
+    Summarize recent form comparison for both teams, optionally referencing the actual winner.
+    """
+    if not form_compare or not isinstance(form_compare, dict):
+        return None
+    segments = []
+    for team, stats in (form_compare or {}).items():
+        if not stats:
+            continue
+        wins = stats.get("wins")
+        losses = stats.get("losses")
+        avg_for = stats.get("avg_goals_for") or stats.get("avg_points_for")
+        avg_against = stats.get("avg_goals_against") or stats.get("avg_points_against")
+        seg = f"{team}: {wins}W-{losses}L"
+        if avg_for is not None and avg_against is not None:
+            seg += f" ({avg_for} for, {avg_against} against)"
+        segments.append(seg)
+    if not segments:
+        return None
+    joined = "; ".join(segments)
+    if actual_winner and actual_winner != "Unknown":
+        return f"Recent form: {joined}. {actual_winner} had the edge in recent results." if actual_winner in form_compare else f"Recent form: {joined}."
+    return f"Recent form: {joined}."
+
+
+def _reality_sentence(record: dict) -> str:
+    """
+    Generate a short sentence summarizing the actual result for a prediction record.
+    """
+    actual_winner = record.get("actual_winner") or "Unknown"
+    final_score = record.get("final_score_display") or "Unknown"
+    total_scored = record.get("total_scored")
+    if total_scored is not None:
+        unit = "goal" if str(record.get("sport") or "").lower() == "soccer" else "point"
+        label = unit if total_scored == 1 else f"{unit}s"
+        return f"{actual_winner}, {final_score}, {total_scored} {label}"
+    return f"{actual_winner}, {final_score}"
+
+
+def _prediction_sentence(record: dict) -> str:
+    """
+    Generate a short sentence summarizing the model's prediction for a record.
+    """
+    pick = _prediction_pick_display(record)
+    prob = _predicted_outcome_probability(record)
+    prob_text = _format_percent_value(prob)
+    if pick and prob_text:
+        return f"Model pick: {pick} ({prob_text})"
+    if pick:
+        return f"Model pick: {pick}"
+    return "Model pick unavailable"
+
+
+def _filter_useful_injury_context(injuries: dict) -> dict:
+    """
+    Filter injury context to only include teams with at least one notable injury.
+    """
+    if not injuries or not isinstance(injuries, dict):
+        return {}
+    return {team: row for team, row in injuries.items() if row and (row.get("count", 0) > 0 or row.get("notable"))}
+
+
+def _extract_totals_leg(prediction: dict) -> dict | None:
+    """
+    Extract the totals leg (pick/line/market) from a prediction dict.
+    """
+    if not prediction or not isinstance(prediction, dict):
+        return None
+    # Try direct keys first
+    pick = prediction.get("totals_pick")
+    line = prediction.get("totals_line")
+    market = prediction.get("totals_market")
+    # If not present, try nested or legacy keys
+    if not pick and "optional_picks" in prediction:
+        for opt in prediction["optional_picks"]:
+            m = str(opt.get("market") or "").lower()
+            if "over/under" in m or "o/u" in m:
+                pick = opt.get("lean") or opt.get("pick")
+                try:
+                    line = float(opt.get("line") or opt.get("value") or 0)
+                except Exception:
+                    line = None
+                market = opt.get("market")
+                break
+    result = {}
+    if pick:
+        result["pick"] = pick
+    if line is not None:
+        result["line"] = line
+    if market:
+        result["market"] = market
+    return result if result else None
+
+
 def _refresh_requested() -> bool:
     return bootstrap_services.refresh_requested(request.args)
 
@@ -1608,12 +1704,12 @@ def _selected_fixture() -> dict:
 
 
 
-def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 6):
+def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 6, league: int = None):
     return evidence_services.load_upcoming_fixtures(
         ac,
         pred,
         se,
-        league=LEAGUE,
+        league=league if league is not None else LEAGUE,
         season=SEASON,
         logger=app.logger,
         football_data_source=_football_data_source,
@@ -1740,7 +1836,7 @@ def _load_grouped_upcoming_fixtures_all_leagues(next_n_per_league: int = 8):
     for league_id in SUPPORTED_LEAGUE_IDS:
         fixtures, load_error, data_source, _ = _load_upcoming_fixtures(
             next_n=next_n_per_league,
-            league_id=league_id,
+            league=league_id,
         )
         data_sources.add(data_source)
         if load_error:
@@ -2336,7 +2432,7 @@ def soccer():
         app.logger.error("Failed to fetch teams: %s", exc)
 
     try:
-        upcoming_fixtures, fixtures_error, fixtures_source, _ = _load_upcoming_fixtures(next_n=8, league_id=league_id)
+        upcoming_fixtures, fixtures_error, fixtures_source, _ = _load_upcoming_fixtures(next_n=8, league=league_id)
     except Exception as exc:
         fixtures_error = str(exc)
         app.logger.error("Failed to fetch upcoming fixtures: %s", exc)
@@ -2375,7 +2471,7 @@ def fixtures():
     load_error = None
     data_source = _football_data_source()
 
-    fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20, league_id=league_id)
+    fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20, league=league_id)
 
     return render_template(
         "fixtures.html",
