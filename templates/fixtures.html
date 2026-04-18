@@ -86,6 +86,12 @@
       <button type="submit" class="btn btn-primary btn-sm">Full Analysis →</button>
     </form>
   </div>
+
+  {# Injury section fallback #}
+  {% if f.injuries is defined and f.injuries is none %}
+    <div class="sp-alert sp-alert--warn" style="margin-top:.5rem">Injury data unavailable.</div>
+  {% endif %}
+
 </div>
 {% endfor %}
 

@@ -33,6 +33,7 @@
     </span>
   </div>
 
+
   {% if upcoming_fixtures %}
     {% for f in upcoming_fixtures %}
       <div class="sp-fixture__vs">vs</div>
@@ -41,6 +42,12 @@
         <img src="{{ f.teams.away.logo if f.teams and f.teams.away else '' }}" class="team-logo-sm" alt="{{ f.teams.away.name if f.teams and f.teams.away else 'TBD' }}" />
       </div>
       {# ...existing fixture card rendering here... #}
+
+      {# Injury section fallback #}
+      {% if f.injuries is defined and f.injuries is none %}
+        <div class="sp-alert sp-alert--warn" style="margin-top:.5rem">Injury data unavailable.</div>
+      {% endif %}
+
     {% endfor %}
   {% else %}
     <div class="sp-empty">No upcoming fixtures available right now.</div>

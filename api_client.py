@@ -191,6 +191,24 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
         print("[API_CLIENT] ERROR: Missing API_FOOTBALL_KEY environment variable.")
         return {"error": "Missing API_FOOTBALL_KEY", "status": "fail"}
     url = f"{API_BASE}/{endpoint.lstrip('/')}"
+
+    # --- Prevent duplicate calls in the same request context ---
+    # Use Flask's g if available, else fallback to a module-level dict
+    try:
+        from flask import g
+        _request_cache = getattr(g, "_api_client_req_cache", None)
+        if _request_cache is None:
+            _request_cache = {}
+            g._api_client_req_cache = _request_cache
+    except Exception:
+        _request_cache = None
+
+    req_cache_key = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
+    if _request_cache is not None and req_cache_key in _request_cache:
+        print(f"[API_CLIENT] Skipping duplicate API call for {endpoint} in this request (using request cache)")
+        return _request_cache[req_cache_key]
+
+    result = None
     for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
         try:
             with requests.Session() as sess:
@@ -206,11 +224,18 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 print(f"[API_CLIENT] Rate limit hit for {endpoint} (429)")
                 if stale_entry:
                     print(f"[API_CLIENT] Returning stale cache for {endpoint} due to rate limit.")
-                    return {"data": stale_entry["data"], "status": "success", "stale": True}
-                return {"error": "Rate limit reached. Please try again shortly.", "status": "fail"}
+                    result = {"data": stale_entry["data"], "status": "success", "stale": True}
+                else:
+                    result = {"error": "Rate limit reached. Please try again shortly.", "status": "fail"}
+                break
             if resp.status_code == 403:
                 print(f"[API_CLIENT] ERROR: 403 Forbidden. API key invalid or access denied.")
-                return {"error": "API-Football RapidAPI access is unavailable for this key.", "status": "fail"}
+                # Custom error for injuries endpoint
+                if "injuries" in endpoint:
+                    result = {"error": "This data is not available on the current API plan.", "status": "fail", "restricted": True}
+                else:
+                    result = {"error": "API-Football RapidAPI access is unavailable for this key.", "status": "fail"}
+                break
             if resp.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
                 retry_after = resp.headers.get("Retry-After")
                 sleep_seconds = float(retry_after) if retry_after else EXTERNAL_API_RETRY_BACKOFF_SECONDS
@@ -221,11 +246,13 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             data = resp.json()
             if data.get("errors"):
                 print(f"[API_CLIENT] API error: {data['errors']}")
-                return {"error": f"API-Football error: {data['errors']}", "status": "fail"}
+                result = {"error": f"API-Football error: {data['errors']}", "status": "fail"}
+                break
             _save(path, data)
             with _cache_lock:
                 _memory_cache[cache_key] = {"data": data, "ts": now}
-            return {"data": data, "status": "success"}
+            result = {"data": data, "status": "success"}
+            break
         except (requests.RequestException, ValueError) as e:
             print(f"[API_CLIENT] Exception: {e}")
             if attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
@@ -233,19 +260,30 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 continue
             if stale_entry:
                 print(f"[API_CLIENT] Returning stale cache for {endpoint} after exception.")
-                return {"data": stale_entry["data"], "status": "success", "stale": True}
-            return {"error": str(e), "status": "fail"}
-    # Fallback: try disk cache
-    if path.exists():
-        try:
-            cached = _load(path)
-            print("[API_CLIENT] Returning disk cached data after API failure.")
-            with _cache_lock:
-                _memory_cache[cache_key] = {"data": cached, "ts": now}
-            return {"data": cached, "status": "success", "stale": True}
-        except Exception as e:
-            print(f"[API_CLIENT] Cache load failed: {e}")
-    return {"error": f"API-Football request failed for {endpoint}", "status": "fail"}
+                result = {"data": stale_entry["data"], "status": "success", "stale": True}
+            else:
+                result = {"error": str(e), "status": "fail"}
+            break
+
+    # Fallback: try disk cache if no result
+    if result is None:
+        if path.exists():
+            try:
+                cached = _load(path)
+                print("[API_CLIENT] Returning disk cached data after API failure.")
+                with _cache_lock:
+                    _memory_cache[cache_key] = {"data": cached, "ts": now}
+                result = {"data": cached, "status": "success", "stale": True}
+            except Exception as e:
+                print(f"[API_CLIENT] Cache load failed: {e}")
+                result = {"error": f"API-Football request failed for {endpoint}", "status": "fail"}
+        else:
+            result = {"error": f"API-Football request failed for {endpoint}", "status": "fail"}
+
+    # Store in request-level cache if available
+    if _request_cache is not None:
+        _request_cache[req_cache_key] = result
+    return result
 
 
 # -- Runtime controls --------------------------------------------------------

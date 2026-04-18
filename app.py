@@ -241,15 +241,25 @@ def _selection_error_redirect(endpoint: str, message: str):
 
 
 def _clean_injuries(items: list[dict]) -> list[dict]:
+    if isinstance(items, dict) and items.get("status") == "fail" and items.get("restricted"):
+        return None  # Signal restricted
     return evidence_services.clean_injuries(items)
 
 
+
 def _display_injuries(items: list[dict]) -> list[dict]:
+    if isinstance(items, dict) and items.get("status") == "fail" and items.get("restricted"):
+        return None
     return evidence_services.display_injuries(items)
 
 
 def _fetch_team_squad(team_id: int, season: int = SEASON, league_id: int | None = None) -> list[dict]:
     selected_league_id = _coerce_league_id(league_id if league_id is not None else _active_league_id())
+    cache_key = f"squad:{team_id}:{season}:{selected_league_id}"
+    if not hasattr(g, "_api_squad_cache"):
+        g._api_squad_cache = {}
+    if cache_key in g._api_squad_cache:
+        return g._api_squad_cache[cache_key]
     getter = getattr(ac, "get_players", None)
     if callable(getter):
         try:
@@ -257,8 +267,11 @@ def _fetch_team_squad(team_id: int, season: int = SEASON, league_id: int | None 
         except TypeError:
             data = getter(team_id, season)
         if data:
+            g._api_squad_cache[cache_key] = data
             return data
-    return ac.get_squad(team_id, season, selected_league_id)
+    data = ac.get_squad(team_id, season, selected_league_id)
+    g._api_squad_cache[cache_key] = data
+    return data
 
 
 def _group_squad_by_position(squad: list[dict]) -> dict[str, list[dict]]:
