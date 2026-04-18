@@ -1,3 +1,28 @@
+# --- In-memory cache for lightweight caching (per-process, not shared) ---
+import threading
+_memory_cache = {}
+_cache_lock = threading.Lock()
+
+# Per-endpoint TTLs (seconds)
+_ENDPOINT_TTLS = {
+    "fixtures": 120,
+    "teams": 300,
+    "standings": 300,
+    "players": 300,
+    "injuries": 180,
+    # fallback default
+    "default": 120,
+}
+
+def _make_cache_key(endpoint: str, params: dict) -> str:
+    key = endpoint + ":" + json.dumps(params or {}, sort_keys=True)
+    return hashlib.md5(key.encode()).hexdigest()
+
+def _get_cache_ttl(endpoint: str) -> int:
+    for k in _ENDPOINT_TTLS:
+        if endpoint.startswith(k):
+            return _ENDPOINT_TTLS[k]
+    return _ENDPOINT_TTLS["default"]
 """
 api_client.py — API-Football (RapidAPI) wrapper with JSON caching.
 
@@ -42,9 +67,9 @@ load_dotenv()
 API_KEY  = os.getenv("API_FOOTBALL_KEY", "").strip()
 API_HOST = os.getenv("API_FOOTBALL_HOST", "api-football-v1.p.rapidapi.com").strip()
 API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://api-football-v1.p.rapidapi.com/v3").rstrip("/")
-EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "20"))
-EXTERNAL_API_RETRY_ATTEMPTS = max(1, int(os.getenv("EXTERNAL_API_RETRY_ATTEMPTS", "3")))
-EXTERNAL_API_RETRY_BACKOFF_SECONDS = float(os.getenv("EXTERNAL_API_RETRY_BACKOFF_SECONDS", "1.2"))
+EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "15"))
+EXTERNAL_API_RETRY_ATTEMPTS = 2
+EXTERNAL_API_RETRY_BACKOFF_SECONDS = 2.0
 
 CACHE_DIR          = cache_dir("football")
 CACHE_HOURS        = 1          # default 1-hour TTL
@@ -129,88 +154,102 @@ def _save(path: Path, data: Any) -> None:
 
 # ── Core HTTP ──────────────────────────────────────────────────────────────────
 
-def _headers() -> dict[str, str]:
+def _headers(api_key=None) -> dict[str, str]:
     return {
-        "X-RapidAPI-Key":  API_KEY,
+        "X-RapidAPI-Key":  api_key or API_KEY,
         "X-RapidAPI-Host": API_HOST,
         "Accept":          "application/json",
     }
 
 
-def api_get(
-    endpoint: str,
-    params: dict | None = None,
-    *,
-    cache_hours: int = CACHE_HOURS,
-    force_refresh: bool = False,
-) -> dict:
+def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CACHE_HOURS, force_refresh: bool = False) -> dict:
     """
-    GET request to API-Football with caching and 429-retry.
-    Raises on non-recoverable HTTP errors; caller wraps in try/except.
+    GET request to API-Football with robust error handling, in-memory caching, rate-limit handling, and stale fallback.
+    Always returns a dict: {"data": ..., "status": "success"} or {"error": ..., "status": "fail"}
     """
-    global RAPIDAPI_OK
-
     params = params or {}
-    path   = _cache_path(endpoint, params)
+    path = _cache_path(endpoint, params)
     force_refresh = force_refresh or FORCE_REFRESH
+    api_key = API_KEY
+    cache_key = _make_cache_key(endpoint, params)
+    cache_ttl = _get_cache_ttl(endpoint)
+    now = time.time()
+    # 1. In-memory cache check
+    with _cache_lock:
+        cache_entry = _memory_cache.get(cache_key)
+        if cache_entry:
+            age = now - cache_entry["ts"]
+            if age < cache_ttl and not force_refresh:
+                print(f"[API_CLIENT] In-memory cache hit for {endpoint} (age={age:.1f}s)")
+                return {"data": cache_entry["data"], "status": "success", "cached": True}
+            elif age < cache_ttl * 3:
+                print(f"[API_CLIENT] In-memory cache stale fallback available for {endpoint} (age={age:.1f}s)")
+                stale_entry = cache_entry
+            else:
+                stale_entry = None
+        else:
+            stale_entry = None
 
-    if not force_refresh and _cache_valid(path, cache_hours):
-        return _load(path)
-
-    if not API_KEY:
-        logger = logging.getLogger("api_client")
-        logger.error("[API_CLIENT] API_FOOTBALL_KEY not set in .env or environment!")
-        raise RuntimeError("API_FOOTBALL_KEY not set in .env")
-
-    if not RAPIDAPI_OK:
-        raise RuntimeError("API-Football RapidAPI access is unavailable for this key.")
-
+    print(f"[API_CLIENT] Loading API_FOOTBALL_KEY: {'set' if bool(api_key) else 'MISSING'}")
+    if not api_key:
+        print("[API_CLIENT] ERROR: Missing API_FOOTBALL_KEY environment variable.")
+        return {"error": "Missing API_FOOTBALL_KEY", "status": "fail"}
     url = f"{API_BASE}/{endpoint.lstrip('/')}"
-    last_exc: Exception | None = None
     for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
         try:
             with requests.Session() as sess:
                 sess.trust_env = False
                 resp = sess.get(
                     url,
-                    headers=_headers(),
+                    headers=_headers(api_key),
                     params=params,
                     timeout=EXTERNAL_API_TIMEOUT_SECONDS,
                 )
-
+            print(f"[API_CLIENT] {url} status={resp.status_code}")
+            if resp.status_code == 429:
+                print(f"[API_CLIENT] Rate limit hit for {endpoint} (429)")
+                if stale_entry:
+                    print(f"[API_CLIENT] Returning stale cache for {endpoint} due to rate limit.")
+                    return {"data": stale_entry["data"], "status": "success", "stale": True}
+                return {"error": "Rate limit reached. Please try again shortly.", "status": "fail"}
             if resp.status_code == 403:
-                RAPIDAPI_OK = False
-                raise RuntimeError(resp.text[:200] or "API-Football returned 403.")
-
+                print(f"[API_CLIENT] ERROR: 403 Forbidden. API key invalid or access denied.")
+                return {"error": "API-Football RapidAPI access is unavailable for this key.", "status": "fail"}
             if resp.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
                 retry_after = resp.headers.get("Retry-After")
-                if retry_after:
-                    try:
-                        sleep_seconds = max(float(retry_after), 0.0)
-                    except ValueError:
-                        sleep_seconds = EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt)
-                else:
-                    sleep_seconds = EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt)
+                sleep_seconds = float(retry_after) if retry_after else EXTERNAL_API_RETRY_BACKOFF_SECONDS
+                print(f"[API_CLIENT] Retrying after {sleep_seconds}s (status {resp.status_code})")
                 time.sleep(sleep_seconds)
                 continue
-
             resp.raise_for_status()
             data = resp.json()
             if data.get("errors"):
-                errs = data["errors"]
-                if isinstance(errs, dict) and errs:
-                    raise RuntimeError(f"API-Football error {endpoint}: {errs}")
+                print(f"[API_CLIENT] API error: {data['errors']}")
+                return {"error": f"API-Football error: {data['errors']}", "status": "fail"}
             _save(path, data)
-            return data
-        except (requests.RequestException, ValueError, RuntimeError) as exc:
-            last_exc = exc
+            with _cache_lock:
+                _memory_cache[cache_key] = {"data": data, "ts": now}
+            return {"data": data, "status": "success"}
+        except (requests.RequestException, ValueError) as e:
+            print(f"[API_CLIENT] Exception: {e}")
             if attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
-                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
+                time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS)
                 continue
-
+            if stale_entry:
+                print(f"[API_CLIENT] Returning stale cache for {endpoint} after exception.")
+                return {"data": stale_entry["data"], "status": "success", "stale": True}
+            return {"error": str(e), "status": "fail"}
+    # Fallback: try disk cache
     if path.exists():
-        return _load(path)
-    raise RuntimeError(f"API-Football request failed for {endpoint}") from last_exc
+        try:
+            cached = _load(path)
+            print("[API_CLIENT] Returning disk cached data after API failure.")
+            with _cache_lock:
+                _memory_cache[cache_key] = {"data": cached, "ts": now}
+            return {"data": cached, "status": "success", "stale": True}
+        except Exception as e:
+            print(f"[API_CLIENT] Cache load failed: {e}")
+    return {"error": f"API-Football request failed for {endpoint}", "status": "fail"}
 
 
 # -- Runtime controls --------------------------------------------------------
