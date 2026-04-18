@@ -3,19 +3,22 @@
 
 {% block content %}
 {# ── Template variables ────────────────────────────────────────────────────── #}
-{% set quality = scorpred.data_quality or 'Moderate' %}
-{% set confidence = scorpred.best_pick.confidence %}
-{% set play_type = scorpred.play_type or 'LEAN' %}
-{% set conf_pct = scorpred.confidence_pct|default(0)|round(1) %}
-{% set prob_a = '%.1f'|format((scorpred.win_probabilities.a or 0)|float) %}
-{% set prob_draw = '%.1f'|format((scorpred.win_probabilities.draw or 0)|float) %}
-{% set prob_b = '%.1f'|format((scorpred.win_probabilities.b or 0)|float) %}
+{% set quality = scorpred.get('data_quality', 'Moderate') %}
+{% set best_pick = scorpred.get('best_pick', {}) %}
+{% set confidence = best_pick.get('confidence', 'Low') %}
+{% set play_type = scorpred.get('play_type', 'LEAN') %}
+{% set conf_pct = scorpred.get('confidence_pct', 0)|round(1) %}
+{% set win_probabilities = scorpred.get('win_probabilities', {}) %}
+{% set prob_a = '%.1f'|format((win_probabilities.get('a', 0))|float) %}
+{% set prob_draw = '%.1f'|format((win_probabilities.get('draw', 0))|float) %}
+{% set prob_b = '%.1f'|format((win_probabilities.get('b', 0))|float) %}
 {% set risk_label = 'Elevated' %}
 {% set risk_class = 'sp-badge--danger' %}
-{% if confidence == 'High' and scorpred.score_gap >= 1.5 %}
+{% set score_gap = scorpred.get('score_gap', 0) %}
+{% if confidence == 'High' and score_gap >= 1.5 %}
   {% set risk_label = 'Controlled' %}
   {% set risk_class = 'sp-badge--strong' %}
-{% elif confidence == 'Medium' or scorpred.score_gap >= 1.0 %}
+{% elif confidence == 'Medium' or score_gap >= 1.0 %}
   {% set risk_label = 'Watch' %}
   {% set risk_class = 'sp-badge--caution' %}
 {% endif %}
@@ -33,12 +36,12 @@
       <span class="sp-decision__play-type sp-decision__play-type--{{ play_type | lower }}">
         {% if play_type == 'BET' %}Strong Lean{% elif play_type == 'AVOID' %}Avoid{% else %}{{ play_type }}{% endif %}
       </span>
-      <h1 class="sp-decision__pick">{{ scorpred.best_pick.prediction }}</h1>
+      <h1 class="sp-decision__pick">{{ best_pick.get('prediction', 'N/A') }}</h1>
       <p class="sp-decision__subtitle">
-        {{ scorpred.best_pick.reasoning or scorpred.matchup_reading or 'ScorPred leans to the strongest weighted edge.' }}
+        {{ best_pick.get('reasoning') or scorpred.get('matchup_reading') or 'ScorPred leans to the strongest weighted edge.' }}
       </p>
-      {% if play_type == 'AVOID' and scorpred.top_lean %}
-      <p class="sp-decision__subtitle" style="margin-top:.2rem">Top lean: {{ scorpred.top_lean.display }}</p>
+      {% if play_type == 'AVOID' and scorpred.get('top_lean') %}
+      <p class="sp-decision__subtitle" style="margin-top:.2rem">Top lean: {{ scorpred.get('top_lean').get('display', '') }}</p>
       {% endif %}
       <div class="sp-decision__badges">
         <span class="sp-badge conf-{{ confidence | lower }}">{{ confidence }} · {{ conf_pct }}%</span>
@@ -94,15 +97,15 @@
     <div class="sp-panel">
       <span class="sp-kicker">Outcome Probabilities</span>
       <div class="sp-prob-stack" style="margin-top:.6rem">
-        <div class="sp-prob-stack__seg sp-prob-stack__seg--home" style="width:{{ scorpred.win_probabilities.a }}%"></div>
-        {% if scorpred.win_probabilities.draw > 0 %}
-        <div class="sp-prob-stack__seg sp-prob-stack__seg--draw" style="width:{{ scorpred.win_probabilities.draw }}%"></div>
+        <div class="sp-prob-stack__seg sp-prob-stack__seg--home" style="width:{{ win_probabilities.get('a', 0) }}%"></div>
+        {% if win_probabilities.get('draw', 0) > 0 %}
+        <div class="sp-prob-stack__seg sp-prob-stack__seg--draw" style="width:{{ win_probabilities.get('draw', 0) }}%"></div>
         {% endif %}
-        <div class="sp-prob-stack__seg sp-prob-stack__seg--away" style="width:{{ scorpred.win_probabilities.b }}%"></div>
+        <div class="sp-prob-stack__seg sp-prob-stack__seg--away" style="width:{{ win_probabilities.get('b', 0) }}%"></div>
       </div>
       <div class="sp-prob-legend">
         <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--home"></span> {{ team_a.name }} {{ prob_a }}%</span>
-        {% if scorpred.win_probabilities.draw > 0 %}
+        {% if win_probabilities.get('draw', 0) > 0 %}
         <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--draw"></span> Draw {{ prob_draw }}%</span>
         {% endif %}
         <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--away"></span> {{ team_b.name }} {{ prob_b }}%</span>
@@ -110,11 +113,11 @@
     </div>
 
     {# Caution Flags (compact) #}
-    {% set has_warnings = play_type == 'AVOID' or scorpred.avoid_reasons or confidence == 'Low' or scorpred.score_gap < 1.2 or quality != 'Strong' or (scorpred.win_probabilities.draw >= 28) %}
+    {% set has_warnings = play_type == 'AVOID' or scorpred.get('avoid_reasons') or confidence == 'Low' or score_gap < 1.2 or quality != 'Strong' or (win_probabilities.get('draw', 0) >= 28) %}
     {% if has_warnings %}
     <div class="sp-panel sp-panel--tight" style="display:flex; flex-wrap:wrap; gap:.35rem">
       {% if play_type == 'AVOID' %}<span class="sp-chip sp-chip--danger">Avoid</span>{% endif %}
-      {% if scorpred.avoid_reasons %}{% for r in scorpred.avoid_reasons %}<span class="sp-chip sp-chip--warn">{{ r }}</span>{% endfor %}{% endif %}
+      {% if scorpred.get('avoid_reasons') %}{% for r in scorpred.get('avoid_reasons') %}<span class="sp-chip sp-chip--warn">{{ r }}</span>{% endfor %}{% endif %}
       {% if confidence == 'Low' %}<span class="sp-chip sp-chip--danger">Low confidence</span>{% endif %}
       {% if scorpred.score_gap < 1.2 %}<span class="sp-chip sp-chip--warn">Thin edge ({{ scorpred.score_gap }})</span>{% endif %}
       {% if quality != 'Strong' %}<span class="sp-chip sp-chip--warn">{{ quality }} data</span>{% endif %}

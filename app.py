@@ -43,6 +43,7 @@ from services import evidence as evidence_services
 from services import strategy_lab as strategy_lab_services
 from services.strategy_lab import _EMPTY_METRICS
 from services import tracking_bootstrap as bootstrap_services
+from services.tracking_bootstrap import fixture_context_from_form
 from league_config import (
     CURRENT_SEASON,
     DEFAULT_LEAGUE_ID,
@@ -94,7 +95,15 @@ def _now_stamp() -> str:
     return assistant_services.now_stamp()
 
 
-# --- Restored missing backend helpers for prediction/result display ---
+ # --- Restored missing backend helpers for prediction/result display ---
+def _fixture_context_from_form():
+    """
+    Wrapper for fixture_context_from_form using Flask's request.form or request.args.
+    """
+    from flask import request
+    # Prefer form data, fallback to args
+    form_data = request.form if request.method == "POST" else request.args
+    return fixture_context_from_form(form_data)
 def _summarize_form_compare(form_compare: dict, actual_winner: str | None = None) -> str | None:
     """
     Summarize recent form comparison for both teams, optionally referencing the actual winner.
@@ -1908,19 +1917,6 @@ def _fallback_chat_reply(message: str) -> str:
     return assistant_services.fallback_chat_reply(message, team_a=team_a, team_b=team_b)
 
 
-def _chat_reply(message: str, history: list[dict] | None = None) -> str:
-    team_a, team_b = _require_teams()
-    return assistant_services.chat_reply(
-        message,
-        history=history,
-        anthropic_module=anthropic,
-        api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
-        team_a=team_a,
-        team_b=team_b,
-        logger=app.logger,
-    )
-
-
 def _prediction_top_probability(pred: dict[str, Any]) -> float:
     return max(
         float(pred.get("prob_a", 0.0) or 0.0),
@@ -2396,12 +2392,21 @@ def _build_chat_request_context(payload: dict) -> dict:
 
 
 def _chat_reply(message: str, history: list[dict] | None = None, chat_context: dict | None = None) -> dict:
-    return assistant.build_ai_reply(
+    ctx = chat_context or {}
+    football_ctx = ctx.get("football") or {}
+    _ta = football_ctx.get("team_a") or ""
+    _tb = football_ctx.get("team_b") or ""
+    team_a = {"name": _ta} if _ta else None
+    team_b = {"name": _tb} if _tb else None
+    page_ctx = ctx.get("assistant_page") or None
+    return assistant_services.chat_reply(
         message,
-        chat_context or {},
         history=history,
         anthropic_module=anthropic,
         api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        team_a=team_a,
+        team_b=team_b,
+        page_ctx=page_ctx,
         logger=app.logger,
     )
  
@@ -2674,9 +2679,15 @@ def matchup():
     ]
 
     # ── Scorpred Engine ────────────────────────────────────────────────────────
+
     # H2H form from each team's perspective for the Scorpred model
     h2h_form_a = pred.extract_form(h2h_raw, id_a)[:10]
     h2h_form_b = pred.extract_form(h2h_raw, id_b)[:10]
+
+    # Restore context variables from results dict
+    standings_for_opp = results.get("standings_for_opp") or []
+    squad_a = results.get("squad_a") or []
+    squad_b = results.get("squad_b") or []
 
     # Standings → opponent strength lookup for quality-of-schedule adjustment
     opp_strengths = _build_opp_strengths(standings_for_opp)
@@ -3387,10 +3398,25 @@ def chat():
     if not message:
         return jsonify({"error": "message is required"}), 400
 
+    rate_limit = app.config.get("CHAT_RATE_LIMIT_COUNT", 10)
+    rate_window = app.config.get("CHAT_RATE_LIMIT_WINDOW_SECONDS", 60)
+    retry_after = check_chat_rate_limit(rate_limit, rate_window)
+    if retry_after:
+        return jsonify({"error": "chat rate limit exceeded", "retry_after": retry_after}), 429
+
     history = session.get("chat_history", [])[-8:]
     chat_context = _build_chat_request_context(payload)
     response = _chat_reply(message, history=history, chat_context=chat_context)
-    reply = response.get("reply") or ""
+    if isinstance(response, str):
+        reply = response
+        suggestions: list = []
+        intent = None
+        mode = "fallback"
+    else:
+        reply = response.get("reply") or ""
+        suggestions = response.get("suggestions", [])
+        intent = response.get("intent")
+        mode = response.get("mode")
     history.extend(
         [
             {"role": "user", "content": message, "timestamp": _now_stamp()},
@@ -3401,9 +3427,9 @@ def chat():
     return jsonify(
         {
             "reply": reply,
-            "suggestions": response.get("suggestions", []),
-            "intent": response.get("intent"),
-            "mode": response.get("mode"),
+            "suggestions": suggestions,
+            "intent": intent,
+            "mode": mode,
             "history": session["chat_history"],
             "last_updated": _now_stamp(),
         }

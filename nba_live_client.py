@@ -441,7 +441,6 @@ def _team_schedule(team_id: str, season: int | None = None, request_profile: str
     for event in payload.get("events") or []:
         if normalized := _normalize_event(event):
             events.append(normalized)
-    _SCHEDULE_MEM[mem_key] = (now_ts + NBA_SCHEDULE_TTL_SECONDS, events)
     return events
 
 

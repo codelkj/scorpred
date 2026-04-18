@@ -1593,6 +1593,9 @@ def _prediction_inner():
                 game_date=(selected_game or {}).get("date") or None,
                 team_a_id=team_a["id"],
                 team_b_id=team_b["id"],
+                totals_pick=totals_leg.get("pick"),
+                totals_line=totals_leg.get("line"),
+                totals_market=totals_leg.get("market"),
             )
     except Exception:
         current_app.logger.warning("Prediction tracking failed (nba)", exc_info=True)
@@ -1628,6 +1631,7 @@ def _prediction_inner():
             show_data_notice=(limited_current_season or has_historical_context),
             season_context=season_context,
             error=error,
+            market_analysis=market_analysis or {},
             route_support=_support("prediction"),
         ),
     )

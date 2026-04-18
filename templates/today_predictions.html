@@ -3,7 +3,6 @@
 {% block title %}Today's Soccer Predictions | ScorPred{% endblock %}
 
 {% block content %}
-<<<<<<< HEAD
 {# ── HERO ── #}
 <section class="sp-hero">
   <span class="sp-kicker">ScorPred Platform</span>
@@ -18,37 +17,13 @@
   <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem">
     <a href="{{ url_for('soccer') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Soccer Hub</a>
     <a href="{{ url_for('model_performance') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Performance</a>
-=======
-<div class="container-fluid mt-4">
-  <div class="row mb-4">
-    <div class="col-md-12">
-      <h1>Upcoming Soccer Predictions</h1>
-      <p class="text-muted">
-        {% if total_fixtures > 0 %}
-          {{ total_predictions }} of {{ total_fixtures }} matches predicted across all supported leagues
-        {% else %}
-          No matches found in the next 36 hours
-        {% endif %}
-      </p>
-    </div>
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
   </div>
 </section>
 
-<<<<<<< HEAD
 {# ── LOAD ERROR ── #}
 {% if load_error %}
 <div class="sp-notice sp-notice--warn">{{ load_error }} <a href="{{ url_for('today_soccer_predictions') }}?refresh=1">Refresh</a></div>
 {% endif %}
-=======
-  {% if load_error %}
-  <div class="alert alert-warning" role="alert">
-    <h5>Data Load Issue</h5>
-    <p>{{ load_error }}</p>
-    <p>Some matches may not have complete data. <a href="{{ url_for('today_soccer_predictions', league=current_league_id, refresh=1) }}">Refresh</a></p>
-  </div>
-  {% endif %}
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 {# ── CONFIDENCE SUMMARY STRIP ── #}
 {% if predictions | length > 0 %}
@@ -56,186 +31,11 @@
 {% set med_conf  = predictions | selectattr('confidence', 'equalto', 'Medium') | list %}
 {% set low_conf  = predictions | selectattr('confidence', 'equalto', 'Low') | list %}
 
-<<<<<<< HEAD
 <div class="sp-kpi-strip">
   <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{{ high_conf | length }}</span><span class="sp-kpi__label">High</span></div>
   <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-caution)">{{ med_conf | length }}</span><span class="sp-kpi__label">Medium</span></div>
   <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--text-3)">{{ low_conf | length }}</span><span class="sp-kpi__label">Low</span></div>
   <div class="sp-kpi"><span class="sp-kpi__val">{{ predictions | length }}</span><span class="sp-kpi__label">Total picks</span></div>
-=======
-  {% for group in grouped_predictions %}
-  {% if group.predictions %}
-  <div class="row mt-4 mb-2">
-    <div class="col-md-12">
-      <h3 class="mb-2">{{ group.league_flag }} {{ group.league_name }}</h3>
-    </div>
-  </div>
-  <div class="row">
-    {% for item in group.predictions %}
-    <div class="col-lg-6 col-xl-4 mb-3">
-      <div class="card h-100 game-card
-          {% if item.confidence == 'High' %}border-success{% elif item.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
-
-        <!-- Confidence Badge -->
-        <div class="position-absolute top-0 end-0 p-2">
-          <span class="badge
-              {% if item.confidence == 'High' %}bg-success{% elif item.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-            {{ item.confidence }}
-          </span>
-        </div>
-
-        <div class="card-body">
-          <!-- Match Time -->
-          <p class="card-text text-muted small mb-1">
-            {% if item.fixture.fixture.date %}
-              {{ item.fixture.fixture.date[:10] }}
-              {% if item.fixture.fixture.date|length > 10 %} {{ item.fixture.fixture.date[11:16] }} UTC{% endif %}
-            {% else %}
-              TBD
-            {% endif %}
-            {% if item.fixture.league %}· {{ item.fixture.league.name }}{% endif %}
-          </p>
-
-          <!-- Teams and Probabilities -->
-          <div class="mb-3">
-            <!-- Home Team -->
-            <div class="d-flex align-items-center justify-content-between mb-2">
-              <div class="d-flex align-items-center flex-grow-1">
-                {% if item.home_team.logo %}
-                <img src="{{ item.home_team.logo }}" alt="{{ item.home_team.name }}" style="height:24px; margin-right:8px;">
-                {% endif %}
-                <span>{{ item.home_team.name }}</span>
-              </div>
-              <span class="badge bg-light text-dark">{{ "%.1f"|format(item.prob_home) }}%</span>
-            </div>
-
-            <!-- Draw -->
-            <div class="d-flex align-items-center justify-content-between mb-2">
-              <div class="text-muted small">Draw</div>
-              <span class="badge bg-secondary">{{ "%.1f"|format(item.prob_draw) }}%</span>
-            </div>
-
-            <!-- Away Team -->
-            <div class="d-flex align-items-center justify-content-between">
-              <div class="d-flex align-items-center flex-grow-1">
-                {% if item.away_team.logo %}
-                <img src="{{ item.away_team.logo }}" alt="{{ item.away_team.name }}" style="height:24px; margin-right:8px;">
-                {% endif %}
-                <span>{{ item.away_team.name }}</span>
-              </div>
-              <span class="badge bg-light text-dark">{{ "%.1f"|format(item.prob_away) }}%</span>
-            </div>
-          </div>
-
-          <hr class="my-2">
-
-          <!-- Prediction Box -->
-          <div class="alert alert-info mb-2 py-2">
-            <strong>Pick:</strong> {{ item.predicted_winner }}
-          </div>
-
-          <!-- Reasoning -->
-          {% if item.reasoning %}
-          <p class="card-text small text-muted">{{ item.reasoning }}</p>
-          {% endif %}
-        </div>
-
-          {% block content %}
-          <small>Scorpred Engine · Gap: {{ "%.1f"|format(item.score_gap if item.score_gap is defined else ((item.prob_home - item.prob_away)|abs)) }}/10</small>
-        </div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-  {% endfor %}
-
-  <!-- Summary Stats -->
-  <div class="row mt-3 mb-2">
-    <div class="col-md-12">
-      <div class="card bg-light">
-        <div class="card-body py-2">
-          <div class="row text-center">
-            {% set high_conf = predictions | selectattr('confidence', 'equalto', 'High') | list %}
-            {% set med_conf  = predictions | selectattr('confidence', 'equalto', 'Medium') | list %}
-            {% set low_conf  = predictions | selectattr('confidence', 'equalto', 'Low') | list %}
-            <div class="col-md-4">
-              <span class="badge bg-success">High</span> {{ high_conf | length }} picks
-            </div>
-            <div class="col-md-4">
-              <span class="badge bg-warning text-dark">Medium</span> {{ med_conf | length }} picks
-            </div>
-            <div class="col-md-4">
-              <span class="badge bg-danger">Low</span> {{ low_conf | length }} picks
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  {% else %}
-  <div class="row mb-4">
-    <div class="col-md-8 mx-auto">
-      <div class="card text-center">
-        <div class="card-body py-5">
-          <h5>No matches found</h5>
-          <p class="text-muted mb-3">There are no upcoming matches with predictions available right now.</p>
-          <a href="{{ url_for('soccer', league=current_league_id) }}" class="btn btn-primary">View All Fixtures</a>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- ── YESTERDAY'S RESULTS ────────────────────────────────────────── -->
-  {% if yesterday_results | length > 0 %}
-  <div class="row mt-4">
-    <div class="col-md-12">
-      <h3 class="mb-3">Yesterday's Results</h3>
-    </div>
-  </div>
-  <div class="row">
-    {% for p in yesterday_results %}
-    <div class="col-md-6 col-lg-4 mb-3">
-      <div class="card h-100 {% if p.is_correct %}border-success{% else %}border-danger{% endif %}">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start mb-2">
-            <strong>{{ p.team_a }} vs {{ p.team_b }}</strong>
-            <span class="badge {% if p.is_correct %}bg-success{% else %}bg-danger{% endif %}">
-              {% if p.is_correct %}Correct{% else %}Incorrect{% endif %}
-            </span>
-          </div>
-          <p class="small text-muted mb-1">
-            Predicted: <strong>{{ p.predicted_winner }}</strong>
-            &nbsp;&middot;&nbsp;
-            Actual: <strong>{{ p.actual_result or '—' }}</strong>
-          </p>
-          <p class="small text-muted mb-0">
-            Confidence:
-            <span class="badge {% if p.confidence == 'High' %}bg-success{% elif p.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
-              {{ p.confidence }}
-            </span>
-          </p>
-        </div>
-        <div class="card-footer small text-muted">
-          {{ p.date }} · Soccer
-        </div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  <!-- Navigation -->
-  <div class="row mt-4 mb-4">
-    <div class="col-md-12">
-      <a href="{{ url_for('soccer', league=current_league_id) }}" class="btn btn-secondary">Soccer Home</a>
-      <a href="{{ url_for('nba.today_predictions') }}" class="btn btn-outline-primary">Today NBA</a>
-      <a href="{{ url_for('model_performance') }}" class="btn btn-outline-secondary">Model Performance</a>
-    </div>
-  </div>
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 </div>
 
 {# ── PREDICTION CARDS GRID ── #}
@@ -265,9 +65,6 @@
       </div>
     </div>
 
-    <div class="sp-prob-stack" style="margin-bottom:.5rem">
-      <div class="sp-prob-stack__bar" style="flex:{{ item.prob_home }}; background:var(--c-strong)" title="{{ '%.1f'|format(item.prob_home) }}%">
-        <span style="font-size:.65rem; padding:0 .3rem">{{ "%.0f"|format(item.prob_home) }}%</span>
       </div>
       <div class="sp-prob-stack__bar" style="flex:{{ item.prob_draw }}; background:var(--c-caution)" title="{{ '%.1f'|format(item.prob_draw) }}%">
         <span style="font-size:.65rem; padding:0 .3rem">{{ "%.0f"|format(item.prob_draw) }}%</span>

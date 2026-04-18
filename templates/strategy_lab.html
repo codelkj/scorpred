@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Strategy Intelligence Engine | ScorPred{% endblock %}
 
+{% block head %}
+<style>
+  .c-positive { color: var(--c-strong); }
+  .c-negative { color: var(--c-danger); }
+  .c-neutral  { color: var(--text); }
+  .c-active   { color: var(--c-active); }
+  .c-muted    { color: var(--text-3); }
+  .border-active { border-color: var(--c-active); }
+</style>
+{% endblock %}
+
 {% block content %}
 {# ── Template variables ────────────────────────────────────────────────────── #}
 {% set best_strategy = backtest_summary.best_sport.label if backtest_summary.best_sport else (ml_comparison.best_model_label if ml_comparison.available else 'Awaiting sample') %}
@@ -54,7 +65,7 @@
 <div class="sp-kpi-strip">
   <div class="sp-kpi">
     <span class="sp-kpi__label">Live Hit Rate</span>
-    <strong class="sp-kpi__value" style="color:{% if live_hit_rate is not none and live_hit_rate >= 55 %}var(--c-strong){% elif live_hit_rate is not none and live_hit_rate < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+    <strong class="sp-kpi__value {%- if live_hit_rate is not none and live_hit_rate >= 55 -%}c-positive{%- elif live_hit_rate is not none and live_hit_rate < 45 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
       {{ ('%.1f'|format(live_hit_rate) ~ '%') if live_hit_rate is not none else 'Awaiting' }}
     </strong>
     <span style="font-size:.7rem; color:var(--text-3)">{{ live_sample_size }} tracked</span>
@@ -65,7 +76,7 @@
       <strong class="sp-kpi__value" style="color:var(--text-3)">Collecting data</strong>
       <span class="sp-badge sp-badge--muted" style="margin-left:.3rem">Warming up</span>
     {% else %}
-      <strong class="sp-kpi__value" style="color:{% if live_hit_rate is not none and live_hit_rate >= 55 %}var(--c-strong){% elif live_hit_rate is not none and live_hit_rate < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+      <strong class="sp-kpi__value {%- if live_hit_rate is not none and live_hit_rate >= 55 -%}c-positive{%- elif live_hit_rate is not none and live_hit_rate < 45 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
         {{ ('%.1f'|format(live_hit_rate) ~ '%') if live_hit_rate is not none else '—' }}
       </strong>
       <span style="font-size:.7rem; color:var(--text-3)">{{ live_sample_size }} tracked</span>
@@ -218,7 +229,7 @@
     <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.6rem; margin-bottom:1rem">
       {% for name, acc, role, badge, desc in models %}
       {% set is_best = (mlc.get('best_model_label') and name == mlc.get('best_model_label')) %}
-      <div class="sp-panel sp-panel--tight {% if is_best %}sp-panel--highlight{% endif %}" style="{% if role == 'production' %}border-color:var(--c-active){% endif %}">
+      <div class="sp-panel sp-panel--tight {% if is_best %}sp-panel--highlight{% endif %} {%- if role == 'production' %} border-active{%- endif %}">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.3rem">
           <strong style="font-size:.85rem">{{ name }}</strong>
           <div style="display:flex; gap:.25rem">
@@ -226,7 +237,7 @@
             <span class="sp-badge sp-badge--{{ 'strong' if badge == 'RUNTIME ML' else ('active' if badge == 'PRODUCTION' else 'muted') }}" style="font-size:.65rem">{{ badge }}</span>
           </div>
         </div>
-        <strong style="font-size:1.3rem; color:{% if acc is not none and acc >= 55 %}var(--c-strong){% elif acc is not none and acc < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+        <strong style="font-size:1.3rem" class="{%- if acc is not none and acc >= 55 -%}c-positive{%- elif acc is not none and acc < 45 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
           {{ (acc|round(1) ~ '%') if acc is not none else '—' }}
         </strong>
         <p style="font-size:.72rem; color:var(--text-3); margin-top:.25rem">{{ desc }}</p>
@@ -270,7 +281,7 @@
         {% for label, row, color in tiers %}
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
           <span class="sp-badge sp-badge--{{ color }}">{{ label }}</span>
-          <strong style="display:block; font-size:1.2rem; margin:.3rem 0; color:{% if row and row.accuracy is not none and row.accuracy >= 55 %}var(--c-strong){% elif row and row.accuracy is not none and row.accuracy < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+          <strong style="display:block; font-size:1.2rem; margin:.3rem 0" class="{%- if row and row.accuracy is not none and row.accuracy >= 55 -%}c-positive{%- elif row and row.accuracy is not none and row.accuracy < 45 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
             {{ row.accuracy_display if row else 'Awaiting' }}
           </strong>
           {% if row %}<span style="font-size:.72rem; color:var(--text-3)">{{ row.wins }}W / {{ row.losses }}L · {{ row.count }} matches</span>{% endif %}
@@ -299,19 +310,19 @@
         </div>
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
           <span style="font-size:.72rem; color:var(--text-3)">If Played</span>
-          <strong style="display:block; font-size:1.1rem; color:{% if avoid_if_played_acc is not none and avoid_if_played_acc < 50 %}var(--c-danger){% else %}var(--text){% endif %}">
+          <strong style="display:block; font-size:1.1rem" class="{%- if avoid_if_played_acc is not none and avoid_if_played_acc < 50 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
             {% if avoid_if_played_acc is not none %}{{ '%.1f'|format(avoid_if_played_acc) }}%{% else %}—{% endif %}
           </strong>
         </div>
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
           <span style="font-size:.72rem; color:var(--text-3)">Post-Avoid</span>
-          <strong style="display:block; font-size:1.1rem; color:{% if avoid_after_avoiding_acc is not none and avoid_after_avoiding_acc >= 55 %}var(--c-strong){% else %}var(--text){% endif %}">
+          <strong style="display:block; font-size:1.1rem" class="{%- if avoid_after_avoiding_acc is not none and avoid_after_avoiding_acc >= 55 -%}c-positive{%- else -%}c-neutral{%- endif -%}">
             {% if avoid_after_avoiding_acc is not none %}{{ '%.1f'|format(avoid_after_avoiding_acc) }}%{% else %}—{% endif %}
           </strong>
         </div>
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
           <span style="font-size:.72rem; color:var(--text-3)">Improvement</span>
-          <strong style="display:block; font-size:1.1rem; color:{% if avoid_after_avoiding_acc is not none and avoid_if_played_acc is not none and (avoid_after_avoiding_acc - avoid_if_played_acc) > 0 %}var(--c-strong){% else %}var(--text){% endif %}">
+          <strong style="display:block; font-size:1.1rem" class="{%- if avoid_after_avoiding_acc is not none and avoid_if_played_acc is not none and (avoid_after_avoiding_acc - avoid_if_played_acc) > 0 -%}c-positive{%- else -%}c-neutral{%- endif -%}">
             {% if avoid_after_avoiding_acc is not none and avoid_if_played_acc is not none %}{{ '%.1fpp'|format(avoid_after_avoiding_acc - avoid_if_played_acc) }}{% else %}—{% endif %}
           </strong>
         </div>
@@ -381,7 +392,7 @@
               <td>
                 {% if cal.calibration_gap is not none %}
                 {% set gap_pct = (cal.calibration_gap * 100) | round(1) %}
-                <span style="color:{% if cal.calibration_gap < -0.05 %}var(--c-danger){% elif cal.calibration_gap > 0.05 %}var(--c-active){% else %}var(--c-strong){% endif %}">
+                <span class="{%- if cal.calibration_gap < -0.05 -%}c-negative{%- elif cal.calibration_gap > 0.05 -%}c-active{%- else -%}c-positive{%- endif -%}">
                   {{ '+' if cal.calibration_gap > 0 else '' }}{{ gap_pct }}%
                 </span>
                 {% else %}—{% endif %}
@@ -411,8 +422,6 @@
     {% endif %}
   </div>
 </div>
-{% endblock %}
-
 {# --- VISUALIZATION: Win Rate Trend --- #}
   <div class="sp-panel" style="margin:1.5rem 0 0 0">
     <span class="sp-kicker">Performance Trend</span>
@@ -454,3 +463,4 @@
     </script>
   </div>
   {# --- END VISUALIZATION --- #}
+{% endblock %}

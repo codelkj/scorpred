@@ -4,7 +4,6 @@
 {% block content %}
 {% set home_match_analysis_href = '/prediction' if session.get('team_a_id') else '/nba/prediction' if session.get('nba_team_a_id') else '/soccer' %}
 
-<<<<<<< HEAD
   {# ── Hero ─────────────────────────────────────────────────────────────── #}
   <section class="sp-home-hero">
     <span class="sp-kicker">ScorPred</span>
@@ -12,58 +11,6 @@
     <p class="sp-home-hero__copy">
       Explainable match signals, confidence controls, and tracked outcomes —
       every decision backed by data you can inspect.
-=======
-<div class="card glow-card" style="margin-bottom:2rem;">
-  <h2 class="card-title" style="margin-bottom:1rem;">What would you like to analyze today?</h2>
-  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:1rem;">
-    <a href="/soccer" class="card glow-card" style="text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="text-align:center; padding:1.5rem;">
-        <div style="font-size:2rem; margin-bottom:.5rem;">⚽</div>
-        <h3 style="font-size:1.2rem; font-weight:600; margin-bottom:.3rem;">Soccer Analysis</h3>
-        <p style="color:#8b949e; font-size:.85rem;">Multi-league club football and international fixtures</p>
-      </div>
-    </a>
-
-    <a href="{{ url_for('nba.index') }}" class="card glow-card" style="text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="text-align:center; padding:1.5rem;">
-        <div style="font-size:2rem; margin-bottom:.5rem;">🏀</div>
-        <h3 style="font-size:1.2rem; font-weight:600; margin-bottom:.3rem;">NBA Analysis</h3>
-        <p style="color:#8b949e; font-size:.85rem;">NBA games and player props</p>
-      </div>
-    </a>
-
-    <a href="/top-picks-today" class="card glow-card" style="text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="text-align:center; padding:1.5rem;">
-        <div style="font-size:2rem; margin-bottom:.5rem;">🎯</div>
-        <h3 style="font-size:1.2rem; font-weight:600; margin-bottom:.3rem;">Top Picks Today</h3>
-        <p style="color:#8b949e; font-size:.85rem;">Strongest predictions across all sports</p>
-      </div>
-    </a>
-
-    <a href="/model-performance" class="card glow-card" style="text-decoration:none; color:inherit; display:block; transition:transform .2s ease, box-shadow .2s ease;"
-       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(0,255,135,.15)'"
-       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
-      <div style="text-align:center; padding:1.5rem;">
-        <div style="font-size:2rem; margin-bottom:.5rem;">📊</div>
-        <h3 style="font-size:1.2rem; font-weight:600; margin-bottom:.3rem;">Model Performance</h3>
-        <p style="color:#8b949e; font-size:.85rem;">Track accuracy and results</p>
-      </div>
-    </a>
-  </div>
-</div>
-
-<div class="card glow-card" style="background:rgba(239,68,68,.05); border:1px solid rgba(239,68,68,.2);">
-  <div style="text-align:center; padding:1rem;">
-    <div style="font-size:1.1rem; font-weight:600; color:#ef4444; margin-bottom:.5rem;">⚠️ Important Notice</div>
-    <p style="color:#8b949e; font-size:.9rem; margin:0;">
-      ScorPred provides model-based analysis for informational purposes only. It is not financial advice, guaranteed betting advice, or a recommendation to place any bets. All predictions are based on statistical models and historical data, but sports outcomes are inherently unpredictable.
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     </p>
     <div class="sp-home-hero__actions">
       <a href="{{ home_match_analysis_href }}" class="btn btn-primary btn-lg">Analyze Match</a>
