@@ -55,6 +55,7 @@
         <div class="sp-topbar__pills">
           {% if data_source %}<span class="sp-topbar__pill">{{ data_source }}</span>{% endif %}
           {% if last_updated %}<span class="sp-topbar__pill">{{ last_updated }}</span>{% endif %}
+          {% if is_stale %}<span class="sp-topbar__pill sp-topbar__pill--stale" title="Showing cached data — live feed temporarily unavailable">Cached data</span>{% endif %}
         </div>
         <div class="sp-topbar__auth">
           {% if is_guest %}

@@ -62,22 +62,30 @@ except Exception:  # pragma: no cover
 load_dotenv()
 ensure_runtime_dirs()
 
+import logging as _logging
+_logger = _logging.getLogger(__name__)
+
+# ── Production startup guard ───────────────────────────────────────────────────
+_secret_key = os.environ.get("SECRET_KEY", "").strip()
+_is_production = bool(os.environ.get("RENDER") or os.environ.get("FLASK_ENV") == "production")
+if _is_production and not _secret_key:
+    raise RuntimeError(
+        "SECRET_KEY environment variable must be set in production. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+if not _secret_key:
+    _logger.warning("SECRET_KEY not set — using an insecure default. Set SECRET_KEY for production.")
+    _secret_key = "dev-insecure-key-change-me"
 
 # --- Persistent session config ---
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
-configure_security(app, os.getenv("SECRET_KEY", "").strip())
+configure_security(app, _secret_key)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///scorpred.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-# Ensure SECRET_KEY is always set for session/CSRF
-if not app.config.get("SECRET_KEY"):
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-in-production")
-    # Optionally log a warning if using default
-    if app.config["SECRET_KEY"] == "change-this-in-production":
-        print("WARNING: Using default SECRET_KEY. Set SECRET_KEY in your environment for security!")
 db.init_app(app)
 # --- Persistent session config ---
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
@@ -98,6 +106,20 @@ def inject_auth_context():
         "current_user": user_auth.current_user(),
         "is_guest": user_auth.current_user() is None,
     }
+
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(exc):
+    _logger.error("Unhandled exception in route %s: %s", request.path, exc, exc_info=True)
+    return render_template(
+        "error.html",
+        message="Something went wrong. Please try again or go back to the home page.",
+    ), 500
+
+
+@app.errorhandler(404)
+def handle_404(exc):
+    return render_template("error.html", message="Page not found."), 404
 
 
 LEAGUE = DEFAULT_LEAGUE_ID
@@ -753,11 +775,7 @@ def _pick_stat_from_row(team_row: dict, aliases: list[str]) -> float | None:
 
 
 def _soccer_form_snapshot(team_id: int, league_id: int) -> dict | None:
-    result = ac.get_team_fixtures(team_id, league_id, SEASON, last=10)
-    if result.get("status") == "fail":
-        print(f"[ROUTE] get_team_fixtures failed: {result.get('error')}")
-        return None
-    fixtures = result.get("data", [])
+    fixtures = ac.get_team_fixtures(team_id, league_id, SEASON, last=10)
     recent = pred.extract_form(pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON), team_id)[:5]
     if not recent:
         return None
@@ -2443,7 +2461,7 @@ def index():
 
 @app.route("/soccer", methods=["GET"])
 def soccer():
-    print("[ROUTE] /soccer hit")
+    _logger.debug("Route /soccer hit")
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
     teams = ac.get_teams(league_id, SEASON)

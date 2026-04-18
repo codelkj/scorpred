@@ -1,28 +1,3 @@
-# --- In-memory cache for lightweight caching (per-process, not shared) ---
-import threading
-_memory_cache = {}
-_cache_lock = threading.Lock()
-
-# Per-endpoint TTLs (seconds)
-_ENDPOINT_TTLS = {
-    "fixtures": 120,
-    "teams": 300,
-    "standings": 300,
-    "players": 300,
-    "injuries": 180,
-    # fallback default
-    "default": 120,
-}
-
-def _make_cache_key(endpoint: str, params: dict) -> str:
-    key = endpoint + ":" + json.dumps(params or {}, sort_keys=True)
-    return hashlib.md5(key.encode()).hexdigest()
-
-def _get_cache_ttl(endpoint: str) -> int:
-    for k in _ENDPOINT_TTLS:
-        if endpoint.startswith(k):
-            return _ENDPOINT_TTLS[k]
-    return _ENDPOINT_TTLS["default"]
 """
 api_client.py — API-Football (RapidAPI) wrapper with JSON caching.
 
@@ -30,6 +5,9 @@ Provider: api-football-v1.p.rapidapi.com
 Cache:    cache/football/  (1-hour TTL by default)
 Retry:    HTTP 429 → wait 12 s → retry once
 On error: returns empty list or empty dict — never raises to caller
+
+NOTE: In-memory cache (_memory_cache) is per-process only. Do not treat
+it as shared state across gunicorn workers.
 """
 
 import logging
@@ -121,6 +99,60 @@ ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 ESPN_V2_BASE = "https://site.api.espn.com/apis/v2/sports/soccer"
 ESPN_WEB_BASE = "https://site.web.api.espn.com/apis/common/v3/sports/soccer"
 
+# ── Logging ────────────────────────────────────────────────────────────────────
+_logger = logging.getLogger("api_client")
+
+# ── In-memory cache (per-process only — not shared across gunicorn workers) ───
+import threading
+_memory_cache: dict = {}
+_cache_lock = threading.Lock()
+
+# ── TTL constants (seconds) — single source of truth ─────────────────────────
+_ENDPOINT_TTLS: dict[str, int] = {
+    "fixtures":          120,   # 2 min  — match schedules change infrequently
+    "fixtures/headtohead": 3600, # 1 hr   — historical, rarely changes
+    "teams":             3600,  # 1 hr
+    "standings":         300,   # 5 min
+    "players":           3600,  # 1 hr
+    "injuries":          600,   # 10 min — injury status can change on matchday
+    "predictions":       3600,  # 1 hr
+    "scoreboard":        120,   # 2 min  — ESPN live scores
+    "default":           300,   # 5 min  — fallback
+}
+
+def _get_cache_ttl(endpoint: str) -> int:
+    for key in _ENDPOINT_TTLS:
+        if endpoint.startswith(key):
+            return _ENDPOINT_TTLS[key]
+    return _ENDPOINT_TTLS["default"]
+
+def _make_cache_key(endpoint: str, params: dict | None) -> str:
+    raw = endpoint + ":" + json.dumps(params or {}, sort_keys=True)
+    return hashlib.md5(raw.encode()).hexdigest()
+
+# ── 403 session suppression — never retry a forbidden endpoint this process ──
+# Cleared on process restart. Prevents hammering a key-gated endpoint.
+_FORBIDDEN_ENDPOINTS: set[str] = set()
+
+# ── Token bucket — cap burst API calls per request context ───────────────────
+_MAX_CALLS_PER_REQUEST = 12
+
+def _request_call_count() -> int:
+    try:
+        from flask import g
+        return getattr(g, "_api_call_count", 0)
+    except Exception:
+        return 0
+
+def _increment_request_call_count() -> int:
+    try:
+        from flask import g
+        count = getattr(g, "_api_call_count", 0) + 1
+        g._api_call_count = count
+        return count
+    except Exception:
+        return 0
+
 # ── Cache helpers ──────────────────────────────────────────────────────────────
 
 def _cache_path(endpoint: str, params: dict) -> Path:
@@ -176,24 +208,39 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
         if cache_entry:
             age = now - cache_entry["ts"]
             if age < cache_ttl and not force_refresh:
-                print(f"[API_CLIENT] In-memory cache hit for {endpoint} (age={age:.1f}s)")
+                _logger.debug("In-memory cache hit for %s (age=%.1fs)", endpoint, age)
                 return {"data": cache_entry["data"], "status": "success", "cached": True}
             elif age < cache_ttl * 3:
-                print(f"[API_CLIENT] In-memory cache stale fallback available for {endpoint} (age={age:.1f}s)")
+                _logger.debug("Stale in-memory cache available for %s (age=%.1fs)", endpoint, age)
                 stale_entry = cache_entry
             else:
                 stale_entry = None
         else:
             stale_entry = None
 
-    print(f"[API_CLIENT] Loading API_FOOTBALL_KEY: {'set' if bool(api_key) else 'MISSING'}")
     if not api_key:
-        print("[API_CLIENT] ERROR: Missing API_FOOTBALL_KEY environment variable.")
-        return {"error": "Missing API_FOOTBALL_KEY", "status": "fail"}
+        _logger.error("Missing API_FOOTBALL_KEY environment variable.")
+        return {"error": "Live data unavailable — API key not configured.", "status": "fail"}
+
+    # 403 session suppression: if this endpoint was forbidden this process, skip the call
+    endpoint_base = endpoint.split("?")[0].split("/")[0]
+    if endpoint_base in _FORBIDDEN_ENDPOINTS:
+        _logger.debug("Skipping forbidden endpoint %s (403 suppressed)", endpoint)
+        if stale_entry:
+            return {"data": stale_entry["data"], "status": "success", "stale": True}
+        return {"error": "Live data unavailable for this endpoint.", "status": "fail", "restricted": True}
+
+    # Token bucket: cap burst API calls per request
+    call_count = _increment_request_call_count()
+    if call_count > _MAX_CALLS_PER_REQUEST:
+        _logger.warning("Request call budget exceeded (%d) for endpoint %s", call_count, endpoint)
+        if stale_entry:
+            return {"data": stale_entry["data"], "status": "success", "stale": True}
+        return {"error": "Live data temporarily unavailable.", "status": "fail"}
+
     url = f"{API_BASE}/{endpoint.lstrip('/')}"
 
-    # --- Prevent duplicate calls in the same request context ---
-    # Use Flask's g if available, else fallback to a module-level dict
+    # Per-request dedup cache — prevent identical calls within one page render
     try:
         from flask import g
         _request_cache = getattr(g, "_api_client_req_cache", None)
@@ -205,7 +252,7 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
 
     req_cache_key = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
     if _request_cache is not None and req_cache_key in _request_cache:
-        print(f"[API_CLIENT] Skipping duplicate API call for {endpoint} in this request (using request cache)")
+        _logger.debug("Dedup cache hit for %s in this request", endpoint)
         return _request_cache[req_cache_key]
 
     result = None
@@ -219,34 +266,36 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                     params=params,
                     timeout=EXTERNAL_API_TIMEOUT_SECONDS,
                 )
-            print(f"[API_CLIENT] {url} status={resp.status_code}")
+            _logger.debug("%s status=%s", url, resp.status_code)
             if resp.status_code == 429:
-                print(f"[API_CLIENT] Rate limit hit for {endpoint} (429)")
+                _logger.warning("Rate limit (429) for %s", endpoint)
                 if stale_entry:
-                    print(f"[API_CLIENT] Returning stale cache for {endpoint} due to rate limit.")
+                    _logger.info("Serving stale cache for %s after 429", endpoint)
                     result = {"data": stale_entry["data"], "status": "success", "stale": True}
                 else:
-                    result = {"error": "Rate limit reached. Please try again shortly.", "status": "fail"}
+                    result = {"error": "Live data temporarily unavailable. Please try again shortly.", "status": "fail"}
                 break
             if resp.status_code == 403:
-                print(f"[API_CLIENT] ERROR: 403 Forbidden. API key invalid or access denied.")
-                # Custom error for injuries endpoint
-                if "injuries" in endpoint:
-                    result = {"error": "This data is not available on the current API plan.", "status": "fail", "restricted": True}
+                _FORBIDDEN_ENDPOINTS.add(endpoint_base)
+                _logger.warning("403 Forbidden for endpoint '%s' — suppressing for this session", endpoint)
+                if stale_entry:
+                    result = {"data": stale_entry["data"], "status": "success", "stale": True}
+                elif "injuries" in endpoint:
+                    result = {"error": "Injury data is not available on the current API plan.", "status": "fail", "restricted": True}
                 else:
-                    result = {"error": "API-Football RapidAPI access is unavailable for this key.", "status": "fail"}
+                    result = {"error": "Live data unavailable for this endpoint.", "status": "fail", "restricted": True}
                 break
             if resp.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
                 retry_after = resp.headers.get("Retry-After")
                 sleep_seconds = float(retry_after) if retry_after else EXTERNAL_API_RETRY_BACKOFF_SECONDS
-                print(f"[API_CLIENT] Retrying after {sleep_seconds}s (status {resp.status_code})")
+                _logger.warning("Retrying %s after %.1fs (status %s)", endpoint, sleep_seconds, resp.status_code)
                 time.sleep(sleep_seconds)
                 continue
             resp.raise_for_status()
             data = resp.json()
             if data.get("errors"):
-                print(f"[API_CLIENT] API error: {data['errors']}")
-                result = {"error": f"API-Football error: {data['errors']}", "status": "fail"}
+                _logger.warning("API-Football error for %s: %s", endpoint, data["errors"])
+                result = {"error": "Data unavailable from provider.", "status": "fail"}
                 break
             _save(path, data)
             with _cache_lock:
@@ -254,15 +303,15 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             result = {"data": data, "status": "success"}
             break
         except (requests.RequestException, ValueError) as e:
-            print(f"[API_CLIENT] Exception: {e}")
+            _logger.warning("Request failed for %s (attempt %d): %s", endpoint, attempt + 1, e)
             if attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
                 time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS)
                 continue
             if stale_entry:
-                print(f"[API_CLIENT] Returning stale cache for {endpoint} after exception.")
+                _logger.info("Serving stale cache for %s after exception", endpoint)
                 result = {"data": stale_entry["data"], "status": "success", "stale": True}
             else:
-                result = {"error": str(e), "status": "fail"}
+                result = {"error": "Live data temporarily unavailable.", "status": "fail"}
             break
 
     # Fallback: try disk cache if no result
@@ -270,15 +319,15 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
         if path.exists():
             try:
                 cached = _load(path)
-                print("[API_CLIENT] Returning disk cached data after API failure.")
+                _logger.info("Serving disk cache for %s after API failure", endpoint)
                 with _cache_lock:
                     _memory_cache[cache_key] = {"data": cached, "ts": now}
                 result = {"data": cached, "status": "success", "stale": True}
             except Exception as e:
-                print(f"[API_CLIENT] Cache load failed: {e}")
-                result = {"error": f"API-Football request failed for {endpoint}", "status": "fail"}
+                _logger.error("Disk cache load failed for %s: %s", endpoint, e)
+                result = {"error": "Data unavailable.", "status": "fail"}
         else:
-            result = {"error": f"API-Football request failed for {endpoint}", "status": "fail"}
+            result = {"error": "Data unavailable.", "status": "fail"}
 
     # Store in request-level cache if available
     if _request_cache is not None:

@@ -21,6 +21,7 @@ def page_context(api_client, data_source: str | None = None, **kwargs) -> dict:
     context = {
         "data_source": data_source or football_data_source(api_client),
         "last_updated": now_stamp(),
+        "is_stale": kwargs.pop("is_stale", False),
     }
     context.update(kwargs)
     return context

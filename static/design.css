@@ -194,6 +194,9 @@ h3 { font-size: 1.05rem; }
   background: var(--bg-raised); color: var(--text-3);
   border: 1px solid var(--border);
 }
+.sp-topbar__pill--stale {
+  background: var(--c-caution, #b45309); color: #fff; border-color: transparent;
+}
 .sp-mobile-toggle {
   display: none;
   background: none; border: none; color: var(--text);
