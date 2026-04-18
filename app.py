@@ -69,6 +69,15 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 configure_security(app, os.getenv("SECRET_KEY", "").strip())
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///scorpred.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+# Ensure SECRET_KEY is always set for session/CSRF
+if not app.config.get("SECRET_KEY"):
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-in-production")
+    # Optionally log a warning if using default
+    if app.config["SECRET_KEY"] == "change-this-in-production":
+        print("WARNING: Using default SECRET_KEY. Set SECRET_KEY in your environment for security!")
 db.init_app(app)
 # --- Persistent session config ---
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
