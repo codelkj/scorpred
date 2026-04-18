@@ -53,10 +53,18 @@
 {# ═══ KPI Strip ══════════════════════════════════════════════════════════ #}
 <div class="sp-kpi-strip">
   <div class="sp-kpi">
-    <span class="sp-kpi__label">Accuracy</span>
-    <strong class="sp-kpi__value" style="color:{% if best_accuracy is not none and best_accuracy >= 55 %}var(--c-strong){% elif best_accuracy is not none and best_accuracy < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
-      {{ ('%.1f'|format(best_accuracy) ~ '%') if best_accuracy is not none else 'Awaiting' }}
+    <span class="sp-kpi__label">Live Hit Rate</span>
+    <strong class="sp-kpi__value" style="color:{% if live_hit_rate is not none and live_hit_rate >= 55 %}var(--c-strong){% elif live_hit_rate is not none and live_hit_rate < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+      {{ ('%.1f'|format(live_hit_rate) ~ '%') if live_hit_rate is not none else 'Awaiting' }}
     </strong>
+    <span style="font-size:.7rem; color:var(--text-3)">{{ live_sample_size }} tracked</span>
+  </div>
+  <div class="sp-kpi">
+    <span class="sp-kpi__label">Offline Accuracy</span>
+    <strong class="sp-kpi__value" style="color:{% if offline_accuracy is not none and offline_accuracy >= 55 %}var(--c-strong){% elif offline_accuracy is not none and offline_accuracy < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+      {{ ('%.1f'|format(offline_accuracy) ~ '%') if offline_accuracy is not none else 'Awaiting' }}
+    </strong>
+    <span style="font-size:.7rem; color:var(--text-3)">holdout eval</span>
   </div>
   <div class="sp-kpi">
     <span class="sp-kpi__label">Edge vs Baseline</span>
@@ -64,7 +72,7 @@
   </div>
   <div class="sp-kpi">
     <span class="sp-kpi__label">Finalized</span>
-    <strong class="sp-kpi__value">{{ metrics.finalized_predictions or 0 }}</strong>
+    <strong class="sp-kpi__value">{{ live_sample_size or 0 }}</strong>
     <span style="font-size:.7rem; color:var(--text-3)">of {{ metrics.total_predictions or 0 }}</span>
   </div>
   <div class="sp-kpi">
