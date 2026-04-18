@@ -811,20 +811,10 @@ def _build_soccer_evidence(record: dict) -> dict:
     fixture = None
     fixture_id = _safe_int(record.get("fixture_id"))
     if fixture_id:
-        fixture_result = ac.get_fixture_by_id(fixture_id)
-        if fixture_result.get("status") == "fail":
-            print(f"[ROUTE] get_fixture_by_id failed: {fixture_result.get('error')}")
-            fixture = None
-        else:
-            fixture = fixture_result.get("data", {}).get("response", [{}])[0]
+        fixture = ac.get_fixture_by_id(fixture_id) or None
 
     if team_a_id and team_b_id and not fixture:
-        h2h_result = ac.get_h2h(team_a_id, team_b_id, last=20)
-        if h2h_result.get("status") == "fail":
-            print(f"[ROUTE] get_h2h failed: {h2h_result.get('error')}")
-            h2h_candidates = []
-        else:
-            h2h_candidates = h2h_result.get("data", [])
+        h2h_candidates = ac.get_h2h(team_a_id, team_b_id, last=20)
 
         for item in h2h_candidates:
             if not _fixture_finished(item):
@@ -2457,17 +2447,17 @@ def soccer():
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
     teams = ac.get_teams(league_id, SEASON)
-    fixtures_result = ac.api_get("fixtures", {"league": league_id, "season": SEASON})
-    if fixtures_result.get("status") == "fail":
-        print(f"[ROUTE] fixtures API failed: {fixtures_result.get('error')}")
-        return render_template("error.html", message=fixtures_result.get("error", "Unable to load fixtures."))
-    fixtures = fixtures_result.get("data", {}).get("response", [])
+    try:
+        fixtures = ac.get_upcoming_fixtures(league_id, SEASON)
+    except Exception as exc:
+        app.logger.warning("Upcoming fixtures fetch failed: %s", exc)
+        fixtures = []
     return render_template(
         "soccer.html",
         teams=teams,
         upcoming_fixtures=fixtures,
-        fixtures_error=None if fixtures else "No fixtures available.",
-        fixtures_source="api",
+        fixtures_error=None if fixtures else "No upcoming fixtures available.",
+        fixtures_source=_football_data_source(),
         selection_notice=(request.args.get("selection_error") or "").strip() or None,
         selected_fixture=_selected_fixture(),
         **_league_context(league_id),
