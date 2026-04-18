@@ -32,12 +32,13 @@
       {{ 'ESPN' if fixtures_source == 'espn' else 'API' }}
     </span>
   </div>
+
   {% if upcoming_fixtures %}
     {% for f in upcoming_fixtures %}
       <div class="sp-fixture__vs">vs</div>
       <div class="sp-fixture__team right">
-        <span>{{ f.teams.away.name }}</span>
-        <img src="{{ f.teams.away.logo }}" class="team-logo-sm" alt="{{ f.teams.away.name }}" />
+        <span>{{ f.teams.away.name if f.teams and f.teams.away else 'TBD' }}</span>
+        <img src="{{ f.teams.away.logo if f.teams and f.teams.away else '' }}" class="team-logo-sm" alt="{{ f.teams.away.name if f.teams and f.teams.away else 'TBD' }}" />
       </div>
       {# ...existing fixture card rendering here... #}
     {% endfor %}

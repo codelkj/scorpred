@@ -740,15 +740,14 @@ def _pick_stat_from_row(team_row: dict, aliases: list[str]) -> float | None:
 
 
 def _soccer_form_snapshot(team_id: int, league_id: int) -> dict | None:
-    try:
-        fixtures = ac.get_team_fixtures(team_id, league_id, SEASON, last=10)
-    except Exception:
+    result = ac.get_team_fixtures(team_id, league_id, SEASON, last=10)
+    if result.get("status") == "fail":
+        print(f"[ROUTE] get_team_fixtures failed: {result.get('error')}")
         return None
-
+    fixtures = result.get("data", [])
     recent = pred.extract_form(pred.filter_recent_completed_fixtures(fixtures, current_season=SEASON), team_id)[:5]
     if not recent:
         return None
-
     return {
         "matches": len(recent),
         "wins": sum(1 for row in recent if row.get("result") == "W"),
@@ -789,11 +788,12 @@ def _build_soccer_evidence(record: dict) -> dict:
     team_a_name = str(record.get("team_a") or "")
     team_b_name = str(record.get("team_b") or "")
 
-    teams = []
-    try:
-        teams = ac.get_teams(league_id, SEASON)
-    except Exception:
+    teams_result = ac.get_teams(league_id, SEASON)
+    if teams_result.get("status") == "fail":
+        print(f"[ROUTE] get_teams failed: {teams_result.get('error')}")
         teams = []
+    else:
+        teams = teams_result.get("data", {}).get("response", [])
 
     team_a = _resolve_provider_team_by_name(team_a_name, teams)
     team_b = _resolve_provider_team_by_name(team_b_name, teams)
@@ -803,13 +803,20 @@ def _build_soccer_evidence(record: dict) -> dict:
     fixture = None
     fixture_id = _safe_int(record.get("fixture_id"))
     if fixture_id:
-        fixture = ac.get_fixture_by_id(fixture_id)
+        fixture_result = ac.get_fixture_by_id(fixture_id)
+        if fixture_result.get("status") == "fail":
+            print(f"[ROUTE] get_fixture_by_id failed: {fixture_result.get('error')}")
+            fixture = None
+        else:
+            fixture = fixture_result.get("data", {}).get("response", [{}])[0]
 
     if team_a_id and team_b_id and not fixture:
-        try:
-            h2h_candidates = ac.get_h2h(team_a_id, team_b_id, last=20)
-        except Exception:
+        h2h_result = ac.get_h2h(team_a_id, team_b_id, last=20)
+        if h2h_result.get("status") == "fail":
+            print(f"[ROUTE] get_h2h failed: {h2h_result.get('error')}")
             h2h_candidates = []
+        else:
+            h2h_candidates = h2h_result.get("data", [])
 
         for item in h2h_candidates:
             if not _fixture_finished(item):
@@ -2438,40 +2445,28 @@ def index():
 
 @app.route("/soccer", methods=["GET"])
 def soccer():
+    print("[ROUTE] /soccer hit")
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
-    load_error = None
-    teams = []
-    upcoming_fixtures = []
-    fixtures_error = None
-    fixtures_source = _football_data_source()
-
-    try:
-        teams = ac.get_teams(league_id, SEASON)
-    except Exception as exc:
-        load_error = str(exc)
-        app.logger.error("Failed to fetch teams: %s", exc)
-
-    try:
-        upcoming_fixtures, fixtures_error, fixtures_source, _ = _load_upcoming_fixtures(next_n=8, league=league_id)
-    except Exception as exc:
-        fixtures_error = str(exc)
-        app.logger.error("Failed to fetch upcoming fixtures: %s", exc)
-
-
+    teams_result = ac.get_teams(league_id, SEASON)
+    if teams_result.get("status") == "fail":
+        print(f"[ROUTE] get_teams failed: {teams_result.get('error')}")
+        return render_template("error.html", message=teams_result.get("error", "Unable to load teams."))
+    teams = teams_result.get("data", {}).get("response", [])
+    fixtures_result = ac.api_get("fixtures", {"league": league_id, "season": SEASON})
+    if fixtures_result.get("status") == "fail":
+        print(f"[ROUTE] fixtures API failed: {fixtures_result.get('error')}")
+        return render_template("error.html", message=fixtures_result.get("error", "Unable to load fixtures."))
+    fixtures = fixtures_result.get("data", {}).get("response", [])
     return render_template(
         "soccer.html",
-        **_page_context(
-            data_source=fixtures_source,
-            teams=teams or [],
-            load_error=load_error,
-            upcoming_fixtures=upcoming_fixtures or [],
-            fixtures_error=fixtures_error,
-            fixtures_source=fixtures_source,
-            selection_notice=(request.args.get("selection_error") or "").strip() or None,
-            selected_fixture=_selected_fixture(),
-            **_league_context(league_id),
-        ),
+        teams=teams,
+        upcoming_fixtures=fixtures,
+        fixtures_error=None if fixtures else "No fixtures available.",
+        fixtures_source="api",
+        selection_notice=(request.args.get("selection_error") or "").strip() or None,
+        selected_fixture=_selected_fixture(),
+        **_league_context(league_id),
     )
 
 

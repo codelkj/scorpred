@@ -25,11 +25,14 @@
   </span>
 </div>
 
+
 {% if not fixtures %}
 <div class="card glow-card">
   <div class="empty-state">No upcoming fixtures found for this competition.</div>
 </div>
-{% else %}
+{% endif %}
+
+{% if fixtures %}
 
 {% for f in fixtures %}
 {% set p = f.prediction or {} %}
