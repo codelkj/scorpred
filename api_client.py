@@ -7,6 +7,8 @@ Retry:    HTTP 429 → wait 12 s → retry once
 On error: returns empty list or empty dict — never raises to caller
 """
 
+
+import logging
 from __future__ import annotations
 
 import hashlib
@@ -742,6 +744,15 @@ def get_fixture_stats(fixture_id: int) -> list:
     return []
 
 
+def get_fixture_by_id(fixture_id: int) -> dict:
+    try:
+        data = api_get("fixtures", {"id": fixture_id}, cache_hours=24)
+        response = data.get("response") or []
+        return response[0] if response else {}
+    except Exception:
+        return {}
+
+
 def get_fixture_events(fixture_id: int) -> list:
     try:
         data = api_get("fixtures/events", {"fixture": fixture_id}, cache_hours=24)
@@ -750,6 +761,79 @@ def get_fixture_events(fixture_id: int) -> list:
     except Exception:
         pass
     return []
+
+
+def get_match_events(fixture_id: int) -> dict[str, Any]:
+    """Return goal scorers grouped by home/away side for a fixture.
+
+    Filters only scoring events from the fixture events endpoint and deduplicates
+    repeated provider rows. Own goals are credited to the benefiting team.
+    """
+    fixture = get_fixture_by_id(fixture_id)
+    teams = fixture.get("teams") or {}
+    home = teams.get("home") or {}
+    away = teams.get("away") or {}
+    home_name = home.get("name", "")
+    away_name = away.get("name", "")
+
+    result = {
+        "home_team": home_name,
+        "away_team": away_name,
+        "home_goals": [],
+        "away_goals": [],
+    }
+
+    seen: set[tuple[str, str, str, str]] = set()
+    for event in get_fixture_events(fixture_id):
+        event_type = str(event.get("type") or "").strip().lower()
+        detail = str(event.get("detail") or "").strip()
+        detail_lower = detail.lower()
+        if event_type != "goal":
+            continue
+
+        goal_type = "Goal"
+        if "pen" in detail_lower:
+            goal_type = "Penalty"
+        elif "own" in detail_lower:
+            goal_type = "Own Goal"
+        elif detail:
+            goal_type = detail
+
+        time_info = event.get("time") or {}
+        elapsed = time_info.get("elapsed")
+        extra = time_info.get("extra")
+        if elapsed is None:
+            minute = ""
+        elif extra not in (None, "", 0):
+            minute = f"{elapsed}+{extra}'"
+        else:
+            minute = f"{elapsed}'"
+
+        team_name = ((event.get("team") or {}).get("name") or "").strip()
+        player_name = ((event.get("player") or {}).get("name") or "").strip() or "Unknown"
+        dedupe_key = (team_name, player_name, minute, goal_type)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+
+        item = {
+            "player": player_name,
+            "minute": minute,
+            "type": goal_type,
+            "team": team_name,
+        }
+
+        if goal_type == "Own Goal":
+            if team_name == home_name:
+                result["away_goals"].append(item)
+            elif team_name == away_name:
+                result["home_goals"].append(item)
+        elif team_name == home_name:
+            result["home_goals"].append(item)
+        elif team_name == away_name:
+            result["away_goals"].append(item)
+
+    return result
 
 
 def get_fixture_player_stats(
@@ -770,15 +854,19 @@ def get_fixture_player_stats(
     return _player_stats_entry(resp, player_id)
 
 
-def get_squad(team_id: int, season: int = CURRENT_SEASON) -> list:
+def get_squad(
+    team_id: int,
+    season: int = CURRENT_SEASON,
+    league_id: int = DEFAULT_LEAGUE_ID,
+) -> list:
     try:
         data = api_get("players/squads", {"team": team_id}, cache_hours=6).get("response", [])
         if data:
             return data[0].get("players", [])
     except Exception:
         pass
-    league_id = DEFAULT_LEAGUE_ID
-    for possible_league in [DEFAULT_LEAGUE_ID, *SUPPORTED_LEAGUE_IDS]:
+    leagues_to_try = [league_id, *[lid for lid in SUPPORTED_LEAGUE_IDS if lid != league_id]]
+    for possible_league in leagues_to_try:
         try:
             roster = [_normalize_espn_squad_player(player) for player in _espn_roster(team_id, possible_league)]
             if roster:

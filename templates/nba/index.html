@@ -60,11 +60,27 @@
     {% set sc = g.scores %}
     {% set h_pts = sc.home.points %}
     {% set v_pts = sc.visitors.points %}
+<<<<<<< HEAD
     <div class="sp-panel sp-panel--tight" style="margin-bottom:0">
       <div style="display:flex; flex-wrap:wrap; gap:.4rem; font-size:.75rem; color:var(--text-3); margin-bottom:.35rem">
         <span>{{ g.date.start[:10] }}</span>
         {% if g.date.start|length > 10 %}<span>{{ g.date.start[11:16] }} UTC</span>{% endif %}
         {% if g.venue and g.venue.name %}<span>{{ g.venue.name }}</span>{% endif %}
+=======
+    {% set status_state = (g.status.state or '')|lower %}
+    {% set is_live_or_final = status_state in ['in', 'live', 'post', 'final', 'finished'] %}
+    
+    <div class="fpred-card" style="margin-bottom: 1.5rem;">
+      <!-- Meta row with confidence badge -->
+      <div class="fpred-meta" style="margin-bottom: 0.8rem;">
+        <span>📅 {{ g.date.start[:10] }}</span>
+        {% if g.date.start|length > 10 %}
+        <span>🕐 {{ g.date.start[11:16] }} UTC</span>
+        {% endif %}
+        {% if g.venue and g.venue.name %}
+        <span>🏟 {{ g.venue.name }}</span>
+        {% endif %}
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         {% if g.prediction and g.prediction.best_pick %}
         <span class="sp-badge sp-badge--{{ 'strong' if g.prediction.best_pick.confidence == 'High' else ('caution' if g.prediction.best_pick.confidence == 'Medium' else 'muted') }}" style="font-size:.65rem">
           {{ g.prediction.best_pick.confidence_label or (g.prediction.best_pick.confidence ~ ' Confidence') }}
@@ -86,11 +102,34 @@
         </div>
       </div>
 
+<<<<<<< HEAD
       <div style="font-size:.78rem; color:var(--text-2); margin-bottom:.4rem">
         {% if h_pts is not none and v_pts is not none %}
         Final: {{ h_pts }} – {{ v_pts }} · {{ g.status.long }}
         {% elif g.prediction and g.prediction.best_pick %}
         Pick: <strong style="color:var(--c-strong)">{{ g.prediction.best_pick.prediction or '—' }}</strong>
+=======
+      <!-- Score/Prediction display -->
+      {% if is_live_or_final and h_pts is not none and v_pts is not none %}
+      <div class="fpred-score" style="text-align: center; margin-bottom: 0.8rem; padding: 0.6rem; background: rgba(255,255,255,0.05); border-radius: 6px;">
+        <div style="font-size: 1.1rem; font-weight: 600;">{{ h_pts }} – {{ v_pts }}</div>
+        <div style="font-size: 0.8rem; color: var(--nba-muted);">{{ g.status.long }}</div>
+        <div style="font-size: 0.84rem; margin-top: 0.25rem; color: #39ff88; font-weight: 600;">
+          {% if h_pts > v_pts %}
+          Leading: {{ home.nickname or home.name }}
+          {% elif v_pts > h_pts %}
+          Leading: {{ visit.nickname or visit.name }}
+          {% else %}
+          Game tied
+          {% endif %}
+        </div>
+      </div>
+      {% elif g.prediction and g.prediction.best_pick %}
+      <div class="fpred-score" style="text-align: center; margin-bottom: 0.8rem; padding: 0.6rem; background: rgba(255,255,255,0.05); border-radius: 6px;">
+        <div style="font-size: 0.95rem; font-weight: 600; color: #39ff88;">
+          Predicted winner: {{ g.prediction.best_pick.prediction or "Prediction unavailable" }}
+        </div>
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         {% if g.prediction.win_probabilities %}
         · {{ g.prediction.prob_home or (g.prediction.win_probabilities.get('a', 0)|round(1)) }}% vs {{ g.prediction.prob_away or (g.prediction.win_probabilities.get('b', 0)|round(1)) }}%
         {% endif %}

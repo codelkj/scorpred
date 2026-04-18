@@ -48,6 +48,7 @@
       </div>
     </aside>
 
+<<<<<<< HEAD
     <div class="sp-main">
       <header class="sp-topbar">
         <button class="sp-mobile-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
@@ -88,6 +89,25 @@
       <footer class="sp-footer">
         Sports modeling for research &amp; decision support. Validate injuries, lineups, and market context before acting.
       </footer>
+=======
+  <nav class="navbar">
+    <a href="/" class="nav-brand">
+      <span class="brand-icon">SP</span>
+      <span>ScorPred</span>
+    </a>
+    <div class="nav-links">
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">Home</a>
+      <a href="/soccer?league={{ session.get('football_league_id', 39) }}" class="{% if request.path == '/soccer' or request.path in ['/today-soccer-predictions', '/fixtures'] %}active{% endif %}">Soccer</a>
+      <a href="/nba/" class="{% if request.path.startswith('/nba') %}active{% endif %}">NBA</a>
+      <a href="/today-soccer-predictions?league={{ session.get('football_league_id', 39) }}" class="{% if request.path == '/today-soccer-predictions' %}active{% endif %}">Today Soccer</a>
+      <a href="/nba/today-predictions" class="{% if request.path == '/nba/today-predictions' %}active{% endif %}">Today NBA</a>
+      <a href="/top-picks-today" class="{% if request.path == '/top-picks-today' %}active{% endif %}">Top Picks Today</a>
+      <a href="/model-performance" class="{% if request.path == '/model-performance' %}active{% endif %}">Performance</a>
+      {% if session.get('team_a_id') %}
+      <a href="/matchup" class="{% if request.path == '/matchup' %}active{% endif %}">Matchup</a>
+      <a href="/prediction" class="{% if request.path == '/prediction' %}active{% endif %}">Prediction</a>
+      {% endif %}
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     </div>
   </div>
 
@@ -98,8 +118,18 @@
       <strong>ScorPred Assistant</strong>
       <button id="chat-clear" type="button" class="sp-chat-clear">Clear</button>
     </div>
+<<<<<<< HEAD
     <div id="chat-messages" class="sp-chat-messages">
       <div class="sp-chat-message assistant">Ask about predictions, props, injuries, or where to find a page.</div>
+=======
+    <div id="chat-messages" class="chat-messages">
+      <div class="chat-message assistant">Ask about predictions, confidence, result detail grading, parlays, or what to check next in ScorPred.</div>
+    </div>
+    <div id="chat-suggestions" class="chat-suggestions">
+      <button type="button" class="chat-suggestion">Why was this team favored?</button>
+      <button type="button" class="chat-suggestion">Why did this parlay lose?</button>
+      <button type="button" class="chat-suggestion">What does this confidence mean?</button>
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     </div>
     <form id="chat-form" class="sp-chat-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />

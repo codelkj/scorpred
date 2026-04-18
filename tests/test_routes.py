@@ -9,13 +9,19 @@ import json
 import logging
 import pytest
 from unittest.mock import patch, MagicMock
+from datetime import date
 
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import app as flask_app_module
+<<<<<<< HEAD
 import security
+import nba_predictor as np_nba_module
+=======
+import nba_predictor as np_nba_module
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -280,6 +286,84 @@ class TestFixturesRoute:
         assert rv.status_code == 200
 
 
+class TestTodayPredictionsRoute:
+    def test_today_predictions_handles_missing_score_gap(self, client):
+        payload = [
+            {
+                "fixture": {
+                    "date": "2026-04-12T15:00:00+00:00",
+                },
+                "teams": {
+                    "home": {"name": "Alpha", "logo": ""},
+                    "away": {"name": "Beta", "logo": ""},
+                },
+                "league": {"name": "Premier League"},
+                "prediction": {
+                    "best_pick": {
+                        "prediction": "Alpha",
+                        "confidence": "High",
+                        "reasoning": "Recent form edge",
+                    },
+                    "win_probabilities": {"a": 61.0, "draw": 22.0, "b": 17.0},
+                },
+            }
+        ]
+
+        with patch("app._load_upcoming_fixtures", return_value=(payload, None, "configured", "")):
+            rv = client.get("/today-soccer-predictions")
+
+        assert rv.status_code == 200
+        assert b"Upcoming Soccer Predictions" in rv.data
+
+    def test_today_predictions_show_multiple_league_sections(self, client):
+        premier_fixture = {
+            "fixture": {"date": "2026-04-12T15:00:00+00:00"},
+            "teams": {
+                "home": {"name": "Alpha", "logo": ""},
+                "away": {"name": "Beta", "logo": ""},
+            },
+            "league": {"id": 39, "name": "Premier League"},
+            "prediction": {
+                "best_pick": {"prediction": "Alpha", "confidence": "High", "reasoning": "Edge"},
+                "win_probabilities": {"a": 61.0, "draw": 22.0, "b": 17.0},
+            },
+        }
+        laliga_fixture = {
+            "fixture": {"date": "2026-04-12T18:00:00+00:00"},
+            "teams": {
+                "home": {"name": "Gamma", "logo": ""},
+                "away": {"name": "Delta", "logo": ""},
+            },
+            "league": {"id": 140, "name": "La Liga"},
+            "prediction": {
+                "best_pick": {"prediction": "Gamma", "confidence": "Medium", "reasoning": "Form edge"},
+                "win_probabilities": {"a": 54.0, "draw": 24.0, "b": 22.0},
+            },
+        }
+        grouped = [
+            {
+                "league_id": 39,
+                "league_name": "Premier League",
+                "league_flag": "EN",
+                "fixtures": [premier_fixture],
+            },
+            {
+                "league_id": 140,
+                "league_name": "La Liga",
+                "league_flag": "ES",
+                "fixtures": [laliga_fixture],
+            },
+        ]
+
+        all_predictions = [premier_fixture, laliga_fixture]
+        with patch("app._load_grouped_upcoming_fixtures_all_leagues", return_value=(all_predictions, grouped, None, "configured")):
+            rv = client.get("/today-soccer-predictions?league=39")
+
+        assert rv.status_code == 200
+        assert b"Premier League" in rv.data
+        assert b"La Liga" in rv.data
+
+
 # ── Select / team selection ───────────────────────────────────────────────────
 
 class TestSelectRoute:
@@ -320,7 +404,18 @@ class TestSelectRoute:
         with patch("api_client.get_teams", return_value=_mock_teams()):
             rv = client.post("/select", data={"team_a": "33", "team_b": "33"})
         assert rv.status_code in (302, 303)
+<<<<<<< HEAD
         assert "/soccer?selection_error=" in rv.headers.get("Location", "")
+=======
+        assert "/soccer?league=" in rv.headers.get("Location", "")
+
+    def test_select_stores_league_context(self, client):
+        with patch("api_client.get_teams", return_value=_mock_teams()):
+            rv = client.post("/select", data={"team_a": "33", "team_b": "40", "league_id": "140"})
+        assert rv.status_code in (302, 303)
+        with client.session_transaction() as sess:
+            assert sess.get("football_league_id") == 140
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
     def test_select_missing_team_redirects_to_soccer_with_notice(self, client):
         with patch("api_client.get_teams", return_value=_mock_teams()):
@@ -358,6 +453,22 @@ class TestMatchupRoute:
             rv = client.get("/matchup")
         assert rv.status_code == 200
 
+    def test_matchup_handles_upstream_failures(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("api_client.get_h2h", side_effect=Exception("h2h down")), \
+             patch("api_client.get_team_fixtures", side_effect=Exception("fixtures down")), \
+             patch("api_client.get_injuries", side_effect=Exception("injuries down")), \
+             patch("api_client.get_standings", side_effect=Exception("standings down")):
+            rv = client.get("/matchup")
+        assert rv.status_code == 200
+
 
 # ── Prediction page ───────────────────────────────────────────────────────────
 
@@ -384,7 +495,11 @@ class TestPredictionRoute:
             rv = client.get("/prediction")
         assert rv.status_code == 200
 
+<<<<<<< HEAD
     def test_prediction_tracks_selected_fixture_date(self, client):
+=======
+    def test_prediction_handles_upstream_failures(self, client):
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         with client.session_transaction() as sess:
             sess["team_a_id"] = 33
             sess["team_a_name"] = "Manchester United"
@@ -392,6 +507,7 @@ class TestPredictionRoute:
             sess["team_b_id"] = 40
             sess["team_b_name"] = "Liverpool"
             sess["team_b_logo"] = ""
+<<<<<<< HEAD
             sess["selected_fixture"] = {
                 "date": "2026-04-21T19:45:00+00:00",
                 "data_source": "configured",
@@ -938,6 +1054,87 @@ class TestModelPerformanceRoute:
         assert rv.status_code == 200
         # Report is no longer auto-generated at request time (offline pipeline)
         assert not report_path.exists()
+=======
+
+        with patch("api_client.get_h2h", side_effect=Exception("h2h down")), \
+             patch("api_client.get_team_fixtures", side_effect=Exception("fixtures down")), \
+             patch("api_client.get_injuries", side_effect=Exception("injuries down")), \
+             patch("api_client.get_standings", side_effect=Exception("standings down")):
+            rv = client.get("/prediction")
+        assert rv.status_code == 200
+
+
+# ── Players page ──────────────────────────────────────────────────────────────
+
+class TestPlayersRoute:
+    def test_players_without_session_redirects(self, client):
+        rv = client.get("/players")
+        assert rv.status_code in (302, 303)
+
+    def test_players_uses_squad_fallback_and_renders(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        squad = [
+            {"id": 1, "name": "Player A", "position": "Goalkeeper", "photo": "", "number": 1},
+            {"id": 2, "name": "Player B", "position": "Forward", "photo": "", "number": 9},
+        ]
+        with patch("app.ac.get_squad", return_value=squad), \
+             patch("app.ac.get_injuries", return_value=[]):
+            rv = client.get("/players")
+        assert rv.status_code == 200
+        assert b"Full Squads" in rv.data
+
+    def test_players_handles_squad_fetch_failure(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("app.ac.get_squad", side_effect=Exception("squad down")):
+            rv = client.get("/players")
+        assert rv.status_code == 200
+
+
+class TestPropsRoute:
+    def test_props_without_session_redirects(self, client):
+        rv = client.get("/props")
+        assert rv.status_code in (302, 303)
+
+    def test_props_with_session_renders(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("app.ac.get_squad", return_value=[]):
+            rv = client.get("/props")
+        assert rv.status_code == 200
+
+    def test_props_handles_squad_fetch_failure(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        with patch("app.ac.get_squad", side_effect=Exception("squad down")):
+            rv = client.get("/props")
+        assert rv.status_code == 200
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 
 # ── Chat API ──────────────────────────────────────────────────────────────────
@@ -948,6 +1145,7 @@ class TestChatRoute:
         assert rv.status_code == 200
         data = json.loads(rv.data)
         assert "reply" in data
+        assert "suggestions" in data
         assert len(data["reply"]) > 0
 
     def test_chat_empty_message_returns_400(self, client):
@@ -981,6 +1179,128 @@ class TestChatRoute:
         assert rv.status_code == 200
         data = json.loads(rv.data)
         assert "reply" in data
+
+    def test_chat_fallback_uses_soccer_prediction_context(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 42
+            sess["team_a_name"] = "Arsenal"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 49
+            sess["team_b_name"] = "Chelsea"
+            sess["team_b_logo"] = ""
+            sess["football_league_id"] = 39
+            sess["assistant_page_context"] = {
+                "page_kind": "soccer_prediction",
+                "sport": "soccer",
+                "team_a": "Arsenal",
+                "team_b": "Chelsea",
+                "winner_pick": "Arsenal",
+                "winner_probability": 63.4,
+                "confidence": "High",
+                "reasoning": "Form edge and defensive profile favor Arsenal.",
+                "totals_pick": "Over 2.5",
+                "top_factors": ["Form", "Defense", "Opponent Strength"],
+            }
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            rv = client.post(
+                "/chat",
+                data={"message": "Why was this team favored?", "page_path": "/prediction", "page_title": "Prediction"},
+            )
+
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["mode"] == "fallback"
+        assert "Arsenal" in data["reply"]
+        assert "Chelsea" in data["reply"]
+        assert "63.4%" in data["reply"]
+        assert any("confidence" in suggestion.lower() for suggestion in data["suggestions"])
+
+    def test_chat_fallback_explains_result_detail_parlay_context(self, client):
+        with client.session_transaction() as sess:
+            sess["assistant_page_context"] = {
+                "page_kind": "result_detail",
+                "sport": "soccer",
+                "team_a": "Arsenal",
+                "team_b": "Chelsea",
+                "winner_pick": "Arsenal to win",
+                "totals_pick": "Over 2.5",
+                "winner_leg": "Miss",
+                "totals_leg": "Hit",
+                "overall_result": "Loss",
+                "final_score": "1-2",
+                "actual_winner": "Chelsea",
+                "evidence_summary": "Chelsea were more clinical in the key moments.",
+            }
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            rv = client.post(
+                "/chat",
+                data={"message": "Why did this parlay lose?", "page_path": "/prediction-result/pred-1", "page_title": "Prediction Result Detail"},
+            )
+
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["mode"] == "fallback"
+        assert "graded miss" in data["reply"]
+        assert "graded hit" in data["reply"]
+        assert "Loss" in data["reply"]
+
+    def test_chat_fallback_uses_nba_context_for_market_comparison(self, client):
+        with client.session_transaction() as sess:
+            sess["nba_team_a_id"] = "1"
+            sess["nba_team_a_name"] = "Celtics"
+            sess["nba_team_a_logo"] = ""
+            sess["nba_team_b_id"] = "2"
+            sess["nba_team_b_name"] = "Heat"
+            sess["nba_team_b_logo"] = ""
+            sess["assistant_page_context"] = {
+                "page_kind": "nba_prediction",
+                "sport": "nba",
+                "team_a": "Celtics",
+                "team_b": "Heat",
+                "winner_pick": "Celtics",
+                "winner_probability": 58.0,
+                "confidence": "Medium",
+                "totals_pick": "Over 221.5",
+            }
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            rv = client.post(
+                "/chat",
+                data={"message": "Explain winner vs spread vs totals", "page_path": "/nba/prediction", "page_title": "NBA Prediction"},
+            )
+
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["mode"] == "fallback"
+        assert "Celtics vs Heat" in data["reply"]
+        assert "spread is margin-based" in data["reply"]
+        assert "combined points" in data["reply"]
+
+    def test_chat_fallback_explains_model_performance_grading(self, client):
+        with client.session_transaction() as sess:
+            sess["assistant_page_context"] = {
+                "page_kind": "model_performance",
+                "overall_accuracy": 62.5,
+                "wins": 15,
+                "losses": 9,
+                "finalized_predictions": 24,
+                "grading_logic": "Completed picks separate winner leg, totals leg, and overall verdict so the tracked outcome reflects the full ticket.",
+            }
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            rv = client.post(
+                "/chat",
+                data={"message": "How is accuracy graded?", "page_path": "/model-performance", "page_title": "Model Performance"},
+            )
+
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["mode"] == "fallback"
+        assert "62.5%" in data["reply"]
+        assert "15 wins and 9 losses" in data["reply"]
+        assert "winner leg" in data["reply"]
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
@@ -1042,13 +1362,82 @@ class TestAPIRoutes:
         rv = client.get("/api/football/squad")
         assert rv.status_code == 400
 
+    def test_football_squad_api_invalid_team_id(self, client):
+        rv = client.get("/api/football/squad?team_id=abc")
+        assert rv.status_code == 400
+
     def test_player_stats_api_missing_id(self, client):
         rv = client.get("/api/player-stats")
+        assert rv.status_code == 400
+
+    def test_player_stats_api_invalid_player_id(self, client):
+        rv = client.get("/api/player-stats?player_id=abc")
         assert rv.status_code == 400
 
     def test_props_generate_missing_params(self, client):
         rv = client.post("/props/generate", data={})
         assert rv.status_code == 400
+
+    def test_props_generate_invalid_numeric_payload_returns_400(self, client):
+        rv = client.post(
+            "/props/generate",
+            json={"player_id": "abc", "player_team_id": "x", "opponent_id": "y"},
+        )
+        assert rv.status_code == 400
+
+    def test_football_team_form_api(self, client):
+        with patch("app._team_form_payload", return_value={"form_string": "WWDLW", "rows": []}):
+            rv = client.get("/api/football/team-form?team_id=33&league=140")
+        assert rv.status_code == 200
+        data = json.loads(rv.data)
+        assert data["form_string"] == "WWDLW"
+        assert data["league"] == 140
+
+
+class TestLeagueSelectionFlow:
+    def test_soccer_respects_league_query_for_team_loading(self, client):
+        with patch("api_client.get_teams", return_value=_mock_teams()) as get_teams_mock, \
+             patch("app._load_upcoming_fixtures", return_value=([], None, "configured", "")):
+            rv = client.get("/soccer?league=140")
+        assert rv.status_code == 200
+        get_teams_mock.assert_called_once_with(140, flask_app_module.SEASON)
+
+    def test_league_change_clears_existing_selected_matchup(self, client):
+        with client.session_transaction() as sess:
+            sess["football_league_id"] = 39
+            sess["team_a_id"] = 33
+            sess["team_b_id"] = 40
+
+        with patch("api_client.get_teams", return_value=_mock_teams()), \
+             patch("app._load_upcoming_fixtures", return_value=([], None, "configured", "")):
+            rv = client.get("/soccer?league=140")
+
+        assert rv.status_code == 200
+        with client.session_transaction() as sess:
+            assert sess.get("football_league_id") == 140
+            assert "team_a_id" not in sess
+            assert "team_b_id" not in sess
+
+    def test_team_form_payload_aggregates_supported_competitions(self, client):
+        calls = []
+
+        def _side_effect(team_id, league_id, season, last):
+            calls.append((team_id, league_id, season, last))
+            fixture = _mock_fixture()
+            fixture["fixture"]["status"] = {"short": "FT", "long": "Finished"}
+            fixture["league"] = {"id": league_id, "name": f"League {league_id}"}
+            fixture["teams"]["home"]["id"] = team_id
+            fixture["teams"]["away"]["id"] = 999
+            fixture["goals"] = {"home": 1, "away": 0}
+            return [fixture]
+
+        with patch("app.ac.get_team_fixtures", side_effect=_side_effect):
+            payload = flask_app_module._team_form_payload(33, league_id=140)
+
+        called_leagues = [league_id for _, league_id, _, _ in calls]
+        assert 140 in called_leagues
+        assert 39 in called_leagues
+        assert payload["form_string"]
 
 
 # ── Error pages ───────────────────────────────────────────────────────────────
@@ -1072,6 +1461,845 @@ class TestWorldCupRoute:
         with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
             rv = client.post("/worldcup", data={"team_a": "Brazil", "team_b": "Argentina"})
         assert rv.status_code == 200
+
+
+class TestUpdateResultsRoute:
+    def test_update_results_post_with_null_accuracy_renders(self, client):
+        summary = {"pending": 1, "completed": 0, "total": 1, "completion_rate": 0.0}
+        update_stats = {"checked": 1, "found": 0, "updated": 0, "failed": 0, "errors": []}
+        metrics = {
+            "total_predictions": 1,
+            "finalized_predictions": 0,
+            "wins": 0,
+            "losses": 0,
+            "overall_accuracy": None,
+            "by_confidence": {},
+            "by_sport": {},
+            "recent_predictions": [],
+        }
+
+        with patch("result_updater.get_update_summary", return_value=summary), \
+             patch("result_updater.update_pending_predictions", return_value=update_stats), \
+             patch("model_tracker.get_summary_metrics", return_value=metrics):
+            rv = client.post("/update-prediction-results")
+
+        assert rv.status_code == 200
+        assert b"Overall Accuracy" in rv.data
+
+
+class TestPredictionResultDetailRoute:
+    def test_prediction_result_detail_renders_completed_soccer_result(self, client):
+        record = {
+            "id": "abc123",
+            "sport": "soccer",
+            "league_name": "Premier League",
+            "date": "2026-04-10",
+            "created_at": "2026-04-10T10:30:00Z",
+            "updated_at": "2026-04-10T19:00:00Z",
+            "team_a": "Arsenal",
+            "team_b": "Bournemouth",
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "predicted_winner_display": "Arsenal",
+            "prob_a": 63.4,
+            "prob_b": 21.2,
+            "prob_draw": 15.4,
+            "confidence": "High",
+            "status": "completed",
+            "actual_result": "B",
+            "actual_winner": "Bournemouth",
+            "winner_hit": False,
+            "game_win": False,
+            "overall_game_result": "Loss",
+            "final_score_display": "1-2",
+            "total_scored": 3,
+            "total_label": "Total Goals: 3",
+            "totals_pick_display": "Over 2.5",
+            "totals_required": True,
+            "ou_hit": True,
+            "actual_total_side": "Over",
+            "winner_display": "Winner Pick: Miss",
+            "ou_display": "Totals Leg: Over 2.5 — Hit",
+            "prediction_notes": "Arsenal projected edge on recent form.",
+            "model_factors": {"team_a": {"form": 7.2}, "team_b": {"form": 6.9}},
+        }
+        evidence = {
+            "available": True,
+            "metrics": [{"label": "Shots on Target", "team_a": "4", "team_b": "6", "leader": "Bournemouth"}],
+            "key_events": [],
+            "goal_scorers": {
+                "available": True,
+                "home_team": "Arsenal",
+                "away_team": "Bournemouth",
+                "home_goals": [{"player": "Saka", "minute": "14'", "type": "Goal", "team": "Arsenal"}],
+                "away_goals": [
+                    {"player": "Semenyo", "minute": "48'", "type": "Goal", "team": "Bournemouth"},
+                    {"player": "Solanke", "minute": "73'", "type": "Penalty", "team": "Bournemouth"},
+                ],
+            },
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "Bournemouth were more clinical in front of goal.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_soccer_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/abc123")
+
+        assert rv.status_code == 200
+        assert b"Prediction Result Detail" in rv.data
+        assert b"Bournemouth were more clinical" in rv.data
+        assert b"Solanke" in rv.data
+        assert b"Winner Pick" in rv.data
+        assert b"Totals Pick" in rv.data
+        assert b"Overall Result" in rv.data
+
+    def test_prediction_result_detail_shows_hit_for_correct_winner_pick_even_if_totals_context_differs(self, client):
+        record = {
+            "id": "pred-hit-1",
+            "sport": "soccer",
+            "league_name": "Premier League",
+            "date": "2026-04-12",
+            "created_at": "2026-04-12T10:30:00Z",
+            "updated_at": "2026-04-12T18:00:00Z",
+            "team_a": "Sunderland",
+            "team_b": "Tottenham Hotspur",
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "predicted_winner_display": "Sunderland",
+            "prob_a": 60.5,
+            "prob_b": 13.5,
+            "prob_draw": 26.0,
+            "confidence": "High",
+            "status": "completed",
+            "actual_result": "A",
+            "actual_winner": "Sunderland",
+            "winner_hit": True,
+            "game_win": False,
+            "overall_game_result": "Loss",
+            "final_score_display": "1-0",
+            "total_scored": 1,
+            "total_label": "Total Goals: 1",
+            "totals_pick_display": "Over 2.5",
+            "totals_required": True,
+            "ou_hit": False,
+            "actual_total_side": "Under",
+            "winner_display": "Winner Pick: Hit",
+            "ou_display": "Totals Leg: Over 2.5 — Miss",
+            "model_factors": {},
+        }
+        evidence = {
+            "available": True,
+            "metrics": [],
+            "key_events": [],
+            "goal_scorers": {
+                "available": True,
+                "home_team": "Sunderland",
+                "away_team": "Tottenham Hotspur",
+                "home_goals": [{"player": "Player A", "minute": "23'", "type": "Goal", "team": "Sunderland"}],
+                "away_goals": [],
+            },
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "Sunderland converted the decisive chance and the winner call landed.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_soccer_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/pred-hit-1")
+
+        assert rv.status_code == 200
+        assert b"Sunderland to win" in rv.data
+        assert b"Sunderland, 1-0, 1 goal" in rv.data
+        assert b">Hit<" in rv.data
+        assert b">Miss<" in rv.data
+        assert b"Overall Result" in rv.data
+        assert b"Loss" in rv.data
+
+    def test_prediction_result_detail_invalid_id_returns_404(self, client):
+        with patch("model_tracker.get_prediction_by_id", return_value=None):
+            rv = client.get("/prediction-result/missing-id")
+        assert rv.status_code == 404
+
+    def test_prediction_result_detail_handles_missing_evidence_gracefully(self, client):
+        record = {
+            "id": "pred-nba-1",
+            "sport": "nba",
+            "date": "2026-04-10",
+            "created_at": "2026-04-10T10:30:00Z",
+            "updated_at": "2026-04-10T21:30:00Z",
+            "team_a": "Celtics",
+            "team_b": "Heat",
+            "predicted_winner": "A",
+            "predicted_winner_display": "Celtics",
+            "prob_a": 56.0,
+            "prob_b": 44.0,
+            "prob_draw": 0.0,
+            "confidence": "Medium",
+            "status": "completed",
+            "actual_result": "A",
+            "actual_winner": "Celtics",
+            "winner_hit": True,
+            "game_win": True,
+            "overall_game_result": "Win",
+            "final_score_display": "112-108",
+            "total_scored": 220,
+            "winner_display": "Winner Pick: Hit",
+            "model_factors": {},
+        }
+        evidence = {
+            "available": True,
+            "evidence_layer_label": "Evidence summary",
+            "metrics": [],
+            "key_events": [],
+            "summary_rows": [
+                {"label": "Evidence Layer", "value": "Evidence summary"},
+                {"label": "Final Score", "value": "112-108"},
+                {"label": "Winner Leg", "value": "Hit · Celtics · Model 56%"},
+            ],
+            "summary_points": [
+                "Tracked result data still shows why the call landed, even without full provider box score detail.",
+            ],
+            "goal_scorers": {
+                "available": False,
+                "home_team": "Celtics",
+                "away_team": "Heat",
+                "home_goals": [],
+                "away_goals": [],
+            },
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "Detailed NBA evidence is limited for this game in current provider responses.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_nba_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/pred-nba-1")
+
+        assert rv.status_code == 200
+        assert b"Evidence summary" in rv.data
+        assert b"Tracked result data still shows why the call landed" in rv.data
+        assert b"Detailed fixture evidence is limited" not in rv.data
+        assert b"Goal Scorers" not in rv.data
+
+    def test_prediction_result_detail_handles_scoreless_draw_cleanly(self, client):
+        record = {
+            "id": "pred-0-0",
+            "sport": "soccer",
+            "league_name": "Premier League",
+            "date": "2026-04-12",
+            "created_at": "2026-04-12T10:30:00Z",
+            "updated_at": "2026-04-12T18:00:00Z",
+            "team_a": "Burnley",
+            "team_b": "Everton",
+            "predicted_winner": "draw",
+            "predicted_winner_code": "draw",
+            "predicted_winner_display": "Draw",
+            "prob_a": 28.0,
+            "prob_b": 30.0,
+            "prob_draw": 42.0,
+            "confidence": "Medium",
+            "status": "completed",
+            "actual_result": "draw",
+            "actual_winner": "Draw",
+            "winner_hit": True,
+            "game_win": True,
+            "overall_game_result": "Win",
+            "final_score_display": "0-0",
+            "total_scored": 0,
+            "total_label": "Total Goals: 0",
+            "winner_display": "Winner Pick: Hit",
+            "model_factors": {},
+        }
+        evidence = {
+            "available": True,
+            "metrics": [],
+            "key_events": [],
+            "goal_scorers": {
+                "available": False,
+                "home_team": "Burnley",
+                "away_team": "Everton",
+                "home_goals": [],
+                "away_goals": [],
+            },
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "The match finished level with no goals and little separation in the available evidence.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_soccer_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/pred-0-0")
+
+        assert rv.status_code == 200
+        assert b"Draw, 0-0, 0 goals" in rv.data
+        assert b"Goal Scorers" not in rv.data
+
+    def test_prediction_result_detail_hides_goal_scorers_when_event_data_unavailable(self, client):
+        record = {
+            "id": "pred-no-events",
+            "sport": "soccer",
+            "league_name": "Premier League",
+            "date": "2026-04-12",
+            "created_at": "2026-04-12T10:30:00Z",
+            "updated_at": "2026-04-12T18:00:00Z",
+            "team_a": "Arsenal",
+            "team_b": "Chelsea",
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "predicted_winner_display": "Arsenal",
+            "prob_a": 57.0,
+            "prob_b": 21.0,
+            "prob_draw": 22.0,
+            "confidence": "High",
+            "status": "completed",
+            "actual_result": "A",
+            "actual_winner": "Arsenal",
+            "winner_hit": True,
+            "game_win": True,
+            "overall_game_result": "Win",
+            "final_score_display": "2-1",
+            "total_scored": 3,
+            "totals_pick_display": "Over 2.5",
+            "totals_required": True,
+            "ou_hit": True,
+            "actual_total_side": "Over",
+            "winner_display": "Winner Pick: Hit",
+            "ou_display": "Totals Leg: Over 2.5 — Hit",
+            "model_factors": {},
+        }
+        evidence = {
+            "available": True,
+            "metrics": [{"label": "Shots", "team_a": "15", "team_b": "8", "leader": "Arsenal"}],
+            "key_events": [],
+            "goal_scorers": {
+                "available": False,
+                "home_team": "Arsenal",
+                "away_team": "Chelsea",
+                "home_goals": [],
+                "away_goals": [],
+            },
+            "player_impacts": [],
+            "injuries": {},
+            "form_compare": {},
+            "summary": "Arsenal controlled the shot volume and the match played above the baseline total.",
+        }
+
+        with patch("model_tracker.get_prediction_by_id", return_value=record), \
+             patch("app._build_soccer_evidence", return_value=evidence):
+            rv = client.get("/prediction-result/pred-no-events")
+
+        assert rv.status_code == 200
+        assert b"Goal Scorers" not in rv.data
+
+
+class TestSoccerEvidenceFallbacks:
+    def test_build_soccer_evidence_uses_events_layer_when_stats_missing(self):
+        record = {
+            "id": "pred-events-layer",
+            "sport": "soccer",
+            "league_id": 39,
+            "date": "2026-04-12",
+            "team_a": "Arsenal",
+            "team_b": "Chelsea",
+            "fixture_id": 123,
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "actual_result": "B",
+            "actual_winner": "Chelsea",
+            "prob_a": 61.0,
+            "prob_b": 19.0,
+            "prob_draw": 20.0,
+            "confidence": "High",
+            "status": "completed",
+            "winner_hit": False,
+            "game_win": False,
+            "overall_game_result": "Loss",
+            "final_score_display": "1-2",
+            "total_scored": 3,
+            "totals_pick_display": "Over 2.5",
+            "totals_line": 2.5,
+            "ou_hit": True,
+            "actual_total_side": "Over",
+        }
+        raw_events = [
+            {
+                "type": "Goal",
+                "detail": "Normal Goal",
+                "time": {"elapsed": 17},
+                "team": {"name": "Arsenal"},
+                "player": {"name": "Saka"},
+            },
+            {
+                "type": "Goal",
+                "detail": "Penalty",
+                "time": {"elapsed": 63},
+                "team": {"name": "Chelsea"},
+                "player": {"name": "Palmer"},
+            },
+            {
+                "type": "Card",
+                "detail": "Red Card",
+                "time": {"elapsed": 79},
+                "team": {"name": "Arsenal"},
+                "player": {"name": "Rice"},
+            },
+        ]
+
+        with patch("app.ac.get_teams", return_value=[
+            {"team": {"id": 1, "name": "Arsenal"}},
+            {"team": {"id": 2, "name": "Chelsea"}},
+        ]), \
+             patch("app.ac.get_fixture_by_id", return_value=None), \
+             patch("app.ac.get_fixture_stats", return_value=[]), \
+             patch("app.ac.get_fixture_events", return_value=raw_events), \
+             patch("app.ac.get_match_events", return_value={
+                 "home_goals": [{"player": "Saka", "minute": "17'", "type": "Goal"}],
+                 "away_goals": [
+                     {"player": "Palmer", "minute": "63'", "type": "Penalty"},
+                     {"player": "Jackson", "minute": "88'", "type": "Goal"},
+                 ],
+             }), \
+             patch("app.ac.get_fixture_players", return_value=[]), \
+             patch("app._soccer_form_snapshot", return_value=None), \
+             patch("app.ac.get_injuries", return_value=[]):
+            evidence = flask_app_module._build_soccer_evidence(record)
+
+        assert evidence["evidence_layer"] == "events"
+        assert evidence["evidence_layer_label"] == "Match events"
+        assert [row["type"] for row in evidence["key_events"][:3]] == ["Goal", "Penalty Goal", "Red Card"]
+        assert any(row["label"] == "Evidence Layer" and row["value"] == "Match events" for row in evidence["summary_rows"])
+        assert "event feed" in evidence["summary"]
+
+    def test_build_soccer_evidence_uses_narrative_summary_when_stats_and_events_missing(self):
+        record = {
+            "id": "pred-summary-layer",
+            "sport": "soccer",
+            "league_id": 39,
+            "date": "2026-04-12",
+            "team_a": "Arsenal",
+            "team_b": "Chelsea",
+            "fixture_id": 456,
+            "predicted_winner": "A",
+            "predicted_winner_code": "a",
+            "actual_result": "B",
+            "actual_winner": "Chelsea",
+            "prob_a": 64.0,
+            "prob_b": 18.0,
+            "prob_draw": 18.0,
+            "confidence": "High",
+            "status": "completed",
+            "winner_hit": False,
+            "game_win": False,
+            "overall_game_result": "Loss",
+            "final_score_display": "1-2",
+            "total_scored": 3,
+            "totals_pick_display": "Under 2.5",
+            "totals_line": 2.5,
+            "ou_hit": False,
+            "actual_total_side": "Over",
+        }
+
+        with patch("app.ac.get_teams", return_value=[
+            {"team": {"id": 1, "name": "Arsenal"}},
+            {"team": {"id": 2, "name": "Chelsea"}},
+        ]), \
+             patch("app.ac.get_fixture_by_id", return_value=None), \
+             patch("app.ac.get_fixture_stats", return_value=[]), \
+             patch("app.ac.get_fixture_events", return_value=[]), \
+             patch("app.ac.get_match_events", return_value={"home_goals": [], "away_goals": []}), \
+             patch("app.ac.get_fixture_players", return_value=[]), \
+             patch("app._soccer_form_snapshot", side_effect=[
+                 {"matches": 5, "wins": 4, "draws": 1, "losses": 0, "avg_goals_for": 2.0, "avg_goals_against": 0.6},
+                 {"matches": 5, "wins": 1, "draws": 1, "losses": 3, "avg_goals_for": 0.8, "avg_goals_against": 1.8},
+             ]), \
+             patch("app.ac.get_injuries", side_effect=[[], [{"name": "Reece James"}] ]):
+            evidence = flask_app_module._build_soccer_evidence(record)
+
+        assert evidence["evidence_layer"] == "summary"
+        assert evidence["key_events"] == []
+        assert evidence["injuries"] == {"Chelsea": {"count": 1, "notable": ["Reece James"]}}
+        assert any(row["label"] == "Outcome Context" and "Major upset" in row["value"] for row in evidence["summary_rows"])
+        assert any("genuine upset" in point for point in evidence["summary_points"])
+
+    def test_model_performance_completed_cards_link_to_detail_route(self, client):
+        completed = [
+            {
+                "id": "pred42",
+                "team_a": "Arsenal",
+                "team_b": "Bournemouth",
+                "sport": "soccer",
+                "league_name": "Premier League",
+                "final_score_display": "1-2",
+                "winner_hit": False,
+                "winner_display": "Winner Pick: Miss",
+                "ou_display": "U/O 2.5: Hit",
+                "ou_hit": True,
+                "game_win": False,
+                "overall_game_result": "Loss",
+                "confidence": "High",
+                "total_label": "Total Goals: 3",
+            }
+        ]
+        metrics = {
+            "total_predictions": 1,
+            "finalized_predictions": 1,
+            "wins": 0,
+            "losses": 1,
+            "overall_accuracy": 0.0,
+            "by_confidence": {},
+            "by_sport": {},
+            "by_league": {},
+            "recent_predictions": [],
+        }
+
+        with patch("model_tracker.get_summary_metrics", return_value=metrics), \
+             patch("model_tracker.get_completed_predictions", return_value=completed), \
+             patch("model_tracker.get_pending_predictions", return_value=[]):
+            rv = client.get("/model-performance")
+
+        assert rv.status_code == 200
+        assert b"/prediction-result/pred42" in rv.data
+
+
+class TestConnectedFlows:
+    def test_soccer_connected_flow(self, client):
+        with patch("api_client.get_teams", return_value=_mock_teams()), \
+             patch("api_client.get_upcoming_fixtures", return_value=[_mock_fixture()]), \
+             patch("api_client.get_h2h", return_value=[_mock_fixture()]), \
+             patch("api_client.get_team_fixtures", return_value=[_mock_fixture()]), \
+             patch("api_client.get_injuries", return_value=[]), \
+             patch("api_client.get_standings", return_value=[]), \
+             patch("app.ac.get_squad", return_value=[]):
+            assert client.get("/").status_code == 200
+            assert client.get("/soccer").status_code == 200
+
+            select_resp = client.post("/select", data={"team_a": "33", "team_b": "40"})
+            assert select_resp.status_code in (302, 303)
+            assert "/matchup" in select_resp.headers.get("Location", "")
+
+            assert client.get("/matchup").status_code == 200
+            assert client.get("/prediction").status_code == 200
+            assert client.get("/players").status_code == 200
+            assert client.get("/props").status_code == 200
+
+    def test_model_performance_to_update_results_flow(self, client):
+        with patch("result_updater.get_update_summary", return_value={"pending": 1, "completed": 0, "total": 1, "completion_rate": 0.0}), \
+             patch("model_tracker.get_summary_metrics", return_value={"total_predictions": 1, "finalized_predictions": 0, "wins": 0, "losses": 0, "overall_accuracy": None, "by_confidence": {}, "by_sport": {}, "recent_predictions": []}):
+            assert client.get("/model-performance").status_code == 200
+            assert client.get("/update-prediction-results").status_code == 200
+
+    def test_props_page_renders_soccer_mode_with_team_context(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        squad = [
+            {
+                "player": {"id": 1, "name": "Player One", "pos": "FW"},
+                "leagues": {"standard": {"pos": "FW"}},
+            }
+        ]
+        with patch("app.ac.get_squad", return_value=squad):
+            rv = client.get("/props")
+        assert rv.status_code == 200
+        assert b"Football" in rv.data
+        assert b"Player One" in rv.data
+
+
+class TestTopPicksRoute:
+    def test_top_picks_uses_soccer_and_nba_payload_shapes(self, client):
+        today_str = date.today().strftime("%Y-%m-%d")
+        soccer_fixtures = [
+            {
+                "teams": {
+                    "home": {"id": 1, "name": "Alpha"},
+                    "away": {"id": 2, "name": "Beta"},
+                },
+                "prediction": {
+                    "best_pick": {
+                        "prediction": "Alpha",
+                        "confidence": "High",
+                        "reasoning": "Strong form edge",
+                    },
+                    "win_probabilities": {"a": 64.0, "b": 21.0, "draw": 15.0},
+                },
+            }
+        ]
+        nba_recent = [
+            {
+                "sport": "nba",
+                "date": today_str,
+                "is_correct": None,
+                "team_a": "Celtics",
+                "team_b": "Heat",
+                "predicted_winner": "A",
+                "confidence": "High",
+                "prob_a": 61.0,
+                "prob_b": 39.0,
+                "prob_draw": 0.0,
+            }
+        ]
+
+        with patch("app._load_upcoming_fixtures", return_value=(soccer_fixtures, None, "configured", "")), \
+             patch("app.mt.get_recent_predictions", return_value=nba_recent):
+            rv = client.get("/top-picks-today")
+
+        assert rv.status_code == 200
+        assert b"Alpha" in rv.data
+        assert b"Celtics" in rv.data
+
+    def test_top_picks_groups_soccer_picks_by_league(self, client):
+        soccer_fixtures = [
+            {
+                "teams": {
+                    "home": {"id": 1, "name": "Alpha"},
+                    "away": {"id": 2, "name": "Beta"},
+                },
+                "league": {"id": 39, "name": "Premier League"},
+                "prediction": {
+                    "best_pick": {"prediction": "Alpha", "confidence": "High", "reasoning": "Strong form edge"},
+                    "win_probabilities": {"a": 64.0, "b": 21.0, "draw": 15.0},
+                },
+            },
+            {
+                "teams": {
+                    "home": {"id": 3, "name": "Madrid"},
+                    "away": {"id": 4, "name": "Sevilla"},
+                },
+                "league": {"id": 140, "name": "La Liga"},
+                "prediction": {
+                    "best_pick": {"prediction": "Madrid", "confidence": "High", "reasoning": "Home edge"},
+                    "win_probabilities": {"a": 67.0, "b": 18.0, "draw": 15.0},
+                },
+            },
+        ]
+        grouped_fixtures = [
+            {"league_id": 39, "league_name": "Premier League", "league_flag": "EN", "fixtures": [soccer_fixtures[0]]},
+            {"league_id": 140, "league_name": "La Liga", "league_flag": "ES", "fixtures": [soccer_fixtures[1]]},
+        ]
+
+        with patch("app._load_grouped_upcoming_fixtures_all_leagues", return_value=(soccer_fixtures, grouped_fixtures, None, "configured")), \
+             patch("app.mt.get_recent_predictions", return_value=[]):
+            rv = client.get("/top-picks-today?league=39")
+
+        assert rv.status_code == 200
+        assert b"Premier League" in rv.data
+        assert b"La Liga" in rv.data
+
+
+class TestNbaFailureHandling:
+    def test_nba_index_handles_fetch_failures(self, client):
+        with patch("nba_live_client.get_teams", side_effect=Exception("teams down")), \
+             patch("nba_live_client.get_today_games", side_effect=Exception("games down")), \
+             patch("nba_live_client.get_upcoming_games", side_effect=Exception("upcoming down")), \
+             patch("nba_live_client.get_standings", return_value={"conference": []}):
+            rv = client.get("/nba/")
+        assert rv.status_code == 200
+
+    def test_nba_index_shows_predicted_winner_for_upcoming_game(self, client):
+        teams = [
+            {"id": "1", "name": "Boston Celtics", "nickname": "Celtics", "city": "Boston", "logo": ""},
+            {"id": "2", "name": "Orlando Magic", "nickname": "Magic", "city": "Orlando", "logo": ""},
+        ]
+        game = {
+            "id": "evt-1",
+            "date": {"start": "2026-04-12T22:00:00Z"},
+            "status": {"long": "Scheduled", "short": "Scheduled", "state": "pre"},
+            "venue": {"name": "TD Garden"},
+            "teams": {
+                "home": {"id": "1", "name": "Boston Celtics", "nickname": "Celtics", "logo": ""},
+                "visitors": {"id": "2", "name": "Orlando Magic", "nickname": "Magic", "logo": ""},
+            },
+            "scores": {"home": {"points": 0}, "visitors": {"points": 0}},
+        }
+
+        with patch("nba_routes.nc.get_teams", return_value=teams), \
+             patch("nba_routes.nc.get_today_games", return_value=[]), \
+             patch("nba_routes.nc.get_upcoming_games", return_value=[game]), \
+             patch("nba_routes.nc.get_h2h", return_value=[]), \
+             patch("nba_routes.nc.get_team_recent_form", return_value=[]), \
+             patch("nba_routes.nc.get_team_injuries", return_value=[]), \
+             patch("nba_routes.nc.get_standings", return_value={"east": [], "west": []}), \
+             patch("nba_routes.se.scorpred_predict", return_value={
+                 "best_pick": {"prediction": "Celtics", "confidence": "High"},
+                 "win_probabilities": {"a": 62.3, "b": 37.7},
+             }):
+            rv = client.get("/nba/")
+
+        assert rv.status_code == 200
+        assert b"Predicted winner: Celtics" in rv.data
+        assert b"Game tied" not in rv.data
+
+    def test_nba_prediction_renders_with_scorpred_schema(self, client):
+        with client.session_transaction() as sess:
+            sess["nba_team_a_id"] = "1"
+            sess["nba_team_a_name"] = "Los Angeles Lakers"
+            sess["nba_team_a_logo"] = ""
+            sess["nba_team_a_nickname"] = "Lakers"
+            sess["nba_team_a_city"] = "Los Angeles"
+            sess["nba_team_b_id"] = "2"
+            sess["nba_team_b_name"] = "Boston Celtics"
+            sess["nba_team_b_logo"] = ""
+            sess["nba_team_b_nickname"] = "Celtics"
+            sess["nba_team_b_city"] = "Boston"
+
+        scorpred = {
+            "team_a_score": 7.1,
+            "team_b_score": 5.9,
+            "score_gap": 1.2,
+            "prob_a": 61.5,
+            "prob_b": 38.5,
+            "confidence": "Medium",
+            "winner_label": "Lakers to win",
+            "components_a": {"form": 7, "offense": 6, "defense": 7, "h2h": 6, "home_away": 7, "opp_strength": 5, "squad": 6},
+            "components_b": {"form": 5, "offense": 6, "defense": 5, "h2h": 4, "home_away": 3, "opp_strength": 5, "squad": 6},
+            "best_pick": {"prediction": "Lakers to win", "confidence": "Medium", "reasoning": "Better form", "market": "Moneyline", "team": "A"},
+            "optional_picks": [],
+            "key_edges": [{"team": "A", "team_name": "Lakers", "category": "Recent form", "margin": 1.2}],
+            "matchup_reading": "Lakers have the cleaner profile.",
+            "win_probabilities": {"team_a": 58, "team_b": 42},
+        }
+
+        with patch("nba_routes.nc.get_h2h", return_value=[]), \
+             patch("nba_routes.nc.get_team_recent_form", return_value=[]), \
+             patch("nba_routes.nc.get_team_injuries", return_value=[]), \
+             patch("nba_routes.nc.get_team_season_stats", return_value={"ppg": 110, "opp_ppg": 108, "net_rtg": 3.0}), \
+             patch("nba_routes.nc.get_standings", return_value=[]), \
+             patch("nba_routes.nc.get_route_support", return_value={}), \
+             patch("nba_routes.se.scorpred_predict", return_value=scorpred), \
+             patch("nba_routes.mt.save_prediction", return_value=None):
+            rv = client.get("/nba/prediction")
+
+        assert rv.status_code == 200
+        assert b"Prediction data could not be generated" not in rv.data
+        assert b"Match Winner Prediction" in rv.data
+        assert b"Scorpred Engine Score" in rv.data
+        assert b"Score Projections" not in rv.data
+        assert b"Key Prediction Factors" not in rv.data
+
+    def test_nba_prediction_renders_spread_total_and_parlay_sections(self, client):
+        with client.session_transaction() as sess:
+            sess["nba_team_a_id"] = "1"
+            sess["nba_team_a_name"] = "Boston Celtics"
+            sess["nba_team_a_logo"] = ""
+            sess["nba_team_a_nickname"] = "Celtics"
+            sess["nba_team_a_city"] = "Boston"
+            sess["nba_team_b_id"] = "2"
+            sess["nba_team_b_name"] = "Miami Heat"
+            sess["nba_team_b_logo"] = ""
+            sess["nba_team_b_nickname"] = "Heat"
+            sess["nba_team_b_city"] = "Miami"
+
+        scorpred = {
+            "team_a_score": 7.8,
+            "team_b_score": 5.6,
+            "score_gap": 2.2,
+            "prob_a": 64.0,
+            "prob_b": 36.0,
+            "confidence": "High",
+            "winner_label": "Celtics to win",
+            "components_a": {"form": 8, "offense": 7, "defense": 8, "h2h": 6, "home_away": 7, "opp_strength": 6, "squad": 8},
+            "components_b": {"form": 5, "offense": 6, "defense": 5, "h2h": 4, "home_away": 4, "opp_strength": 6, "squad": 5},
+            "best_pick": {"prediction": "Celtics to win", "confidence": "High", "reasoning": "Boston have the stronger two-way profile.", "team": "A"},
+            "optional_picks": [],
+            "key_edges": [{"team": "A", "team_name": "Celtics", "category": "Recent form", "margin": 2.2}],
+            "matchup_reading": "Boston have the cleaner profile.",
+            "win_probabilities": {"a": 64.0, "b": 36.0},
+        }
+        market_analysis = {
+            "winner_leg": {"leg_key": "winner", "leg_type": "Winner / Moneyline", "recommendation": "Celtics", "confidence": "High", "tracking_status": "tracked", "explanation": "Boston have the stronger overall winning case."},
+            "spread_leg": {"leg_key": "spread", "leg_type": "Spread", "recommendation": "Celtics -6.5", "confidence": "Medium", "tracking_status": "display_only", "expected_margin": 6.7, "explanation": "Boston project to win by multiple possessions."},
+            "totals_leg": {"leg_key": "total", "leg_type": "Total Points", "recommendation": "Over 223.5", "confidence": "Medium", "tracking_status": "future_ready", "expected_total": 226.1, "explanation": "The scoring environment points to an above-baseline total."},
+            "parlay_checklist": [
+                {"leg_key": "winner", "leg_type": "Winner / Moneyline", "recommendation": "Celtics", "confidence": "High", "tracking_status": "tracked", "explanation": "Boston have the stronger overall winning case."},
+                {"leg_key": "spread", "leg_type": "Spread", "recommendation": "Celtics -6.5", "confidence": "Medium", "tracking_status": "display_only", "explanation": "Boston project to win by multiple possessions."},
+                {"leg_key": "total", "leg_type": "Total Points", "recommendation": "Over 223.5", "confidence": "Medium", "tracking_status": "future_ready", "explanation": "The scoring environment points to an above-baseline total."},
+            ],
+            "alignment": {"overall": "Selective alignment", "summary": "Moneyline and spread align, but the total is a secondary leg.", "weak_legs": []},
+            "display_note": "Spread and total points recommendations are model-derived from ScorPred inputs.",
+            "tracking_note": "Winner is already tracked. Spread is display-only for now, and totals are structured for future-expanded NBA leg grading.",
+            "evidence_points": ["Recent form margin favors Boston.", "Net rating also favors Boston.", "The scoring baseline points toward 223.5+."],
+            "model_spread_label": "Celtics -6.5",
+            "model_total_pick": "Over 223.5",
+            "expected_total": 226.1,
+        }
+
+        with patch("nba_routes.nc.get_h2h", return_value=[]), \
+               patch("nba_routes.nc.get_team_recent_form", return_value=[]), \
+               patch("nba_routes.nc.get_team_injuries", return_value=[]), \
+               patch("nba_routes.nc.get_team_season_stats", return_value={"ppg": 116, "opp_ppg": 109, "net_rtg": 7.0}), \
+               patch("nba_routes.nc.get_standings", return_value=[]), \
+               patch("nba_routes.nc.get_route_support", return_value={}), \
+               patch("nba_routes.se.scorpred_predict", return_value=scorpred), \
+               patch("nba_routes.np_nba.build_market_recommendations", return_value=market_analysis), \
+               patch("nba_routes.mt.save_prediction", return_value=None) as mock_save_prediction:
+            rv = client.get("/nba/prediction")
+
+        assert rv.status_code == 200
+        assert b"NBA Market Analysis" in rv.data
+        assert b"Celtics -6.5" in rv.data
+        assert b"Over 223.5" in rv.data
+        assert b"Parlay Checklist" in rv.data
+        assert b"display only" in rv.data.lower()
+        assert b"Model-derived" in rv.data
+        assert mock_save_prediction.call_args.kwargs["totals_pick"] == "Over"
+        assert mock_save_prediction.call_args.kwargs["totals_line"] == 223.5
+
+    def test_nba_market_recommendations_flag_weak_legs_honestly(self):
+        team_a = {"name": "Boston Celtics", "nickname": "Celtics"}
+        team_b = {"name": "Miami Heat", "nickname": "Heat"}
+        scorpred = {
+            "prob_a": 52.0,
+            "prob_b": 48.0,
+            "confidence": "Low",
+            "team_a_score": 5.4,
+            "team_b_score": 5.2,
+            "best_pick": {"prediction": "Celtics to win", "confidence": "Low", "reasoning": "Very small edge.", "team": "A"},
+        }
+        recent_form_a = [
+            {"our_pts": 110, "their_pts": 108, "result": "W"},
+            {"our_pts": 108, "their_pts": 107, "result": "W"},
+            {"our_pts": 105, "their_pts": 106, "result": "L"},
+        ]
+        recent_form_b = [
+            {"our_pts": 109, "their_pts": 108, "result": "W"},
+            {"our_pts": 107, "their_pts": 106, "result": "W"},
+            {"our_pts": 104, "their_pts": 105, "result": "L"},
+        ]
+        stats_a = {"ppg": 111.0, "opp_ppg": 109.5, "net_rtg": 1.5}
+        stats_b = {"ppg": 110.5, "opp_ppg": 109.0, "net_rtg": 1.4}
+
+        analysis = np_nba_module.build_market_recommendations(
+            team_a,
+            team_b,
+            scorpred,
+            recent_form_a,
+            recent_form_b,
+            [],
+            [],
+            [],
+            stats_a=stats_a,
+            stats_b=stats_b,
+            team_a_is_home=True,
+        )
+
+        assert analysis["winner_leg"]["leg_type"] == "Winner / Moneyline"
+        assert analysis["spread_leg"]["leg_type"] == "Spread"
+        assert analysis["totals_leg"]["leg_type"] == "Total Points"
+        assert analysis["spread_leg"]["confidence"] == "Low"
+        assert analysis["totals_leg"]["confidence"] == "Low"
+        assert analysis["alignment"]["overall"] == "Selective alignment"
+        assert "Spread" in analysis["alignment"]["weak_legs"]
+        assert "Total Points" in analysis["alignment"]["weak_legs"]
 
     def test_worldcup_same_team_shows_error(self, client):
         with patch("app.ac.get_espn_fixtures", return_value=[], create=True):

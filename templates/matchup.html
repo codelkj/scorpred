@@ -267,4 +267,85 @@
   <a href="/strategy-lab" class="btn btn-secondary btn-sm">Strategy Lab</a>
   <a href="/soccer" class="btn btn-primary btn-sm">Analyze Another</a>
 </div>
+<<<<<<< HEAD
+=======
+
+
+{# ─────────────────────────────────────────────────────────────────────────────
+   HOW THE MODEL WORKS
+───────────────────────────────────────────────────────────────────────────── #}
+<details style="margin-bottom:1.25rem;">
+  <summary style="cursor:pointer; font-size:.85rem; font-weight:600; color:#e6edf3; padding:.7rem 1rem;
+    background:rgba(0,255,135,.08); border:1px solid rgba(0,255,135,.2); border-radius:8px;
+    list-style:none; display:flex; align-items:center; gap:.6rem; user-select:none;">
+    <span style="font-size:1rem;">ℹ️</span> <span>How Scorpred Generates This Prediction</span>
+    <span style="margin-left:auto; font-size:.7rem; color:#8b949e;">Click to expand</span>
+  </summary>
+  <div style="background:rgba(0,255,135,.03); border:1px solid rgba(0,255,135,.15); border-top:none;
+    border-radius:0 0 8px 8px; padding:1.25rem 1.5rem; margin-top:.5rem;">
+    
+    <div style="margin-bottom:1.25rem;">
+      <div style="font-size:.75rem; text-transform:uppercase; letter-spacing:.6px; color:#8b949e; margin-bottom:.6rem;">
+        The Model Combines 8 Weighted Factors
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:.8rem;">
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Form (39%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Last 5 matches recency-weighted. Recent results matter most.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Attack (14%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Offensive output over last 5 games with trend adjustment.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Defense (14%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Goals/points conceded. Lower = stronger defensive rating.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">H2H (9%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Recent meetings. Does not override current form.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Venue (8%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Home advantage + actual venue-specific performance.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Opponent Quality (7%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Adjusts form based on opponent strength (quality of wins).</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Squad (4%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Key player absences, role-weighted by position.</div>
+        </div>
+        <div style="padding:.6rem; background:rgba(255,255,255,.02); border:1px solid #21262d; border-radius:6px;">
+          <div style="font-size:.7rem; text-transform:uppercase; letter-spacing:.4px; color:#00ff87; font-weight:700; margin-bottom:.25rem;">Context (5%)</div>
+          <div style="font-size:.75rem; color:#8b949e; line-height:1.4;">Rest days and match congestion. Affects fatigue.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:.75rem; background:rgba(0,255,135,.08); border-left:3px solid rgba(0,255,135,.3); border-radius:0 4px 4px 0; font-size:.8rem; color:#8b949e; line-height:1.6;">
+      <strong style="color:#e6edf3;">For Soccer:</strong> The model calculates three outcome probabilities (Home Win · Draw · Away Win). Draw probability increases when the predicted score gap is small. The <strong style="color:#e6edf3;">Best Pick</strong> is always the outcome with highest probability.
+    </div>
+  </div>
+</details>
+
+{# ─────────────────────────────────────────────────────────────────────────────
+   NAVIGATION
+───────────────────────────────────────────────────────────────────────────── #}
+<div class="nav-cta">
+  <a href="/" class="btn btn-secondary btn-glow">New Matchup</a>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Animate probability bar fills on page load
+  document.querySelectorAll('.prob-bar-fill').forEach(el => {
+    const w = el.dataset.width || 0;
+    requestAnimationFrame(() => { el.style.width = w + '%'; });
+  });
+</script>
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 {% endblock %}

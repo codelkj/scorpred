@@ -15,6 +15,7 @@
   </div>
 </section>
 
+<<<<<<< HEAD
 {% if load_error %}
 <div class="sp-notice sp-notice--warn">{{ load_error }} <a href="{{ url_for('top_picks_today') }}?refresh=1">Refresh</a></div>
 {% endif %}
@@ -26,6 +27,184 @@
   <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{{ soccer_totals | length }}</span><span class="sp-kpi__label">Soccer</span></div>
   <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-caution)">{{ nba_winners | length }}</span><span class="sp-kpi__label">NBA</span></div>
   <div class="sp-kpi"><span class="sp-kpi__val">{{ total_picks }}</span><span class="sp-kpi__label">Total picks</span></div>
+=======
+  {% if load_error %}
+  <div class="alert alert-warning" role="alert">
+    <h5>Data Load Issue</h5>
+    <p>{{ load_error }}</p>
+    <p>Some picks may not be available. <a href="{{ url_for('top_picks_today', league=current_league_id, refresh=1) }}">Refresh</a></p>
+  </div>
+  {% endif %}
+
+  <!-- ── SOCCER TOTALS ──────────────────────────────────────────── -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <h2 class="mb-3">Soccer Totals</h2>
+    </div>
+  </div>
+
+  {% if soccer_totals | length > 0 %}
+  {% for group in grouped_soccer_picks %}
+  {% if group.picks %}
+  <div class="row mb-2">
+    <div class="col-md-12">
+      <h3 class="mb-2">{{ group.league_flag }} {{ group.league_name }}</h3>
+    </div>
+  </div>
+  <div class="row mb-4">
+    {% for pick in group.picks %}
+    <div class="col-lg-6 col-xl-4 mb-3">
+      <a href="{{ url_for('select_game', team_a=pick.home_team.id, team_b=pick.away_team.id, league=pick.league_id or current_league_id) }}" class="pick-card-link">
+        <div class="card h-100 fpred-card border-primary">
+
+          <div class="card-body text-center">
+            <!-- Teams -->
+            <div class="mb-2">
+              <strong>{{ pick.home_team.name }} vs {{ pick.away_team.name }}</strong>
+            </div>
+
+            <!-- Confidence -->
+            <div class="mb-2">
+              <span class="badge bg-primary">
+                {{ pick.confidence }}
+              </span>
+            </div>
+
+            <!-- Pick -->
+            <div class="text-muted small mb-1">
+              Pick: {{ pick.pick }}
+            </div>
+
+            <!-- Probability -->
+            <div class="text-muted small mb-2">
+              Probability: {{ pick.probability }}%
+            </div>
+
+            <!-- Probability Bar -->
+            <div class="prob-bar">
+              <div class="prob-fill" style="width: {{ pick.probability }}%;"></div>
+            </div>
+
+            <!-- Note -->
+            <div class="text-muted small">
+              Note: {{ pick.note }}
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% else %}
+  <div class="row mb-4">
+    <div class="col-md-8 mx-auto">
+      <div class="card text-center">
+        <div class="card-body py-4">
+          <h5>No high-confidence soccer totals picks today</h5>
+          <p class="text-muted">Check back later or view <a href="{{ url_for('today_soccer_predictions') }}">all soccer predictions</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── NBA WINNERS ────────────────────────────────────────────────── -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <h2 class="mb-3">NBA Winners</h2>
+    </div>
+  </div>
+
+  {% if nba_winners | length > 0 %}
+  <div class="row mb-4">
+    {% for pick in nba_winners %}
+    <div class="col-lg-6 col-xl-4 mb-3">
+      {% if pick.home_team.id and pick.away_team.id %}
+      <a href="{{ url_for('nba.select_game', team_a=pick.home_team.id, team_b=pick.away_team.id) }}" class="pick-card-link">
+      {% else %}
+      <div class="pick-card-link" style="cursor:default;">
+      {% endif %}
+        <div class="card h-100 fpred-card
+            {% if pick.confidence == 'High' %}border-success{% elif pick.confidence == 'Medium' %}border-warning{% else %}border-danger{% endif %}">
+
+          <div class="card-body text-center">
+            <!-- Teams -->
+            <div class="mb-2">
+              <strong>{{ pick.home_team.name }} vs {{ pick.away_team.name }}</strong>
+            </div>
+
+            <!-- Confidence -->
+            <div class="mb-2">
+              <span class="badge
+                  {% if pick.confidence == 'High' %}bg-success{% elif pick.confidence == 'Medium' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                {{ pick.confidence }}
+              </span>
+            </div>
+
+            <!-- Probability -->
+            <div class="text-muted small mb-1">
+              Win Probability: {{ "%.0f"|format(pick.win_probability) }}%
+            </div>
+
+            <!-- Pick -->
+            <div class="text-muted small">
+              Pick: {{ pick.predicted_winner }} Win
+            </div>
+          </div>
+        </div>
+      {% if pick.home_team.id and pick.away_team.id %}
+      </a>
+      {% else %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="row mb-4">
+    <div class="col-md-8 mx-auto">
+      <div class="card text-center">
+        <div class="card-body py-4">
+          <h5>No high-confidence NBA winner picks today</h5>
+          <p class="text-muted">Check back later or view <a href="{{ url_for('nba.today_predictions') }}">all NBA predictions</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Summary Stats -->
+  {% if (soccer_totals | length + nba_winners | length) > 0 %}
+  <div class="row mt-3 mb-4">
+    <div class="col-md-12">
+      <div class="card bg-light">
+        <div class="card-body py-3">
+          <div class="row text-center">
+            <div class="col-md-6">
+              <strong>Soccer Totals:</strong> {{ soccer_totals | length }}
+            </div>
+            <div class="col-md-6">
+              <strong>NBA Winners:</strong> {{ nba_winners | length }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Navigation -->
+  <div class="row mt-4 mb-4">
+    <div class="col-md-12">
+      <a href="{{ url_for('soccer', league=current_league_id) }}" class="btn btn-secondary">Soccer Home</a>
+      <a href="{{ url_for('today_soccer_predictions', league=current_league_id) }}" class="btn btn-outline-primary">Today Soccer</a>
+      <a href="{{ url_for('nba.today_predictions') }}" class="btn btn-outline-primary">Today NBA</a>
+      <a href="{{ url_for('model_performance') }}" class="btn btn-outline-secondary">Model Performance</a>
+    </div>
+  </div>
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 </div>
 {% endif %}
 

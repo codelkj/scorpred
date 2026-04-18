@@ -64,7 +64,7 @@ def fetch_soccer_result(
     team_a: str,
     team_b: str,
     date_str: str,
-    league_id: int = 39,  # English Premier League by default
+    league_id: int = 39,
     season: int = 2025,
     team_a_id: str | int | None = None,
     team_b_id: str | int | None = None,
@@ -76,12 +76,13 @@ def fetch_soccer_result(
         team_a: Team A name (from prediction)
         team_b: Team B name (from prediction)
         date_str: Date in YYYY-MM-DD format
-        league_id: league ID (default: 39 = EPL)
+        league_id: competition ID for the tracked prediction
         season: season year
     
     Returns:
         {
             "status": "FT|AET|PEN|...",
+            "fixture_id": int,
             "score": {"a": int, "b": int},
             "winner": "A|B|D",
             "teams": {"a": str, "b": str},
@@ -156,6 +157,7 @@ def fetch_soccer_result(
                 
                 return {
                     "status": status,
+                    "fixture_id": (fixture.get("fixture") or {}).get("id"),
                     "score": {"a": h_goals, "b": a_goals},
                     "winner": winner,
                     "teams": {"a": h_name, "b": a_name},
@@ -176,6 +178,7 @@ def fetch_soccer_result(
                 
                 return {
                     "status": status,
+                    "fixture_id": (fixture.get("fixture") or {}).get("id"),
                     "score": {"a": a_goals, "b": h_goals},
                     "winner": winner,
                     "teams": {"a": a_name, "b": h_name},
@@ -229,6 +232,7 @@ def fetch_nba_result(
     Returns:
         {
             "status": "Final",
+            "fixture_id": str,
             "score": {"a": int, "b": int},
             "winner": "A|B",
             "teams": {"a": str, "b": str},
@@ -236,30 +240,66 @@ def fetch_nba_result(
         }
         or None if not found
     """
+<<<<<<< HEAD
     all_games = []
 
     for candidate in _candidate_nba_scoreboard_dates(date_str):
         try:
             all_games.extend(nc.get_scoreboard_games(candidate))
+=======
+    target_date = _parse_date(date_str)
+    
+    all_games: list[dict] = []
+    seen_ids: set[str] = set()
+
+    candidate_days: list[datetime] = []
+    try:
+        if target_date:
+            candidate_days.append(datetime.fromisoformat(target_date))
+    except Exception:
+        pass
+    now = datetime.now()
+    candidate_days.extend([now - timedelta(days=1), now, now + timedelta(days=1)])
+
+    for day in candidate_days:
+        try:
+            for game in nc.get_scoreboard_games(day):
+                game_id = str(game.get("id") or "")
+                if game_id and game_id in seen_ids:
+                    continue
+                seen_ids.add(game_id)
+                all_games.append(game)
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
         except Exception:
             continue
     
     for game in all_games:
         try:
             game_date = _parse_date((game.get("date") or {}).get("start", ""))
+<<<<<<< HEAD
             target_date = _parse_date(date_str)
+=======
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             if game_date != target_date:
                 continue
             
             # Check if game is finished
+<<<<<<< HEAD
             status = game.get("status") or {}
             status_state = str(status.get("state", "")).lower()
             status_long = str(status.get("long", "")).upper()
             if status_state != "post" and "FINAL" not in status_long:
+=======
+            status_info = game.get("status") or {}
+            status = str(status_info.get("long") or status_info.get("short") or "").upper()
+            state = str(status_info.get("state") or "").lower()
+            if state != "post" and "FINAL" not in status:
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
                 continue
             
             # Get team names
             teams = game.get("teams") or {}
+<<<<<<< HEAD
             scores = game.get("scores") or {}
             home = teams.get("home") or {}
             away = teams.get("visitors") or {}
@@ -281,6 +321,16 @@ def fetch_nba_result(
             away_match = _team_ids_match(team_a_id, team_b_id, away_id, home_id) or (
                 _teams_match(team_a, away_name) and _teams_match(team_b, home_name)
             )
+=======
+            home_team = teams.get("home") or {}
+            away_team = teams.get("visitors") or {}
+            home_name = home_team.get("name") or home_team.get("nickname", "")
+            away_name = away_team.get("name") or away_team.get("nickname", "")
+            
+            scores = game.get("scores") or {}
+            home_score = int((scores.get("home") or {}).get("points") or 0)
+            away_score = int((scores.get("visitors") or {}).get("points") or 0)
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             
             # Check if teams match (try both orderings)
             if home_match:
@@ -291,7 +341,12 @@ def fetch_nba_result(
                     winner = "B"
                 
                 return {
+<<<<<<< HEAD
                     "status": status_long or "FINAL",
+=======
+                    "status": status,
+                    "fixture_id": game.get("id"),
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
                     "score": {"a": home_score, "b": away_score},
                     "winner": winner,
                     "teams": {"a": home_name, "b": away_name},
@@ -306,7 +361,12 @@ def fetch_nba_result(
                     winner = "B"
                 
                 return {
+<<<<<<< HEAD
                     "status": status_long or "FINAL",
+=======
+                    "status": status,
+                    "fixture_id": game.get("id"),
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
                     "score": {"a": away_score, "b": home_score},
                     "winner": winner,
                     "teams": {"a": away_name, "b": home_name},
@@ -376,10 +436,14 @@ def update_pending_predictions() -> dict[str, Any]:
                     team_a,
                     team_b,
                     date_str,
+<<<<<<< HEAD
                     league_id=int(league_id),
                     season=int(season),
                     team_a_id=team_a_id,
                     team_b_id=team_b_id,
+=======
+                    league_id=int(pred.get("league_id") or 39),
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
                 )
             elif sport == "nba":
                 result = fetch_nba_result(
@@ -401,9 +465,10 @@ def update_pending_predictions() -> dict[str, Any]:
             stats["found"] += 1
             actual_winner = result.get("winner", "")
             final_score = result.get("score", None)
+            fixture_id = result.get("fixture_id")
             
             # Update the prediction with result and final score
-            if mt.update_prediction_result(pred_id, actual_winner, final_score):
+            if mt.update_prediction_result(pred_id, actual_winner, final_score, fixture_id=fixture_id):
                 stats["updated"] += 1
         else:
             # Log why the result wasn't found

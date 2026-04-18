@@ -3,6 +3,7 @@
 
 {% block content %}
 
+<<<<<<< HEAD
 <section class="sp-hero">
   <span class="sp-kicker">Fixtures</span>
   <h1>Upcoming Fixtures</h1>
@@ -24,6 +25,24 @@
     {% for slug, label in slugs %}
     <a href="/fixtures?espn_slug={{ slug }}" class="btn btn-sm {{ 'btn-primary' if espn_slug == slug else 'btn-secondary' }}">{{ label }}</a>
     {% endfor %}
+=======
+<div class="page-header">
+  <h1>Upcoming <span class="accent">Fixtures</span></h1>
+  <p class="page-sub">Next 20 matches for the selected competition</p>
+</div>
+
+<div class="card glow-card" style="padding:1rem 1.5rem;">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <span style="font-size:.82rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Competition</span>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+      {% for league in supported_leagues %}
+      <a href="/fixtures?league={{ league.id }}" class="btn btn-sm {{ 'btn-primary btn-glow' if current_league_id == league.id else 'btn-secondary' }}">{{ league.flag }} {{ league.name }}</a>
+      {% endfor %}
+    </div>
+    <span class="source-badge {{ 'source-espn' if data_source == 'espn' else 'source-api' }}">
+      {{ 'ESPN fallback' if data_source == 'espn' else 'Configured provider' }}
+    </span>
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
   </div>
   <span class="source-badge {{ 'source-espn' if data_source == 'espn' else 'source-api' }}">
     {{ 'ESPN' if data_source == 'espn' else 'API' }}
@@ -35,6 +54,7 @@
 {% endif %}
 
 {% if not fixtures %}
+<<<<<<< HEAD
 <div class="sp-empty">No upcoming fixtures found. Try again later.</div>
 {% else %}
 
@@ -92,6 +112,52 @@
     </div>
     <form method="POST" action="/select" style="display:inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+=======
+<div class="card glow-card">
+  <div class="empty-state">No upcoming fixtures found for this competition.</div>
+</div>
+{% else %}
+
+{% for f in fixtures %}
+{% set p = f.prediction or {} %}
+{% set best = p.best_pick or {} %}
+<div class="card glow-card fpred-card">
+  <div class="fpred-meta">
+    <span>{{ f.fixture.date[:10] }}</span>
+    {% if f.fixture.date | length > 10 %}
+    <span>{{ f.fixture.date[11:16] }} UTC</span>
+    {% endif %}
+    {% if f.fixture.venue and f.fixture.venue.name %}
+    <span>{{ f.fixture.venue.name }}</span>
+    {% endif %}
+    {% if f.league and f.league.round %}
+    <span>{{ f.league.round }}</span>
+    {% endif %}
+  </div>
+
+  <div class="fpred-teams-row">
+    <div class="fpred-team">
+      <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.home.name }}" />
+      <span class="fpred-team-name">{{ f.teams.home.name }}</span>
+    </div>
+    <div class="fpred-centre">
+      <span class="fpred-vs">vs</span>
+      <span class="confidence-badge conf-{{ (best.confidence or 'Low') | lower }}">{{ best.confidence or 'Low' }}</span>
+    </div>
+    <div class="fpred-team right">
+      <span class="fpred-team-name">{{ f.teams.away.name }}</span>
+      <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.away.name }}" />
+    </div>
+  </div>
+
+  <div class="fpred-footer">
+    <span class="fpred-winner-label">
+      Predicted:
+      <strong class="accent">{{ best.prediction or 'No prediction available' }}</strong>
+    </span>
+    <form method="POST" action="/select" style="display:inline">
+      <input type="hidden" name="league_id" value="{{ f.league.id if f.league and f.league.id else current_league_id }}" />
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
       <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
       <input type="hidden" name="team_b" value="{{ f.teams.away.id }}" />
       <input type="hidden" name="team_a_name" value="{{ f.teams.home.name }}" />
@@ -107,7 +173,11 @@
       <button type="submit" class="btn btn-primary btn-sm">Full Analysis →</button>
     </form>
   </div>
+<<<<<<< HEAD
 </article>
+=======
+</div>
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 {% endfor %}
 
 {% endif %}

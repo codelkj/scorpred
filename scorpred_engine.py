@@ -31,7 +31,11 @@ Data Quality:
 """
 
 from __future__ import annotations
+<<<<<<< HEAD
 from datetime import datetime, timezone
+=======
+from datetime import UTC, datetime
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 import json
 import logging
 import os
@@ -285,7 +289,11 @@ def _match_context_score(form: list[dict], sport: str = "soccer") -> tuple[float
     if not most_recent:
         return 5.0, {"days_since_last": None, "category": "neutral", "note": "No valid dates"}
 
+<<<<<<< HEAD
     days_since_last = max(0, (datetime.now(timezone.utc) - most_recent).days)
+=======
+    days_since_last = max(0, (datetime.now() - most_recent).days)
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     if days_since_last <= 3:
         score = 4.2
         category = "short_rest"
@@ -592,6 +600,60 @@ def _win_probabilities(score_a: float, score_b: float, sport: str = "soccer") ->
         return {"a": win_a, "b": win_b}
 
 
+<<<<<<< HEAD
+=======
+def _prediction_history_path() -> str:
+    return _PREDICTION_HISTORY_FILE
+
+
+def _load_prediction_history() -> list[dict]:
+    try:
+        with open(_prediction_history_path(), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data.get("predictions", []) if isinstance(data, dict) else []
+    except Exception:
+        return []
+
+
+def _save_prediction_history(predictions: list[dict]) -> None:
+    try:
+        path = _prediction_history_path()
+        folder = os.path.dirname(path)
+        if folder and not os.path.isdir(folder):
+            os.makedirs(folder, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"predictions": predictions}, fh, indent=2)
+    except Exception:
+        pass
+
+
+def track_prediction(
+    predicted_winner: str,
+    confidence: str,
+    team_a_name: str,
+    team_b_name: str,
+    score_gap: float,
+    team_a_score: float,
+    team_b_score: float,
+    actual_result: str | None = None,
+) -> None:
+    record = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "predicted_winner": predicted_winner,
+        "confidence": confidence,
+        "team_a_name": team_a_name,
+        "team_b_name": team_b_name,
+        "score_gap": score_gap,
+        "team_a_score": team_a_score,
+        "team_b_score": team_b_score,
+        "actual_result": actual_result,
+    }
+    history = _load_prediction_history()
+    history.append(record)
+    _save_prediction_history(history)
+
+
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 def summarize_prediction_history() -> dict[str, Any]:
     """Bridge to model_tracker.get_summary_metrics(), returning legacy-shaped dict."""
     try:

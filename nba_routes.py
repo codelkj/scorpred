@@ -11,6 +11,7 @@ Session keys use the nba_ prefix to avoid collisions with the football section.
 
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
+<<<<<<< HEAD
 from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
@@ -18,6 +19,11 @@ import json
 import os
 import re
 import time
+=======
+from datetime import datetime
+from pathlib import Path
+import re
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 import traceback
 
 import requests
@@ -326,8 +332,26 @@ def _selected_nba_game():
     return session.get("nba_selected_game")
 
 
+<<<<<<< HEAD
 def _selection_error_redirect(message: str):
     return redirect(url_for("nba.index", selection_error=message))
+=======
+def _extract_totals_leg(prediction: dict) -> dict | None:
+    for pick in prediction.get("optional_picks") or []:
+        market = str(pick.get("market") or "")
+        lean = str(pick.get("lean") or "")
+        if "over" not in market.lower() and "under" not in market.lower() and "o/u" not in market.lower():
+            continue
+        line_match = re.search(r"(\d+(?:\.\d+)?)", market)
+        if not line_match:
+            continue
+        return {
+            "pick": lean,
+            "line": float(line_match.group(1)),
+            "market": market,
+        }
+    return None
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 
 def _store_nba_teams(team_a: dict, team_b: dict) -> None:
@@ -362,6 +386,73 @@ def _store_selected_game_from_payload(payload) -> None:
         "away_logo": payload.get("team_b_logo", "").strip(),
         "sport": "nba",
         "league_name": "NBA",
+    }
+
+
+def _store_assistant_page_context(page_kind: str, payload: dict | None = None) -> None:
+    compact = {"page_kind": page_kind, "captured_at": _now_stamp()}
+    if payload:
+        compact.update(payload)
+    session["assistant_page_context"] = compact
+
+
+def _assistant_pick_probability(prediction: dict, team_a_name: str, team_b_name: str) -> float | None:
+    win_probs = prediction.get("win_probabilities") if isinstance(prediction.get("win_probabilities"), dict) else {}
+    pick = str(((prediction.get("best_pick") or {}).get("prediction") or "")).strip().lower()
+    if pick == str(team_a_name or "").strip().lower():
+        value = win_probs.get("a")
+    elif pick == str(team_b_name or "").strip().lower():
+        value = win_probs.get("b")
+    else:
+        value = None
+    try:
+        return round(float(value), 1) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _assistant_extract_top_factors(prediction: dict) -> list[str]:
+    components_a = prediction.get("components_a") if isinstance(prediction.get("components_a"), dict) else {}
+    components_b = prediction.get("components_b") if isinstance(prediction.get("components_b"), dict) else {}
+    differences = []
+    for key in set(components_a) | set(components_b):
+        try:
+            a_val = float(components_a.get(key, 0) or 0)
+            b_val = float(components_b.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        diff = abs(a_val - b_val)
+        if diff <= 0:
+            continue
+        differences.append((diff, key.replace("_", " ").title()))
+    differences.sort(reverse=True)
+    return [label for _, label in differences[:3]]
+
+
+def _assistant_totals_pick_display(prediction: dict) -> str | None:
+    totals_leg = _extract_totals_leg(prediction)
+    if not totals_leg:
+        return None
+    pick = str(totals_leg.get("pick") or "").strip()
+    line = totals_leg.get("line")
+    if pick and line is not None:
+        return f"{pick} {line}"
+    return str(totals_leg.get("market") or pick or "").strip() or None
+
+
+def _assistant_prediction_context(prediction: dict, team_a_name: str, team_b_name: str, market_analysis: dict | None = None) -> dict:
+    best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
+    return {
+        "sport": "nba",
+        "team_a": team_a_name,
+        "team_b": team_b_name,
+        "winner_pick": best_pick.get("prediction") or "",
+        "winner_probability": _assistant_pick_probability(prediction, team_a_name, team_b_name),
+        "confidence": best_pick.get("confidence") or prediction.get("confidence") or "",
+        "reasoning": str(best_pick.get("reasoning") or "").strip(),
+        "totals_pick": ((market_analysis or {}).get("totals_leg") or {}).get("recommendation") or _assistant_totals_pick_display(prediction),
+        "spread_pick": ((market_analysis or {}).get("spread_leg") or {}).get("recommendation") or "",
+        "top_factors": _assistant_extract_top_factors(prediction),
     }
 
 
@@ -579,12 +670,38 @@ def _apply_refresh() -> None:
         _clear_nba_cache()
 
 
+<<<<<<< HEAD
 _ESPN_NBA_OVERVIEW_CACHE = cache_dir("nba")
 _ESPN_NBA_OVERVIEW_TTL = 1800       # 30 minutes
 _ESPN_TIMEOUT    = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "20"))
 _ESPN_RETRIES    = max(1, int(os.getenv("EXTERNAL_API_RETRY_ATTEMPTS", "3")))
 _ESPN_BACKOFF    = float(os.getenv("EXTERNAL_API_RETRY_BACKOFF_SECONDS", "1.2"))
 _ESPN_RETRY_CODES = {429, 500, 502, 503, 504}
+=======
+def _fetch_parallel(tasks: dict[str, tuple[str, callable]]) -> dict:
+    """Run independent data fetches concurrently and return results by key.
+
+    tasks format: {result_key: (error_label, zero-arg callable)}
+    """
+    if not tasks:
+        return {}
+
+    results = {}
+    max_workers = min(8, len(tasks))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_task = {
+            executor.submit(func): (key, label)
+            for key, (label, func) in tasks.items()
+        }
+        for future in as_completed(future_to_task):
+            key, label = future_to_task[future]
+            try:
+                results[key] = future.result()
+            except Exception as e:
+                _log_err(label, e)
+                results[key] = None
+    return results
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
 
 def _espn_player_overview(player_id: str) -> dict:
@@ -841,6 +958,7 @@ def _build_player_analysis(player_id: str, player_name: str = "") -> dict:
 
 # -- Routes ------------------------------------------------------------------
 
+@nba_bp.route("", methods=["GET"])
 @nba_bp.route("/", methods=["GET"])
 def index():
     with _route_timer("index"):
@@ -879,6 +997,7 @@ def _index_inner():
 
     # ── Generate Scorpred predictions for each upcoming game ──────────────────
     team_map = {str(t["id"]): t for t in teams} if teams else {}
+<<<<<<< HEAD
     nba_opp_strengths = {}
     try:
         nba_opp_strengths = _build_nba_opp_strengths(fut_standings.result())
@@ -904,6 +1023,98 @@ def _index_inner():
                     ordered_results[index] = {**game, "prediction": None}
 
         upcoming_games_with_predictions = [result for result in ordered_results if result is not None]
+=======
+    
+    for game in upcoming_games or []:
+        try:
+            home_id = str(game.get("teams", {}).get("home", {}).get("id") or "")
+            away_id = str(game.get("teams", {}).get("visitors", {}).get("id") or "")
+            home_team = team_map.get(home_id)
+            away_team = team_map.get(away_id)
+            
+            if not home_team or not away_team:
+                upcoming_games_with_predictions.append({**game, "prediction": None})
+                continue
+            
+            # Fetch form and H2H data for prediction
+            h2h_raw = []
+            form_home = []
+            form_away = []
+            injuries_home = []
+            injuries_away = []
+            
+            try:
+                h2h_raw = nc.get_h2h(home_id, away_id)
+            except Exception:
+                pass
+            
+            try:
+                form_home_raw = nc.get_team_recent_form(home_id)
+                form_home = np_nba.extract_recent_form(form_home_raw, home_id, n=5)
+            except Exception:
+                pass
+            
+            try:
+                form_away_raw = nc.get_team_recent_form(away_id)
+                form_away = np_nba.extract_recent_form(form_away_raw, away_id, n=5)
+            except Exception:
+                pass
+            
+            try:
+                injuries_home = nc.get_team_injuries(home_id)
+            except Exception:
+                pass
+            
+            try:
+                injuries_away = nc.get_team_injuries(away_id)
+            except Exception:
+                pass
+            
+            # H2H form
+            h2h_form_home = np_nba.extract_recent_form(h2h_raw, home_id, n=5) if h2h_raw else []
+            h2h_form_away = np_nba.extract_recent_form(h2h_raw, away_id, n=5) if h2h_raw else []
+            
+            # Build opponent strength lookup
+            nba_opp_strengths = {}
+            try:
+                nba_standings = nc.get_standings()
+                flat = []
+                if isinstance(nba_standings, dict):
+                    for conf_teams in nba_standings.values():
+                        flat.extend(conf_teams)
+                else:
+                    flat = list(nba_standings)
+                ranked = []
+                for i, entry in enumerate(flat):
+                    team_info = entry.get("team") or entry
+                    name = team_info.get("name") or team_info.get("nickname", "")
+                    rank = entry.get("rank") or entry.get("conference", {}).get("rank") or (i + 1)
+                    if name:
+                        ranked.append({"team": {"name": name}, "rank": rank})
+                nba_opp_strengths = se.build_opp_strengths_from_standings(ranked)
+            except Exception:
+                pass
+            
+            # Run Scorpred prediction
+            prediction = se.scorpred_predict(
+                form_a=form_home,
+                form_b=form_away,
+                h2h_form_a=h2h_form_home,
+                h2h_form_b=h2h_form_away,
+                injuries_a=injuries_home,
+                injuries_b=injuries_away,
+                team_a_is_home=True,
+                team_a_name=home_team.get("nickname") or home_team["name"],
+                team_b_name=away_team.get("nickname") or away_team["name"],
+                sport="nba",
+                opp_strengths=nba_opp_strengths,
+            )
+            
+            upcoming_games_with_predictions.append({**game, "prediction": prediction})
+        except Exception as e:
+            _log_err(f"Prediction for NBA game {game.get('id')}", e)
+            upcoming_games_with_predictions.append({**game, "prediction": None})
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
     return render_template(
         "nba/index.html",
@@ -1065,6 +1276,7 @@ def _matchup_inner():
         except Exception as e:
             _log_err("Selected game snapshot", e)
 
+<<<<<<< HEAD
     try:
         raw_h2h = _fetch_tasks["h2h"].result()
         h2h_rows = np_nba.h2h_display(raw_h2h, id_a, id_b)
@@ -1113,6 +1325,42 @@ def _matchup_inner():
         injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
     except Exception as e:
         _log_err("Roster B", e)
+=======
+    fetched = _fetch_parallel(
+        {
+            "raw_h2h": ("H2H fetch", lambda: nc.get_h2h(id_a, id_b)),
+            "recent_a": ("Form A fetch", lambda: nc.get_team_recent_form(id_a)),
+            "recent_b": ("Form B fetch", lambda: nc.get_team_recent_form(id_b)),
+            "stats_a": ("Stats A", lambda: nc.get_team_season_stats(id_a)),
+            "stats_b": ("Stats B", lambda: nc.get_team_season_stats(id_b)),
+            "injuries_a": ("Injuries A", lambda: nc.get_team_injuries(id_a)),
+            "injuries_b": ("Injuries B", lambda: nc.get_team_injuries(id_b)),
+            "roster_a": ("Roster A", lambda: nc.get_team_roster(id_a)),
+            "roster_b": ("Roster B", lambda: nc.get_team_roster(id_b)),
+        }
+    )
+
+    raw_h2h = fetched.get("raw_h2h") or []
+    recent_a = fetched.get("recent_a") or []
+    recent_b = fetched.get("recent_b") or []
+    stats_a = fetched.get("stats_a")
+    stats_b = fetched.get("stats_b")
+    injuries_a = fetched.get("injuries_a") or []
+    injuries_b = fetched.get("injuries_b") or []
+    roster_a = fetched.get("roster_a") or []
+    roster_b = fetched.get("roster_b") or []
+
+    h2h_rows = np_nba.h2h_display(raw_h2h, id_a, id_b)
+    h2h_summary = np_nba.build_h2h_summary(raw_h2h, id_a, id_b, n=5)
+    form_a = np_nba.extract_form_for_display(recent_a, id_a)
+    form_b = np_nba.extract_form_for_display(recent_b, id_b)
+    recent_form_a = np_nba.extract_recent_form(recent_a, id_a, n=5)
+    recent_form_b = np_nba.extract_recent_form(recent_b, id_b, n=5)
+    key_players_a = np_nba.build_key_player_stats_summary(roster_a, limit=5)
+    key_players_b = np_nba.build_key_player_stats_summary(roster_b, limit=5)
+    injury_summary_a = np_nba.build_injury_summary(injuries_a, roster_a)
+    injury_summary_b = np_nba.build_injury_summary(injuries_b, roster_b)
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
     def _splits(form_list):
         home = [g for g in form_list if g["is_home"]]
@@ -1178,6 +1426,7 @@ def _matchup_inner():
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
 
+<<<<<<< HEAD
     season_context = {
         "current_season": nc.NBA_SEASON,
         "form_a_current": len(form_context_a.get("current_games") or []),
@@ -1186,6 +1435,16 @@ def _matchup_inner():
         "form_b_historical": len(form_context_b.get("historical_games") or []),
         "has_historical_context": bool(form_context_a.get("historical_games") or form_context_b.get("historical_games")),
     }
+=======
+    _store_assistant_page_context(
+        "nba_matchup",
+        _assistant_prediction_context(
+            scorpred or {},
+            team_a.get("nickname") or team_a["name"],
+            team_b.get("nickname") or team_b["name"],
+        ),
+    )
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
     return render_template(
         "nba/matchup.html",
@@ -1365,6 +1624,7 @@ def _prediction_inner():
         except Exception as e:
             _log_err("Selected game snapshot for prediction", e)
 
+<<<<<<< HEAD
     try:
         h2h_games = _fetch_tasks["h2h"].result()
         h2h_games_filtered = np_nba.filter_completed_nba_games(h2h_games)
@@ -1409,12 +1669,39 @@ def _prediction_inner():
 
     # NOTE: Removed legacy nba_predictor.predict_winner() - using ONLY Scorpred Engine now
     # This ensures a single source of truth for all predictions
+=======
+    fetched = _fetch_parallel(
+        {
+            "h2h_games": ("H2H for prediction", lambda: nc.get_h2h(id_a, id_b)),
+            "form_a_raw": ("Form A for prediction", lambda: nc.get_team_recent_form(id_a)),
+            "form_b_raw": ("Form B for prediction", lambda: nc.get_team_recent_form(id_b)),
+            "injuries_a": ("Injuries A for prediction", lambda: nc.get_team_injuries(id_a)),
+            "injuries_b": ("Injuries B for prediction", lambda: nc.get_team_injuries(id_b)),
+            "stats_a": ("Stats A for prediction", lambda: nc.get_team_season_stats(id_a)),
+            "stats_b": ("Stats B for prediction", lambda: nc.get_team_season_stats(id_b)),
+        }
+    )
+
+    h2h_games = fetched.get("h2h_games") or []
+    form_a_raw = fetched.get("form_a_raw") or []
+    form_b_raw = fetched.get("form_b_raw") or []
+    injuries_a = fetched.get("injuries_a") or []
+    injuries_b = fetched.get("injuries_b") or []
+    stats_a = fetched.get("stats_a")
+    stats_b = fetched.get("stats_b")
+
+    h2h_games_filtered = np_nba.filter_completed_nba_games(h2h_games)
+    form_a_filtered = np_nba.filter_completed_nba_games(form_a_raw)
+    form_b_filtered = np_nba.filter_completed_nba_games(form_b_raw)
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
 
     form_a_display = np_nba.extract_form_for_display(form_a_filtered, id_a)
     form_b_display = np_nba.extract_form_for_display(form_b_filtered, id_b)
+    h2h_rows = np_nba.h2h_display(h2h_games_filtered, id_a, id_b)
 
     # ── Scorpred Engine ────────────────────────────────────────────────────────
     scorpred = None
+    market_analysis = None
     try:
         nba_form_a = np_nba.extract_recent_form(form_a_filtered, id_a, n=5)
         nba_form_b = np_nba.extract_recent_form(form_b_filtered, id_b, n=5)
@@ -1457,6 +1744,19 @@ def _prediction_inner():
             used_historical_context=bool(form_context_a.get("using_historical_context") or form_context_b.get("using_historical_context")),
             data_limited=(len(nba_form_a) < 2 or len(nba_form_b) < 2),
         )
+        market_analysis = np_nba.build_market_recommendations(
+            team_a,
+            team_b,
+            scorpred,
+            nba_form_a,
+            nba_form_b,
+            h2h_games_filtered,
+            injuries_a,
+            injuries_b,
+            stats_a=stats_a,
+            stats_b=stats_b,
+            team_a_is_home=True,
+        )
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
 
@@ -1465,8 +1765,15 @@ def _prediction_inner():
 
     data_notes = [
         "Upcoming/live game context is from ESPN's public scoreboard and summary feeds.",
+<<<<<<< HEAD
         "Primary analysis uses current-season completed form and current-season team snapshot data.",
         "Head-to-head is shown as historical context and is not treated as current-season form.",
+=======
+        "Season records, PPG, and net rating are live from the standings feed.",
+        "Recent form, head-to-head history, rosters, and injuries are all based on real schedule and roster data.",
+        "Analysis uses only completed games (final/post state) for accurate recent form and H2H history.",
+        "Spread and total points recommendations are model-derived from ScorPred inputs rather than sportsbook lines.",
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     ]
     if limited_current_season:
         data_notes.append("Current-season data is limited for this matchup.")
@@ -1488,9 +1795,21 @@ def _prediction_inner():
     try:
         if scorpred:
             best_pick = scorpred.get("best_pick", {})
+<<<<<<< HEAD
             pred_winner = best_pick.get("tracking_team") or best_pick.get("team", "")
+=======
+            pred_winner = best_pick.get("prediction", "")
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             probs = scorpred.get("win_probabilities", {})
             conf = best_pick.get("confidence", "Medium")
+            totals_leg_data = (market_analysis or {}).get("totals_leg") or {}
+            totals_pick_text = str(totals_leg_data.get("recommendation") or "").strip()
+            totals_match = re.match(r"^(Over|Under)\s+([0-9]+(?:\.[0-9]+)?)$", totals_pick_text, flags=re.IGNORECASE)
+            totals_leg = {
+                "pick": totals_match.group(1).title() if totals_match else None,
+                "line": float(totals_match.group(2)) if totals_match else None,
+                "market": f"Total Points O/U {totals_match.group(2)}" if totals_match else None,
+            }
             
             mt.save_prediction(
                 sport="nba",
@@ -1499,12 +1818,34 @@ def _prediction_inner():
                 predicted_winner=pred_winner,
                 win_probs=probs,
                 confidence=conf,
+<<<<<<< HEAD
                 game_date=(selected_game or {}).get("date") or None,
                 team_a_id=team_a["id"],
                 team_b_id=team_b["id"],
+=======
+                prediction_notes=best_pick.get("reasoning"),
+                model_factors={
+                    "team_a": scorpred.get("components_a") if isinstance(scorpred.get("components_a"), dict) else {},
+                    "team_b": scorpred.get("components_b") if isinstance(scorpred.get("components_b"), dict) else {},
+                },
+                fixture_id=(selected_game or game_snapshot or {}).get("id"),
+                totals_pick=totals_leg.get("pick"),
+                totals_line=totals_leg.get("line"),
+                totals_market=totals_leg.get("market"),
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             )
     except Exception:
         current_app.logger.warning("Prediction tracking failed (nba)", exc_info=True)
+
+    _store_assistant_page_context(
+        "nba_prediction",
+        _assistant_prediction_context(
+            scorpred or {},
+            team_a.get("nickname") or team_a["name"],
+            team_b.get("nickname") or team_b["name"],
+            market_analysis=market_analysis,
+        ),
+    )
 
     return render_template(
         "nba/prediction.html",
@@ -1520,7 +1861,11 @@ def _prediction_inner():
             form_a=form_a_display,
             form_b=form_b_display,
             h2h_rows=h2h_rows,
+<<<<<<< HEAD
             h2h_summary=h2h_summary,
+=======
+            market_analysis=market_analysis or {},
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
             prediction=scorpred,
             scorpred=scorpred,    # template guards on {% if scorpred %} — expose it directly
             data_notes=data_notes,
@@ -1668,7 +2013,11 @@ def _today_predictions_inner():
         _log_err("Teams fetch for today predictions", e)
 
     # Fetch today's NBA scoreboard
+<<<<<<< HEAD
     now_utc = datetime.now(timezone.utc)
+=======
+    now_utc = datetime.now()
+>>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     current_app.logger.info(
         "today_predictions: UTC=%s — fetching today's scoreboard",
         now_utc.strftime("%Y-%m-%d %H:%M"),

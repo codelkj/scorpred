@@ -309,6 +309,145 @@ def best_bets(prediction: dict, props_a: list, props_b: list,
     return top3
 
 
+def build_market_recommendations(
+    team_a: dict,
+    team_b: dict,
+    scorpred: dict,
+    recent_form_a: list[dict],
+    recent_form_b: list[dict],
+    h2h_games: list,
+    injuries_a: list,
+    injuries_b: list,
+    stats_a: dict | None = None,
+    stats_b: dict | None = None,
+    *,
+    team_a_is_home: bool = True,
+) -> dict[str, Any]:
+    """Build explicit winner, spread, totals, and parlay outputs for the NBA prediction page.
+
+    This is a display-oriented market layer built from the real team stats already available in the app.
+    It is future-ready for full leg grading, but the spread leg is not yet settled by the tracking layer.
+    """
+    team_a_name = team_a.get("nickname") or team_a.get("name") or "Team A"
+    team_b_name = team_b.get("nickname") or team_b.get("name") or "Team B"
+
+    scorpred = scorpred or {}
+    stats_a = stats_a or {}
+    stats_b = stats_b or {}
+
+    recent_a = _recent_team_summary(recent_form_a)
+    recent_b = _recent_team_summary(recent_form_b)
+    h2h_summary = _recent_h2h_summary(h2h_games)
+
+    home_edge = 2.1 if team_a_is_home else -2.1
+    injury_edge = (_injury_penalty_value(injuries_b) - _injury_penalty_value(injuries_a)) * 0.75
+    net_edge = (_safe_f(stats_a.get("net_rtg")) - _safe_f(stats_b.get("net_rtg"))) * 0.55
+    recent_edge = (recent_a["avg_margin"] - recent_b["avg_margin"]) * 0.35
+    h2h_edge = h2h_summary["avg_margin"] * 0.12 if h2h_summary["games"] else 0.0
+    probability_edge = (_safe_f(scorpred.get("prob_a")) - _safe_f(scorpred.get("prob_b"))) * 0.08
+
+    expected_margin = home_edge + injury_edge + net_edge + recent_edge + h2h_edge + probability_edge
+    if abs(expected_margin) < 0.5:
+        expected_margin = 0.5 if _safe_f(scorpred.get("team_a_score")) >= _safe_f(scorpred.get("team_b_score")) else -0.5
+
+    season_total_anchor = (
+        (_safe_f(stats_a.get("ppg") if stats_a.get("ppg") is not None else 110.0) + _safe_f(stats_b.get("opp_ppg") if stats_b.get("opp_ppg") is not None else 110.0))
+        + (_safe_f(stats_b.get("ppg") if stats_b.get("ppg") is not None else 110.0) + _safe_f(stats_a.get("opp_ppg") if stats_a.get("opp_ppg") is not None else 110.0))
+    ) / 2.0
+    recent_total = (
+        recent_a["avg_scored"] + recent_b["avg_allowed"] + recent_b["avg_scored"] + recent_a["avg_allowed"]
+    ) / 2.0
+    h2h_total = h2h_summary["avg_total"] if h2h_summary["games"] else season_total_anchor
+
+    scoring_environment = ((_safe_f(stats_a.get("ppg")) + _safe_f(stats_a.get("opp_ppg"))) / 2.0) + (
+        (_safe_f(stats_b.get("ppg")) + _safe_f(stats_b.get("opp_ppg"))) / 2.0
+    ) - 220.0
+    total_injury_adjustment = -0.8 * (_injury_penalty_value(injuries_a) + _injury_penalty_value(injuries_b))
+
+    expected_total = (
+        season_total_anchor * 0.45
+        + recent_total * 0.35
+        + h2h_total * 0.20
+        + scoring_environment * 0.20
+        + total_injury_adjustment
+    )
+    total_line = _round_half(season_total_anchor)
+    total_edge = expected_total - total_line
+
+    winner_team = team_a_name if expected_margin >= 0 else team_b_name
+    spread_side = team_a_name if expected_margin >= 0 else team_b_name
+    spread_value = _round_half(abs(expected_margin))
+    spread_label = f"{spread_side} {'-' if expected_margin >= 0 else '-'}{spread_value}"
+    if expected_margin < 0:
+        spread_label = f"{spread_side} -{spread_value}"
+
+    total_lean = "Over" if total_edge >= 0 else "Under"
+    total_pick = f"{total_lean} {total_line}"
+
+    winner_confidence = scorpred.get("confidence") or _market_confidence_from_gap(abs(_safe_f(scorpred.get("prob_a")) - _safe_f(scorpred.get("prob_b"))), kind="winner")
+    spread_confidence = _market_confidence_from_gap(abs(expected_margin), kind="spread")
+    totals_confidence = _market_confidence_from_gap(abs(total_edge), kind="total")
+
+    winner_reason = _winner_reason(team_a_name, team_b_name, scorpred, recent_a, recent_b, stats_a, stats_b, injuries_a, injuries_b)
+    spread_reason = _spread_reason(team_a_name, team_b_name, expected_margin, net_edge, recent_edge, home_edge, injury_edge)
+    totals_reason = _totals_reason(expected_total, total_line, recent_total, season_total_anchor, total_injury_adjustment, h2h_summary)
+
+    winner_leg = {
+        "leg_key": "winner",
+        "leg_type": "Winner / Moneyline",
+        "recommendation": winner_team,
+        "confidence": winner_confidence,
+        "strength": _market_strength_label(winner_confidence),
+        "explanation": winner_reason,
+        "tracking_status": "tracked",
+    }
+    spread_leg = {
+        "leg_key": "spread",
+        "leg_type": "Spread",
+        "recommendation": spread_label,
+        "confidence": spread_confidence,
+        "strength": _market_strength_label(spread_confidence),
+        "model_line": spread_value,
+        "expected_margin": round(expected_margin, 1),
+        "explanation": spread_reason,
+        "tracking_status": "display_only",
+    }
+    totals_leg = {
+        "leg_key": "total",
+        "leg_type": "Total Points",
+        "recommendation": total_pick,
+        "confidence": totals_confidence,
+        "strength": _market_strength_label(totals_confidence),
+        "model_line": total_line,
+        "expected_total": round(expected_total, 1),
+        "explanation": totals_reason,
+        "tracking_status": "future_ready",
+    }
+
+    parlay_legs = [winner_leg, spread_leg, totals_leg]
+    alignment = _parlay_alignment_summary(winner_leg, spread_leg, totals_leg)
+
+    return {
+        "winner_leg": winner_leg,
+        "spread_leg": spread_leg,
+        "totals_leg": totals_leg,
+        "parlay_checklist": parlay_legs,
+        "alignment": alignment,
+        "expected_margin": round(expected_margin, 1),
+        "expected_total": round(expected_total, 1),
+        "model_spread_label": spread_label,
+        "model_total_pick": total_pick,
+        "model_total_line": total_line,
+        "display_note": "Spread and totals are model-derived suggestions built from ScorPred data inputs, not sportsbook lines.",
+        "tracking_note": "Winner is already tracked. Spread is display-only for now, and totals are structured for future-expanded NBA leg grading.",
+        "evidence_points": [
+            f"Recent form margin: {team_a_name} {recent_a['avg_margin']:+.1f}, {team_b_name} {recent_b['avg_margin']:+.1f}.",
+            f"Net rating edge: {team_a_name} {_safe_f(stats_a.get('net_rtg')):+.1f}, {team_b_name} {_safe_f(stats_b.get('net_rtg')):+.1f}.",
+            f"Scoring environment baseline: {season_total_anchor:.1f} projected points before recent-form and injury adjustments.",
+        ],
+    }
+
+
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
 def _h2h_score(games: list, id_a: int, id_b: int) -> dict:
@@ -336,6 +475,182 @@ def _h2h_score(games: list, id_a: int, id_b: int) -> dict:
         "total":  total,
         "a_pct":  wins_a / total,
         "b_pct":  wins_b / total,
+    }
+
+
+def _recent_team_summary(games: list[dict]) -> dict[str, float]:
+    if not games:
+        return {
+            "avg_scored": 110.0,
+            "avg_allowed": 110.0,
+            "avg_margin": 0.0,
+            "avg_total": 220.0,
+            "win_rate": 0.5,
+            "games": 0,
+        }
+
+    scored = [_safe_f(g.get("our_pts")) for g in games[:5]]
+    allowed = [_safe_f(g.get("their_pts")) for g in games[:5]]
+    margins = [s - a for s, a in zip(scored, allowed)]
+    wins = sum(1 for g in games[:5] if g.get("result") == "W")
+    count = max(len(scored), 1)
+    return {
+        "avg_scored": round(sum(scored) / count, 1),
+        "avg_allowed": round(sum(allowed) / count, 1),
+        "avg_margin": round(sum(margins) / count, 1),
+        "avg_total": round(sum(s + a for s, a in zip(scored, allowed)) / count, 1),
+        "win_rate": round(wins / count, 3),
+        "games": count,
+    }
+
+
+def _recent_h2h_summary(games: list[dict]) -> dict[str, float]:
+    rows = []
+    for game in games[:5]:
+        scores = game.get("scores") or {}
+        a_pts = scores.get("home", {}).get("points")
+        b_pts = scores.get("visitors", {}).get("points")
+        if a_pts is None or b_pts is None:
+            continue
+        rows.append((float(a_pts), float(b_pts)))
+
+    if not rows:
+        return {"avg_total": 0.0, "avg_margin": 0.0, "games": 0}
+
+    totals = [a + b for a, b in rows]
+    margins = [a - b for a, b in rows]
+    return {
+        "avg_total": round(sum(totals) / len(totals), 1),
+        "avg_margin": round(sum(margins) / len(margins), 1),
+        "games": len(rows),
+    }
+
+
+def _injury_penalty_value(injuries: list) -> float:
+    penalty = 0.0
+    for inj in injuries or []:
+        status = str(inj.get("status") or "").lower()
+        if status == "out":
+            penalty += 1.0
+        elif status == "doubtful":
+            penalty += 0.7
+        elif status == "questionable":
+            penalty += 0.35
+        else:
+            penalty += 0.2
+    return penalty
+
+
+def _market_confidence_from_gap(value: float, *, kind: str) -> str:
+    if kind == "winner":
+        if value >= 16:
+            return "High"
+        if value >= 8:
+            return "Medium"
+        return "Low"
+    if kind == "spread":
+        if value >= 8.0:
+            return "High"
+        if value >= 4.0:
+            return "Medium"
+        return "Low"
+    if value >= 8.0:
+        return "High"
+    if value >= 4.0:
+        return "Medium"
+    return "Low"
+
+
+def _market_strength_label(confidence: str) -> str:
+    return {
+        "High": "Strong",
+        "Medium": "Playable",
+        "Low": "Thin edge",
+    }.get(confidence, "Thin edge")
+
+
+def _winner_reason(
+    team_a_name: str,
+    team_b_name: str,
+    scorpred: dict,
+    recent_a: dict,
+    recent_b: dict,
+    stats_a: dict,
+    stats_b: dict,
+    injuries_a: list,
+    injuries_b: list,
+) -> str:
+    favored = team_a_name if _safe_f(scorpred.get("prob_a")) >= _safe_f(scorpred.get("prob_b")) else team_b_name
+    if favored == team_a_name:
+        return (
+            f"{team_a_name} hold the stronger current profile through form ({recent_a['avg_margin']:+.1f} recent margin), "
+            f"net rating ({_safe_f(stats_a.get('net_rtg')):+.1f}), and home-court context."
+        )
+    return (
+        f"{team_b_name} have the cleaner winning case through form ({recent_b['avg_margin']:+.1f} recent margin), "
+        f"net rating ({_safe_f(stats_b.get('net_rtg')):+.1f}), and the injury balance."
+    )
+
+
+def _spread_reason(
+    team_a_name: str,
+    team_b_name: str,
+    expected_margin: float,
+    net_edge: float,
+    recent_edge: float,
+    home_edge: float,
+    injury_edge: float,
+) -> str:
+    side = team_a_name if expected_margin >= 0 else team_b_name
+    return (
+        f"This spread leans {side} because the projected margin is {expected_margin:+.1f}, driven by net-rating edge ({net_edge:+.1f}), "
+        f"recent-form margin ({recent_edge:+.1f}), home court ({home_edge:+.1f}), and injury swing ({injury_edge:+.1f})."
+    )
+
+
+def _totals_reason(
+    expected_total: float,
+    total_line: float,
+    recent_total: float,
+    season_total_anchor: float,
+    injury_adjustment: float,
+    h2h_summary: dict,
+) -> str:
+    h2h_note = f" H2H meetings have averaged {h2h_summary['avg_total']:.1f}." if h2h_summary.get("games") else ""
+    return (
+        f"The projected total is {expected_total:.1f} against a model line of {total_line:.1f}, based on a season scoring baseline of {season_total_anchor:.1f}, "
+        f"recent-form pace of {recent_total:.1f}, and injury adjustment of {injury_adjustment:+.1f}.{h2h_note}"
+    )
+
+
+def _parlay_alignment_summary(winner_leg: dict, spread_leg: dict, totals_leg: dict) -> dict[str, str | list[str]]:
+    winner_side = str(winner_leg.get("recommendation") or "")
+    spread_pick = str(spread_leg.get("recommendation") or "")
+    same_side = winner_side and spread_pick.startswith(winner_side)
+
+    weak_legs = [
+        leg["leg_type"]
+        for leg in (winner_leg, spread_leg, totals_leg)
+        if str(leg.get("confidence") or "") == "Low"
+    ]
+
+    if same_side and not weak_legs:
+        overall = "Strong alignment"
+        summary = "Moneyline and spread tell the same game script, and the totals edge is strong enough to support a full parlay view."
+    elif same_side:
+        overall = "Selective alignment"
+        summary = "Moneyline and spread align, but one of the supporting legs is thinner and should be treated more selectively."
+    else:
+        overall = "Split card"
+        summary = "The winner and spread do not create a clean same-side stack, so this looks better as selective single legs than a full same-story parlay."
+
+    if weak_legs:
+        summary += f" Weak legs right now: {', '.join(weak_legs)}."
+
+    return {
+        "overall": overall,
+        "summary": summary,
+        "weak_legs": weak_legs,
     }
 
 
