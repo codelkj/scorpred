@@ -5,26 +5,19 @@ Implements optional login, signup, and session management.
 User data is stored under SCORPRED_DATA_ROOT/user_data/.
 """
 
-import os
-import json
+
 import hashlib
 import secrets
-from pathlib import Path
 from datetime import datetime
 from flask import Blueprint, request, session, redirect, url_for, render_template, flash, current_app
-from runtime_paths import data_root
-
-USER_DATA_DIR = data_root() / "user_data"
-USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+from db_models import db, User
 
 user_auth_bp = Blueprint("user_auth", __name__)
 
 USER_SESSION_KEY = "user_email"
 
 
-def _user_file(email: str) -> Path:
-    safe_email = email.replace("@", "_at_").replace(".", "_dot_")
-    return USER_DATA_DIR / f"{safe_email}.json"
+
 
 
 def _hash_password(password: str, salt: str = None) -> str:
@@ -42,18 +35,27 @@ def _verify_password(password: str, hashed: str) -> bool:
         return False
 
 
-def _load_user(email: str) -> dict | None:
-    f = _user_file(email)
-    if f.exists():
-        with open(f, "r", encoding="utf-8") as fp:
-            return json.load(fp)
+    user = User.query.filter_by(email=email).first()
+    if user:
+        return user.to_dict()
     return None
 
 
-def _save_user(user: dict) -> None:
-    f = _user_file(user["email"])
-    with open(f, "w", encoding="utf-8") as fp:
-        json.dump(user, fp, indent=2)
+    db_user = User.query.filter_by(email=user["email"]).first()
+    if not db_user:
+        db_user = User(
+            email=user["email"],
+            password_hash=user["password_hash"],
+            created_at=datetime.fromisoformat(user["created_at"].replace("Z", "")),
+            saved_picks=user.get("saved_picks", []),
+            history=user.get("history", []),
+        )
+        db.session.add(db_user)
+    else:
+        db_user.password_hash = user["password_hash"]
+        db_user.saved_picks = user.get("saved_picks", [])
+        db_user.history = user.get("history", [])
+    db.session.commit()
 
 
 def current_user() -> dict | None:

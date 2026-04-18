@@ -32,6 +32,7 @@ import result_updater as ru
 from runtime_paths import ensure_runtime_dirs
 from security import check_chat_rate_limit, configure_security, sanitize_error
 from services import analysis_assistant as assistant_services
+from db_models import db
 
 try:
     import nba_live_client as nc
@@ -62,9 +63,13 @@ load_dotenv()
 ensure_runtime_dirs()
 
 
+# --- Persistent session config ---
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 configure_security(app, os.getenv("SECRET_KEY", "").strip())
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///scorpred.db")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db.init_app(app)
 # --- Persistent session config ---
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
