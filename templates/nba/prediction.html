@@ -1,13 +1,6 @@
 {% extends "base.html" %}
 
 {% block title %}NBA Prediction - {{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}{% endblock %}
-{% else %}
-<div class="sp-panel" style="text-align:center; padding:2rem">
-  <span class="sp-kicker">Prediction unavailable</span>
-  <h2 style="margin:.3rem 0">No ScorPred output was produced</h2>
-  <p style="color:var(--text-2); font-size:.85rem">Re-select the game from the NBA home page and try again.</p>
-</div>
-{% endif %}
 
 {% block scripts %}
 {% if scorpred %}
@@ -69,6 +62,11 @@ if (ctx) {
 
 <p style="font-size:.72rem; color:var(--text-3); text-align:center; margin-top:1rem">Predictions are model-based analysis for informational purposes only, not betting advice or guaranteed outcomes.</p>
 {% endblock %}
+
+{% block content %}
+{% if scorpred %}
+<div class="sp-panel sp-nba" style="text-align:center; margin-bottom:.75rem">
+  <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:.75rem">
     <div style="display:flex; align-items:center; gap:.4rem">
       {% if team_a.logo %}<img src="{{ team_a.logo }}" style="width:36px;height:36px;object-fit:contain" alt="" />{% endif %}
       <div><strong style="font-size:.9rem">{{ team_a.city or '' }} {{ team_a.nickname or team_a.name }}</strong><br><span style="font-size:.72rem; color:var(--text-3)">Home</span></div>
