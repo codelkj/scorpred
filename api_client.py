@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -41,7 +42,7 @@ load_dotenv()
 API_KEY  = os.getenv("API_FOOTBALL_KEY", "").strip()
 API_HOST = os.getenv("API_FOOTBALL_HOST", "api-football-v1.p.rapidapi.com").strip()
 API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://api-football-v1.p.rapidapi.com/v3").rstrip("/")
-EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "15"))
+EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "8"))
 EXTERNAL_API_RETRY_ATTEMPTS = 2
 EXTERNAL_API_RETRY_BACKOFF_SECONDS = 2.0
 
@@ -1202,8 +1203,8 @@ def get_upcoming_fixtures(
     except Exception as exc:
         logger.warning(f"[API_CLIENT] get_upcoming_fixtures failed: {exc}")
     # ESPN fallback: scan ahead across the next few weeks (UTC) because many
-    # leagues have multi-day gaps between matchdays. A short 2-3 day window can
-    # look empty even when valid upcoming fixtures exist.
+    # leagues have multi-day gaps between matchdays. Fetch all days in parallel
+    # to avoid the sequential-per-day hang.
     slug = _espn_slug(league_id)
     now_utc = datetime.now(timezone.utc)
     all_fixtures: list = []
@@ -1213,18 +1214,27 @@ def get_upcoming_fixtures(
     _FINISHED = {"FT", "AET", "PEN", "SUSP", "ABD", "WO"}
     _LIVE     = {"LIVE", "1H", "2H", "HT", "ET", "BT", "P", "INT"}
 
-    for day_offset in range(max_days_ahead + 1):
+    def _fetch_day(day_offset: int):
         target = now_utc + timedelta(days=day_offset)
         date_str = target.strftime("%Y%m%d")
         try:
-            payload = _espn_get_json(
+            return _espn_get_json(
                 f"{ESPN_BASE}/{slug}/scoreboard?dates={date_str}",
                 f"scoreboard:{league_id}:{date_str}",
                 ttl_hours=0.5,
             )
         except Exception:
-            continue
+            return {}
 
+    day_offsets = list(range(max_days_ahead + 1))
+    payloads_by_offset: dict[int, dict] = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(day_offsets))) as _pool:
+        future_to_offset = {_pool.submit(_fetch_day, off): off for off in day_offsets}
+        for future in as_completed(future_to_offset):
+            payloads_by_offset[future_to_offset[future]] = future.result()
+
+    for day_offset in day_offsets:
+        payload = payloads_by_offset.get(day_offset) or {}
         for event in payload.get("events") or []:
             fixture = _normalize_espn_fixture(event, league_id)
             if not fixture:
@@ -1238,9 +1248,6 @@ def get_upcoming_fixtures(
             # Keep not-started and any unknown status; skip finished and live
             if status_short not in _FINISHED and status_short not in _LIVE:
                 all_fixtures.append(fixture)
-
-        if len(all_fixtures) >= next_n:
-            break
 
     all_fixtures.sort(key=lambda f: str((f.get("fixture") or {}).get("date") or ""))
     return all_fixtures[:next_n]

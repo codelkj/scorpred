@@ -6,6 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 """Evidence-building helpers for soccer matchup and prediction routes."""
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -412,89 +413,85 @@ def load_upcoming_fixtures(
     normalized.sort(key=lambda row: str((row.get("fixture") or {}).get("date") or ""))
     fixtures_with_pred: list[dict] = []
 
+    # Split fixtures into deep (needs full API fetch) and shallow (limited prediction)
+    deep_fixtures = []
+    shallow_fixtures = []
     for idx, fixture in enumerate(normalized[:next_n]):
         teams = fixture.get("teams") or {}
         home = teams.get("home") or {}
         away = teams.get("away") or {}
         home_id = int(home.get("id") or 0)
         away_id = int(away.get("id") or 0)
-        home_name = str(home.get("name") or "Home")
-        away_name = str(away.get("name") or "Away")
+        if not home_id or not away_id or idx >= max_deep_predictions:
+            shallow_fixtures.append((idx, fixture, home_id, away_id,
+                                     str(home.get("name") or "Home"),
+                                     str(away.get("name") or "Away"),
+                                     "Missing team IDs" if not home_id or not away_id else "Deep prediction cap reached"))
+        else:
+            deep_fixtures.append((idx, fixture, home_id, away_id,
+                                   str(home.get("name") or "Home"),
+                                   str(away.get("name") or "Away")))
 
-        logger.debug(
-            "[EVIDENCE] prediction_context start fixture_id=%s home_id=%s away_id=%s",
-            (fixture.get("fixture") or {}).get("id"),
-            home_id,
-            away_id,
+    # Prefetch all API data for deep fixtures in parallel
+    def _fetch_fixture_data(home_id, away_id):
+        """Fetch all 5 data points for one fixture concurrently."""
+        results = {}
+        tasks = {
+            "form_home": lambda: _cached_team_form(api_client, predictor, team_id=home_id, league=league, season=season, now=now, logger=logger),
+            "form_away": lambda: _cached_team_form(api_client, predictor, team_id=away_id, league=league, season=season, now=now, logger=logger),
+            "h2h":       lambda: _cached_h2h(api_client, predictor, home_id=home_id, away_id=away_id, season=season, now=now, logger=logger),
+            "inj_home":  lambda: _cached_injuries(api_client, team_id=home_id, league=league, season=season, now=now, logger=logger),
+            "inj_away":  lambda: _cached_injuries(api_client, team_id=away_id, league=league, season=season, now=now, logger=logger),
+        }
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futs = {pool.submit(fn): key for key, fn in tasks.items()}
+            for fut in as_completed(futs):
+                key = futs[fut]
+                try:
+                    results[key] = fut.result()
+                except Exception as exc:
+                    logger.warning("[EVIDENCE] parallel_fetch %s failed: %s", key, exc)
+                    results[key] = ([], []) if key.startswith("form") else ([], [], []) if key == "h2h" else []
+        return results
+
+    # Fetch all deep fixtures in parallel (one thread per fixture)
+    prefetched: dict[int, dict] = {}
+    if deep_fixtures:
+        with ThreadPoolExecutor(max_workers=min(6, len(deep_fixtures))) as pool:
+            fut_map = {
+                pool.submit(_fetch_fixture_data, home_id, away_id): idx
+                for idx, _, home_id, away_id, _, _ in deep_fixtures
+            }
+            for fut in as_completed(fut_map):
+                idx = fut_map[fut]
+                try:
+                    prefetched[idx] = fut.result()
+                except Exception as exc:
+                    logger.warning("[EVIDENCE] fixture prefetch failed idx=%s: %s", idx, exc)
+                    prefetched[idx] = {}
+
+    # Build all predictions in original order
+    all_items: dict[int, dict] = {}
+
+    for idx, fixture, home_id, away_id, home_name, away_name, reason in shallow_fixtures:
+        prediction = _limited_prediction(
+            engine, team_a_name=home_name, team_b_name=away_name,
+            opp_strengths=opp_strengths, reason=reason,
         )
+        if reason == "Deep prediction cap reached":
+            logger.info("[EVIDENCE] prediction_context degraded fixture_id=%s reason=deep_limit",
+                        (fixture.get("fixture") or {}).get("id"))
+        all_items[idx] = {**fixture, "prediction": prediction}
 
-        if not home_id or not away_id:
-            prediction = _limited_prediction(
-                engine,
-                team_a_name=home_name,
-                team_b_name=away_name,
-                opp_strengths=opp_strengths,
-                reason="Missing team IDs",
-            )
-            fixtures_with_pred.append({**fixture, "prediction": prediction})
-            continue
-
-        if idx >= max_deep_predictions:
-            prediction = _limited_prediction(
-                engine,
-                team_a_name=home_name,
-                team_b_name=away_name,
-                opp_strengths=opp_strengths,
-                reason="Deep prediction cap reached",
-            )
-            fixtures_with_pred.append({**fixture, "prediction": prediction})
-            logger.info("[EVIDENCE] prediction_context degraded fixture_id=%s reason=deep_limit", (fixture.get("fixture") or {}).get("id"))
-            continue
-
+    for idx, fixture, home_id, away_id, home_name, away_name in deep_fixtures:
+        data = prefetched.get(idx, {})
         try:
-            form_home, fixtures_home = _cached_team_form(
-                api_client,
-                predictor,
-                team_id=home_id,
-                league=league,
-                season=season,
-                now=now,
-                logger=logger,
-            )
-            form_away, fixtures_away = _cached_team_form(
-                api_client,
-                predictor,
-                team_id=away_id,
-                league=league,
-                season=season,
-                now=now,
-                logger=logger,
-            )
-            _, h2h_home, h2h_away = _cached_h2h(
-                api_client,
-                predictor,
-                home_id=home_id,
-                away_id=away_id,
-                season=season,
-                now=now,
-                logger=logger,
-            )
-            injuries_home = _cached_injuries(
-                api_client,
-                team_id=home_id,
-                league=league,
-                season=season,
-                now=now,
-                logger=logger,
-            )
-            injuries_away = _cached_injuries(
-                api_client,
-                team_id=away_id,
-                league=league,
-                season=season,
-                now=now,
-                logger=logger,
-            )
+            form_home, fixtures_home = data.get("form_home") or ([], [])
+            form_away, fixtures_away = data.get("form_away") or ([], [])
+            h2h_result = data.get("h2h") or ([], [], [])
+            _, h2h_home, h2h_away = h2h_result
+            injuries_home = data.get("inj_home") or []
+            injuries_away = data.get("inj_away") or []
 
             fallback_reason = None
             if not form_home or not form_away:
@@ -504,24 +501,15 @@ def load_upcoming_fixtures(
                 if not form_away:
                     reason_bits.append(f"away form empty (team_id={away_id}, fixtures={len(fixtures_away)})")
                 fallback_reason = "; ".join(reason_bits)
-                logger.warning(
-                    "[EVIDENCE] prediction_context downgraded fixture_id=%s reason=%s",
-                    (fixture.get("fixture") or {}).get("id"),
-                    fallback_reason,
-                )
+                logger.warning("[EVIDENCE] prediction_context downgraded fixture_id=%s reason=%s",
+                               (fixture.get("fixture") or {}).get("id"), fallback_reason)
 
             prediction = engine.scorpred_predict(
-                form_a=form_home,
-                form_b=form_away,
-                h2h_form_a=h2h_home,
-                h2h_form_b=h2h_away,
-                injuries_a=injuries_home,
-                injuries_b=injuries_away,
-                team_a_is_home=True,
-                team_a_name=home_name,
-                team_b_name=away_name,
-                sport="soccer",
-                opp_strengths=opp_strengths,
+                form_a=form_home, form_b=form_away,
+                h2h_form_a=h2h_home, h2h_form_b=h2h_away,
+                injuries_a=injuries_home, injuries_b=injuries_away,
+                team_a_is_home=True, team_a_name=home_name, team_b_name=away_name,
+                sport="soccer", opp_strengths=opp_strengths,
             )
             if isinstance(prediction, dict):
                 prediction["form_a"] = form_home
@@ -531,30 +519,16 @@ def load_upcoming_fixtures(
                 if fallback_reason:
                     prediction["data_quality"] = "Limited"
                     prediction["fallback_reason"] = fallback_reason
-
-            logger.debug(
-                "[EVIDENCE] prediction_context end fixture_id=%s form_home=%d form_away=%d h2h_home=%d h2h_away=%d",
-                (fixture.get("fixture") or {}).get("id"),
-                len(form_home),
-                len(form_away),
-                len(h2h_home),
-                len(h2h_away),
-            )
         except Exception as exc:
-            logger.warning(
-                "[EVIDENCE] prediction_context failed fixture_id=%s reason=%s",
-                (fixture.get("fixture") or {}).get("id"),
-                exc,
-            )
+            logger.warning("[EVIDENCE] prediction_context failed fixture_id=%s reason=%s",
+                           (fixture.get("fixture") or {}).get("id"), exc)
             prediction = _limited_prediction(
-                engine,
-                team_a_name=home_name,
-                team_b_name=away_name,
-                opp_strengths=opp_strengths,
-                reason=f"Prediction context failure: {exc}",
+                engine, team_a_name=home_name, team_b_name=away_name,
+                opp_strengths=opp_strengths, reason=f"Prediction context failure: {exc}",
             )
+        all_items[idx] = {**fixture, "prediction": prediction}
 
-        fixtures_with_pred.append({**fixture, "prediction": prediction})
+    fixtures_with_pred = [all_items[i] for i in sorted(all_items)]
 
     logger.info("[EVIDENCE] fixture_fetch end parsed=%d predicted=%d", len(normalized), len(fixtures_with_pred))
     result = (fixtures_with_pred, load_error, source, espn_slug)

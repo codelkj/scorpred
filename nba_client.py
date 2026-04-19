@@ -28,10 +28,12 @@ NBA_LIVE_TTL_SECONDS = 60     # seconds for live/today data
 NBA_API_KEY  = os.getenv("NBA_API_KEY", "").strip()
 NBA_API_HOST = os.getenv("NBA_API_HOST", "nba-api-free-data.p.rapidapi.com").strip()
 NBA_BASE_URL = os.getenv("NBA_API_BASE_URL", "https://nba-api-free-data.p.rapidapi.com").rstrip("/")
-EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "20"))
-EXTERNAL_API_RETRY_ATTEMPTS = max(1, int(os.getenv("EXTERNAL_API_RETRY_ATTEMPTS", "3")))
-EXTERNAL_API_RETRY_BACKOFF_SECONDS = float(os.getenv("EXTERNAL_API_RETRY_BACKOFF_SECONDS", "1.2"))
+EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "8"))
+EXTERNAL_API_RETRY_ATTEMPTS = max(1, int(os.getenv("EXTERNAL_API_RETRY_ATTEMPTS", "1")))
+EXTERNAL_API_RETRY_BACKOFF_SECONDS = float(os.getenv("EXTERNAL_API_RETRY_BACKOFF_SECONDS", "0.5"))
 RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+# Endpoints that returned 429/403 this session — skip live calls, use stale cache only
+_SUPPRESSED_ENDPOINTS: set[str] = set()
 
 NBA_SEASON = 2024             # current season year
 
@@ -82,6 +84,12 @@ def nba_get(endpoint: str, params: dict = None, ttl_seconds: int = None) -> dict
     if not NBA_API_KEY:
         raise RuntimeError("NBA_API_KEY not set in .env")
 
+    # Skip endpoints that already failed this session; serve stale if available
+    if endpoint in _SUPPRESSED_ENDPOINTS:
+        if path.exists():
+            return _load_cache(path)
+        raise RuntimeError(f"NBA endpoint suppressed (rate-limited/forbidden): {endpoint}")
+
     headers = {
         "x-rapidapi-host": NBA_API_HOST,
         "x-rapidapi-key": NBA_API_KEY,
@@ -92,6 +100,11 @@ def nba_get(endpoint: str, params: dict = None, ttl_seconds: int = None) -> dict
     for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
         try:
             resp = requests.get(url, headers=headers, params=params, timeout=EXTERNAL_API_TIMEOUT_SECONDS)
+            if resp.status_code in {429, 403}:
+                _SUPPRESSED_ENDPOINTS.add(endpoint)
+                if path.exists():
+                    return _load_cache(path)
+                raise RuntimeError(f"NBA API rate-limited/forbidden for {endpoint} ({resp.status_code})")
             if resp.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
                 time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
                 continue
@@ -549,6 +562,12 @@ def _request_json(
             return _load_cache(path)
         raise RuntimeError("NBA_API_KEY is not set in .env")
 
+    # Skip endpoints suppressed this session; serve stale if available
+    if endpoint in _SUPPRESSED_ENDPOINTS:
+        if path.exists():
+            return _load_cache(path)
+        raise RuntimeError(f"NBA endpoint suppressed (rate-limited/forbidden): {endpoint}")
+
     url = f"{NBA_BASE_URL}/{endpoint.lstrip('/')}"
     last_exc: Exception | None = None
     for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
@@ -559,6 +578,11 @@ def _request_json(
                 params=params,
                 timeout=EXTERNAL_API_TIMEOUT_SECONDS,
             )
+            if response.status_code in {429, 403}:
+                _SUPPRESSED_ENDPOINTS.add(endpoint)
+                if path.exists():
+                    return _load_cache(path)
+                raise RuntimeError(f"NBA provider rate-limited/forbidden for {endpoint} ({response.status_code})")
             if response.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
                 time.sleep(EXTERNAL_API_RETRY_BACKOFF_SECONDS * (2 ** attempt))
                 continue

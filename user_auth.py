@@ -35,12 +35,14 @@ def _verify_password(password: str, hashed: str) -> bool:
         return False
 
 
+def _load_user(email: str) -> dict | None:
     user = User.query.filter_by(email=email).first()
     if user:
         return user.to_dict()
     return None
 
 
+def _save_user(user: dict) -> None:
     db_user = User.query.filter_by(email=user["email"]).first()
     if not db_user:
         db_user = User(

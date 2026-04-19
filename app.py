@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 try:
     from dotenv import load_dotenv
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     def load_dotenv(*_args, **_kwargs):
         return False
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for, g
@@ -56,7 +56,7 @@ from nba_routes import nba_bp
 
 try:
     import anthropic
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     anthropic = None
 
 load_dotenv()
@@ -1730,16 +1730,21 @@ def _ensure_model_tracking():
 
 @app.before_request
 def _bootstrap_tracking_daily():
-    if request.endpoint in {None, "static"}:
+    if request.endpoint in {None, "static", "health"}:
         return
     today_str = date.today().strftime("%Y-%m-%d")
     if app.config.get("TRACKING_LAST_BOOTSTRAP") == today_str:
         return
-    try:
-        _ensure_model_tracking()
-    except Exception as exc:
-        app.logger.debug("Daily tracking check failed: %s", exc, exc_info=True)
+    # Mark immediately so subsequent requests don't also trigger bootstrap
     app.config["TRACKING_LAST_BOOTSTRAP"] = today_str
+    import threading
+    def _run():
+        try:
+            with app.app_context():
+                _ensure_model_tracking()
+        except Exception as exc:
+            app.logger.debug("Daily tracking check failed: %s", exc, exc_info=True)
+    threading.Thread(target=_run, daemon=True).start()
 
 
 
@@ -1881,11 +1886,23 @@ def _load_grouped_upcoming_fixtures_all_leagues(next_n_per_league: int = 8):
     load_errors: list[str] = []
     data_sources: set[str] = set()
 
+    # Fetch all leagues concurrently to avoid sequential 15s-per-league stalls
+    with ThreadPoolExecutor(max_workers=min(6, len(SUPPORTED_LEAGUE_IDS))) as executor:
+        future_to_league = {
+            executor.submit(_load_upcoming_fixtures, next_n=next_n_per_league, league=lid): lid
+            for lid in SUPPORTED_LEAGUE_IDS
+        }
+        league_results: dict[int, tuple] = {}
+        for future in future_to_league:
+            lid = future_to_league[future]
+            try:
+                league_results[lid] = future.result()
+            except Exception as exc:
+                _logger.warning("Fixture fetch failed for league %s: %s", lid, exc)
+                league_results[lid] = ([], str(exc), _football_data_source(), None)
+
     for league_id in SUPPORTED_LEAGUE_IDS:
-        fixtures, load_error, data_source, _ = _load_upcoming_fixtures(
-            next_n=next_n_per_league,
-            league=league_id,
-        )
+        fixtures, load_error, data_source, _ = league_results.get(league_id, ([], None, _football_data_source(), None))
         data_sources.add(data_source)
         if load_error:
             league_name = (LEAGUE_BY_ID.get(league_id) or {}).get("name", f"League {league_id}")
@@ -1911,10 +1928,6 @@ def _load_grouped_upcoming_fixtures_all_leagues(next_n_per_league: int = 8):
 def _require_teams():
 
     return bootstrap_services.require_teams(session)
-
-
-def _store_selected_teams(team_a: dict, team_b: dict, fixture_context: dict | None = None) -> None:
-    bootstrap_services.store_selected_teams(session, team_a, team_b, fixture_context)
 
 
 def _team_form_payload(team_id: int) -> dict:
@@ -2067,13 +2080,6 @@ def _build_home_dashboard_context() -> dict[str, Any]:
         "top_picks": top_picks,
         "performance_preview": performance_preview,
     }
- 
-    if "team_a_id" not in session:
-        return None, None
-    return (
-        {"id": session["team_a_id"], "name": session["team_a_name"], "logo": session["team_a_logo"]},
-        {"id": session["team_b_id"], "name": session["team_b_name"], "logo": session["team_b_logo"]},
-    )
 
 
 def _store_selected_teams(
