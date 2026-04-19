@@ -3276,7 +3276,7 @@ def prediction():
             team_a=team_a,
             team_b=team_b,
             prediction=mastermind,
-            scorpred=mastermind,
+            scorpred=mastermind.get("ui_prediction") or {},
             selected_fixture=selected_fixture,
             **_league_context(league_id),
         ),
@@ -3575,6 +3575,7 @@ def today_soccer_predictions():
                 "prob_draw": probs.get("draw", 0),
                 "prob_away": probs.get("b", 50),
                 "reasoning": best_pick.get("reasoning", ""),
+                "score_gap": prediction.get("score_gap"),
                 "has_data": bool(prediction.get("form_a") and prediction.get("form_b")),
             }
         except Exception as e:

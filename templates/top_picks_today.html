@@ -64,7 +64,7 @@
 
       <div style="display:flex; justify-content:space-between; align-items:center">
         <div><span style="font-size:.72rem; color:var(--text-3)">Pick</span><br><strong style="color:var(--c-strong)">{{ pick.pick }}</strong></div>
-        <span style="font-size:.75rem; color:var(--text-3)">Expected {{ pick.expected_total }} goals</span>
+        {% if pick.expected_total %}<span style="font-size:.75rem; color:var(--text-3)">Expected {{ pick.expected_total }} goals</span>{% endif %}
       </div>
       <p style="font-size:.78rem; color:var(--text-2); margin-top:.35rem">{{ pick.note }}</p>
     </article>
