@@ -477,12 +477,14 @@ def train_model(
             max_iter=1000,
             solver="lbfgs",
             C=1.0,
+            class_weight="balanced",
             random_state=random_state,
         )),
         ("rf", RandomForestClassifier(
             n_estimators=300,
             max_depth=8,
             min_samples_leaf=3,
+            class_weight="balanced",
             random_state=random_state,
         )),
     ]
@@ -498,6 +500,8 @@ def train_model(
             eval_metric="mlogloss",
             random_state=random_state,
             verbosity=0,
+            # balance classes in multi-class XGBoost
+            # (XGBClassifier does not accept class_weight; use sample_weight at fit time instead)
         )))
     else:
         print("  [warn] xgboost not installed – skipping XGBoost base model")
@@ -509,6 +513,7 @@ def train_model(
             learning_rate=0.1,
             subsample=0.8,
             colsample_bytree=0.8,
+            class_weight="balanced",
             random_state=random_state,
             verbose=-1,
         )))
@@ -517,10 +522,17 @@ def train_model(
 
     print(f"\nBase models: {[name for name, _ in estimators]}")
 
+    # ── Compute per-sample class weights for XGBoost (no class_weight kwarg) ──
+    from sklearn.utils.class_weight import compute_sample_weight
+    _sample_weight_train = compute_sample_weight("balanced", y_train)
+
     # ── Train individual base models and report accuracy ──────────────────────
     base_models: dict[str, Any] = {}
     for name, est in estimators:
-        est.fit(x_train, y_train)
+        if name == "xgb":
+            est.fit(x_train, y_train, sample_weight=_sample_weight_train)
+        else:
+            est.fit(x_train, y_train)
         preds = est.predict(x_test)
         acc = float(accuracy_score(y_test, preds))
         base_models[name] = {"model": est, "accuracy": acc}
@@ -533,12 +545,12 @@ def train_model(
         if name == "lr":
             stack_estimators.append(("lr", LogisticRegression(
                 max_iter=1000, solver="lbfgs",
-                C=1.0, random_state=random_state,
+                C=1.0, class_weight="balanced", random_state=random_state,
             )))
         elif name == "rf":
             stack_estimators.append(("rf", RandomForestClassifier(
                 n_estimators=300, max_depth=8, min_samples_leaf=3,
-                random_state=random_state,
+                class_weight="balanced", random_state=random_state,
             )))
         elif name == "xgb" and _HAS_XGBOOST:
             stack_estimators.append(("xgb", XGBClassifier(
@@ -546,19 +558,20 @@ def train_model(
                 subsample=0.8, colsample_bytree=0.8,
                 use_label_encoder=False, eval_metric="mlogloss",
                 random_state=random_state, verbosity=0,
+                # sample_weight passed via fit_params below
             )))
         elif name == "lgbm" and _HAS_LIGHTGBM:
             stack_estimators.append(("lgbm", LGBMClassifier(
                 n_estimators=200, max_depth=6, learning_rate=0.1,
                 subsample=0.8, colsample_bytree=0.8,
-                random_state=random_state, verbose=-1,
+                class_weight="balanced", random_state=random_state, verbose=-1,
             )))
 
     stacking_model = StackingClassifier(
         estimators=stack_estimators,
         final_estimator=LogisticRegression(
             max_iter=1000, solver="lbfgs",
-            random_state=random_state,
+            class_weight="balanced", random_state=random_state,
         ),
         cv=5,
         stack_method="predict_proba",
@@ -583,21 +596,19 @@ def train_model(
     )
 
     # ── Isotonic calibration on the held-out calibration split ────────────────
-    # sklearn ≥ 1.2 removed cv="prefit"; use CalibratedClassifierCV with cv=5
-    # on a fresh clone so the calibration is trained only on cal split.
+    # sklearn ≥ 1.2 removed cv="prefit". Fallback clones the stacker and
+    # retrains it with 5-fold CV *on the calibration split only* — never
+    # touching x_test so evaluation remains uncontaminated.
     try:
-        # Prefer prefit mode (sklearn < 1.2 or patched)
+        # Preferred: prefit mode (sklearn < 1.2)
         calibrator = CalibratedClassifierCV(stacking_model, method="isotonic", cv="prefit")
         calibrator.fit(x_cal, y_cal)
         model = calibrator
     except (ValueError, TypeError):
-        # Fallback: retrain stacker inside calibrator using cal + test splits
+        # Fallback: sklearn ≥ 1.2 — retrain stacker via 5-fold CV on cal split
         from sklearn.calibration import CalibratedClassifierCV as CCVCV
         calibrator = CCVCV(stacking_model, method="isotonic", cv=5)
-        calibrator.fit(
-            np.concatenate([x_cal, x_test]),
-            np.concatenate([y_cal, y_test]),
-        )
+        calibrator.fit(x_cal, y_cal)  # x_cal only — x_test is evaluation-only
         model = calibrator
 
     # ── Evaluate ──────────────────────────────────────────────────────────────

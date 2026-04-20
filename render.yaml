@@ -3,13 +3,15 @@ services:
     name: scorpred
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python -X utf8 train_model.py
+    buildCommand: pip install -r requirements.txt && mkdir -p /tmp/scorpred && cp -r data /tmp/scorpred/ && python -X utf8 train_model.py
     startCommand: gunicorn app:app --config gunicorn.conf.py
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.3"
+      - key: SCORPRED_DATA_ROOT
+        value: /tmp/scorpred
       - key: SECRET_KEY
-        generateValue: true
+        sync: false
       - key: API_FOOTBALL_KEY
         sync: false
       - key: NBA_API_KEY
