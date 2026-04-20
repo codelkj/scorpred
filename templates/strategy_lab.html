@@ -134,6 +134,8 @@
           <div>{{ row.get('total_test_matches') or 0 }} evaluated matches</div>
           <div>{{ row.get('date_range_display') }}</div>
           <div>Best base model: {{ row.get('best_model') or '—' }}</div>
+          <div>Draw picks: {{ row.get('draw_accuracy_display') }} on {{ row.get('draw_sample_size') or 0 }}</div>
+          <div>70%+ confidence: {{ row.get('high_confidence_accuracy_display') }} on {{ row.get('high_confidence_sample_size') or 0 }}</div>
         </div>
       </div>
       {% endif %}
@@ -147,6 +149,9 @@
     {% if wf_selector.get('available') %}
     <strong style="display:block; font-size:1.05rem; margin:.25rem 0">{{ wf_selector.get('default_source_label') }}</strong>
     <p style="font-size:.8rem; color:var(--text-2); line-height:1.6">{{ wf_selector.get('summary') }}</p>
+    {% if wf_recent.get('sample_weighting') %}
+    <p style="font-size:.75rem; color:var(--text-3); margin-top:.35rem">The latest offline runs now use balanced + recency weighting, so the selector is learning from the full history while leaning harder on newer seasons.</p>
+    {% endif %}
     {% if wf_selector.get('override_rows') %}
     <div class="sp-list" style="margin-top:.7rem">
       {% for row in wf_selector.get('override_rows')[:4] %}

@@ -17,6 +17,9 @@ from walk_forward_backtest import (
     generate_folds,
     load_walk_forward_report,
     _class_distribution,
+    _confidence_bucket_breakdown,
+    _aggregate_breakdown_rows,
+    _predicted_outcome_breakdown,
     _policy_metrics,
     _flat_stake_roi,
 )
@@ -188,6 +191,73 @@ class TestFlatStakeROI:
         required_keys = {"bets_placed", "total_staked", "total_returned",
                          "net_profit", "roi_pct", "flat_points"}
         assert required_keys.issubset(result.keys())
+
+
+class TestBreakdownHelpers:
+    def test_predicted_outcome_breakdown_tracks_draws_and_sides(self):
+        breakdown = _predicted_outcome_breakdown(
+            y_true=[0, 1, 2, 1],
+            predictions=[0, 1, 1, 2],
+        )
+
+        assert breakdown["HomeWin"]["count"] == 1
+        assert breakdown["HomeWin"]["accuracy"] == 1.0
+        assert breakdown["Draw"]["count"] == 2
+        assert breakdown["Draw"]["wins"] == 1
+        assert breakdown["Draw"]["losses"] == 1
+        assert breakdown["AwayWin"]["count"] == 1
+        assert breakdown["AwayWin"]["losses"] == 1
+
+    def test_confidence_bucket_breakdown_groups_by_top_probability(self):
+        breakdown = _confidence_bucket_breakdown(
+            y_true=[0, 1, 2, 2],
+            predictions=[0, 0, 2, 1],
+            probabilities=[
+                [0.49, 0.26, 0.25],
+                [0.55, 0.25, 0.20],
+                [0.64, 0.10, 0.26],
+                [0.18, 0.72, 0.10],
+            ],
+        )
+
+        assert breakdown["under_50"]["count"] == 1
+        assert breakdown["under_50"]["wins"] == 1
+        assert breakdown["50_59"]["count"] == 1
+        assert breakdown["50_59"]["losses"] == 1
+        assert breakdown["60_69"]["count"] == 1
+        assert breakdown["60_69"]["wins"] == 1
+        assert breakdown["70_plus"]["count"] == 1
+        assert breakdown["70_plus"]["losses"] == 1
+
+    def test_aggregate_breakdown_rows_rolls_up_fold_totals(self):
+        aggregate = _aggregate_breakdown_rows(
+            [
+                {
+                    "combined": {
+                        "by_confidence_bucket": {
+                            "50_59": {"label": "50-59%", "count": 3, "wins": 2, "losses": 1},
+                            "70_plus": {"label": "70%+", "count": 1, "wins": 1, "losses": 0},
+                        }
+                    }
+                },
+                {
+                    "combined": {
+                        "by_confidence_bucket": {
+                            "50_59": {"label": "50-59%", "count": 2, "wins": 1, "losses": 1},
+                            "70_plus": {"label": "70%+", "count": 2, "wins": 1, "losses": 1},
+                        }
+                    }
+                },
+            ],
+            "by_confidence_bucket",
+        )
+
+        assert aggregate["50_59"]["count"] == 5
+        assert aggregate["50_59"]["wins"] == 3
+        assert aggregate["50_59"]["accuracy"] == 0.6
+        assert aggregate["70_plus"]["count"] == 3
+        assert aggregate["70_plus"]["wins"] == 2
+        assert aggregate["70_plus"]["accuracy"] == 0.6667
 
 
 # ── Report loading ────────────────────────────────────────────────────────────

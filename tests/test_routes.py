@@ -865,13 +865,13 @@ class TestStrategyLabRoute:
 
 class TestModelPerformanceRoute:
     def test_model_performance_renders_evaluation_sections(self, client, monkeypatch):
-        monkeypatch.setattr(flask_app_module.mt, "get_summary_metrics", lambda: _mock_strategy_metrics())
+        monkeypatch.setattr(flask_app_module.mt, "get_summary_metrics", lambda exclude_seeded=True: _mock_strategy_metrics())
         monkeypatch.setattr(flask_app_module.mt, "get_completed_predictions", lambda limit=50: [_mock_completed_prediction()] * min(limit, 3))
         monkeypatch.setattr(flask_app_module.mt, "get_pending_predictions", lambda limit=20: [])
         monkeypatch.setattr(
             flask_app_module.mt,
             "get_evaluation_dashboard",
-            lambda rolling_window=10, strategy_reference=None: {
+            lambda rolling_window=10, strategy_reference=None, exclude_seeded=True: {
                 "kpis": {
                     "overall_accuracy": 55.0,
                     "rolling_win_rate": 60.0,
@@ -933,7 +933,50 @@ class TestModelPerformanceRoute:
         monkeypatch.setattr(
             flask_app_module.strategy_lab_services,
             "walk_forward_summary",
-            lambda: {"available": False},
+            lambda: {
+                "available": True,
+                "windows": {
+                    "all_history": {
+                        "available": True,
+                        "label": "All History",
+                        "n_folds": 5,
+                        "mean_combined_accuracy": 54.1,
+                        "total_test_matches": 240,
+                        "date_range_display": "2021-08-08 to 2026-04-19",
+                        "policy_hit_rate_pct": 58.4,
+                        "draw_accuracy_display": "47.5%",
+                        "draw_sample_size": 40,
+                        "high_confidence_accuracy_display": "67.5%",
+                        "high_confidence_sample_size": 40,
+                        "sample_weighting": {
+                            "type": "balanced_times_recency",
+                        },
+                    },
+                    "last_3_years": {
+                        "available": True,
+                        "label": "Last 3 Years",
+                        "n_folds": 5,
+                        "mean_combined_accuracy": 55.6,
+                        "total_test_matches": 180,
+                        "date_range_display": "2023-04-20 to 2026-04-19",
+                        "policy_hit_rate_pct": 59.8,
+                        "draw_accuracy_display": "51.2%",
+                        "draw_sample_size": 34,
+                        "high_confidence_accuracy_display": "69.4%",
+                        "high_confidence_sample_size": 36,
+                        "sample_weighting": {
+                            "type": "balanced_times_recency",
+                        },
+                    },
+                },
+                "selector": {
+                    "available": True,
+                    "default_source_label": "Combined",
+                    "default_accuracy": 55.6,
+                    "summary": "Default to Combined using the recent backtest window.",
+                    "override_rows": [],
+                },
+            },
         )
 
         rv = client.get("/model-performance")
@@ -941,6 +984,9 @@ class TestModelPerformanceRoute:
         assert rv.status_code == 200
         assert b"Model Evaluation" in rv.data
         assert b"Failure Analysis" in rv.data
+        assert b"Draw picks: 47.5% on 40" in rv.data
+        assert b"70%+ confidence: 69.4% on 36" in rv.data
+        assert b"class balance with recency weighting" in rv.data.lower()
         assert b"Win Rate Over Time" not in rv.data
 
     def test_pass_analysis_renders(self, client, monkeypatch):

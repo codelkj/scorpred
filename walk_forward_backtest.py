@@ -27,9 +27,7 @@ from typing import Any
 import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier, StackingClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss
-from sklearn.utils.class_weight import compute_sample_weight
 
 from runtime_paths import historical_dataset_path, walk_forward_report_path
 from train_model import (
@@ -37,7 +35,10 @@ from train_model import (
     FEATURE_COLUMNS,
     _row_to_features,
     _target_from_row,
+    build_logistic_estimator,
+    build_training_sample_weights,
     build_clean_features,
+    sample_weighting_metadata,
 )
 from ml_service import (
     _combine_probabilities,
@@ -151,10 +152,7 @@ def generate_folds(
 def _build_base_estimators(random_state: int = 42) -> list[tuple[str, Any]]:
     """Create the same base estimator specs used in train_model.py."""
     estimators: list[tuple[str, Any]] = [
-        ("lr", LogisticRegression(
-            max_iter=1000, solver="lbfgs",
-            C=1.0, random_state=random_state,
-        )),
+        ("lr", build_logistic_estimator(random_state)),
         ("rf", RandomForestClassifier(
             n_estimators=300, max_depth=8, min_samples_leaf=3,
             random_state=random_state,
@@ -180,10 +178,7 @@ def _build_stacking(estimators: list[tuple[str, Any]], random_state: int = 42) -
     """Build a fresh stacking classifier matching the production architecture."""
     return StackingClassifier(
         estimators=estimators,
-        final_estimator=LogisticRegression(
-            max_iter=1000, solver="lbfgs",
-            random_state=random_state,
-        ),
+        final_estimator=build_logistic_estimator(random_state),
         cv=5,
         stack_method="predict_proba",
         passthrough=False,
@@ -415,6 +410,104 @@ def _selector_metrics(
     }
 
 
+CONFIDENCE_BUCKET_ORDER = ["under_50", "50_59", "60_69", "70_plus"]
+CONFIDENCE_BUCKET_LABELS = {
+    "under_50": "Under 50%",
+    "50_59": "50-59%",
+    "60_69": "60-69%",
+    "70_plus": "70%+",
+}
+
+
+def _finalize_breakdown_rows(rows: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for key, row in rows.items():
+        count = int(row.get("count", 0) or 0)
+        wins = int(row.get("wins", 0) or 0)
+        losses = int(row.get("losses", 0) or 0)
+        result[key] = {
+            "label": row.get("label") or key,
+            "count": count,
+            "wins": wins,
+            "losses": losses,
+            "accuracy": round(wins / max(count, 1), 4) if count else None,
+        }
+    return result
+
+
+def _predicted_outcome_breakdown(
+    y_true: list[int],
+    predictions: list[int],
+) -> dict[str, dict[str, Any]]:
+    rows = {
+        label: {"label": label, "count": 0, "wins": 0, "losses": 0}
+        for label in CLASS_LABELS.values()
+    }
+    for actual, pred in zip(y_true, predictions):
+        label = CLASS_LABELS.get(int(pred), str(pred))
+        bucket = rows.setdefault(label, {"label": label, "count": 0, "wins": 0, "losses": 0})
+        bucket["count"] += 1
+        if int(pred) == int(actual):
+            bucket["wins"] += 1
+        else:
+            bucket["losses"] += 1
+    return _finalize_breakdown_rows(rows)
+
+
+def _confidence_bucket_key(top_prob_pct: float) -> str:
+    if top_prob_pct < 50.0:
+        return "under_50"
+    if top_prob_pct < 60.0:
+        return "50_59"
+    if top_prob_pct < 70.0:
+        return "60_69"
+    return "70_plus"
+
+
+def _confidence_bucket_breakdown(
+    y_true: list[int],
+    predictions: list[int],
+    probabilities: list[list[float]],
+) -> dict[str, dict[str, Any]]:
+    rows = {
+        key: {"label": label, "count": 0, "wins": 0, "losses": 0}
+        for key, label in CONFIDENCE_BUCKET_LABELS.items()
+    }
+    for actual, pred, probs in zip(y_true, predictions, probabilities):
+        top_prob_pct = max(float(value) for value in probs) * 100.0 if probs else 0.0
+        key = _confidence_bucket_key(top_prob_pct)
+        bucket = rows[key]
+        bucket["count"] += 1
+        if int(pred) == int(actual):
+            bucket["wins"] += 1
+        else:
+            bucket["losses"] += 1
+    return _finalize_breakdown_rows(rows)
+
+
+def _aggregate_breakdown_rows(
+    fold_results: list[dict[str, Any]],
+    breakdown_key: str,
+) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for fold in fold_results:
+        combined = fold.get("combined") or {}
+        for key, metrics in ((combined.get(breakdown_key) or {}).items()):
+            row = rows.setdefault(
+                key,
+                {
+                    "label": metrics.get("label") or key,
+                    "count": 0,
+                    "wins": 0,
+                    "losses": 0,
+                },
+            )
+            row["count"] += int(metrics.get("count", 0) or 0)
+            row["wins"] += int(metrics.get("wins", 0) or 0)
+            row["losses"] += int(metrics.get("losses", 0) or 0)
+    return _finalize_breakdown_rows(rows)
+
+
 def evaluate_fold(
     rows: list[dict[str, Any]],
     fold: dict[str, Any],
@@ -443,7 +536,7 @@ def evaluate_fold(
         "test_date_range": [test_dates[0], test_dates[-1]] if test_dates else [],
     }
 
-    sample_weight_train = compute_sample_weight("balanced", y_train)
+    sample_weight_train = build_training_sample_weights(train_rows, y_train)
 
     # ── A. Base models ────────────────────────────────────────────────────────
     estimators = _build_base_estimators(random_state)
@@ -512,6 +605,8 @@ def evaluate_fold(
         "avg_confidence_pct": round(
             sum(max(p) for p in combined_probs) / max(len(combined_probs), 1) * 100.0, 1
         ),
+        "by_predicted_outcome": _predicted_outcome_breakdown(y_test, combined_preds),
+        "by_confidence_bucket": _confidence_bucket_breakdown(y_test, combined_preds, combined_probs),
     }
 
     # ── C. Recommendation policy ──────────────────────────────────────────────
@@ -579,6 +674,8 @@ def _aggregate_folds(fold_results: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_avg_confidence_pct": round(
             float(np.mean([f["combined"]["avg_confidence_pct"] for f in fold_results])), 1
         ),
+        "by_predicted_outcome": _aggregate_breakdown_rows(fold_results, "by_predicted_outcome"),
+        "by_confidence_bucket": _aggregate_breakdown_rows(fold_results, "by_confidence_bucket"),
     }
 
     # ── Policy aggregation ────────────────────────────────────────────────────
@@ -818,6 +915,7 @@ def _run_walk_forward_window(
             "date_range": [all_dates[0], all_dates[-1]] if all_dates else [],
             "feature_count": len(FEATURE_COLUMNS),
             "policy_used": policy,
+            "sample_weighting": sample_weighting_metadata(),
         },
         "aggregate": aggregate,
         "selector": _aggregate_selector(fold_results),
@@ -909,6 +1007,7 @@ def run_walk_forward(
             "date_range": [all_dates[0], all_dates[-1]] if all_dates else [],
             "feature_count": len(FEATURE_COLUMNS),
             "policy_used": policy,
+            "sample_weighting": sample_weighting_metadata(),
         },
         "aggregate": all_history.get("aggregate", {}),
         "folds": all_history.get("folds", []),

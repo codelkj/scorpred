@@ -161,6 +161,8 @@
           <div>{{ row.get('total_test_matches') or 0 }} evaluated matches</div>
           <div>{{ row.get('date_range_display') }}</div>
           <div>Policy hit rate: {{ (row.get('policy_hit_rate_pct')|round(1) ~ '%') if row.get('policy_hit_rate_pct') is not none else '—' }}</div>
+          <div>Draw picks: {{ row.get('draw_accuracy_display') }} on {{ row.get('draw_sample_size') or 0 }}</div>
+          <div>70%+ confidence: {{ row.get('high_confidence_accuracy_display') }} on {{ row.get('high_confidence_sample_size') or 0 }}</div>
         </div>
       </div>
       {% endif %}
@@ -174,6 +176,9 @@
     {% if wf_selector.get('available') %}
     <strong style="display:block; font-size:1.05rem; margin:.25rem 0">{{ wf_selector.get('default_source_label') }}</strong>
     <p style="font-size:.8rem; color:var(--text-2); line-height:1.6">{{ wf_selector.get('summary') }}</p>
+    {% if wf_recent.get('sample_weighting') %}
+    <p style="font-size:.75rem; color:var(--text-3); margin-top:.35rem">Offline retrain now blends class balance with recency weighting, so newer seasons pull harder without dropping the full history.</p>
+    {% endif %}
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.6rem; margin-top:.6rem">
       <div class="sp-panel sp-panel--tight" style="margin-bottom:0; text-align:center">
         <span style="font-size:.72rem; color:var(--text-3)">Default Accuracy</span>

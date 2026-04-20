@@ -65,6 +65,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss, confusion_matrix
+from sklearn.utils.class_weight import compute_sample_weight
 
 try:
     from xgboost import XGBClassifier
@@ -160,6 +161,9 @@ CLASS_LABELS = {0: "HomeWin", 1: "Draw", 2: "AwayWin"}
 
 ELO_BASE = 1500.0   # starting ELO for every new team
 ELO_K    = 20.0     # update factor per match
+RECENCY_HALF_LIFE_DAYS = 365.0
+RECENCY_MIN_WEIGHT = 0.45
+RECENCY_MAX_WEIGHT = 2.35
 
 
 # ── Target parsing ─────────────────────────────────────────────────────────────
@@ -417,6 +421,75 @@ def _row_to_features(row: dict[str, Any]) -> list[float]:
     return [safe_float(row.get(f), 0.0) for f in FEATURE_COLUMNS]
 
 
+def build_logistic_estimator(random_state: int = 42) -> LogisticRegression:
+    """Centralized LR settings used by training and walk-forward backtests."""
+    return LogisticRegression(
+        max_iter=3000,
+        solver="lbfgs",
+        C=0.85,
+        tol=1e-3,
+        random_state=random_state,
+    )
+
+
+def compute_recency_weights(
+    rows: list[dict[str, Any]],
+    *,
+    half_life_days: float = RECENCY_HALF_LIFE_DAYS,
+    min_weight: float = RECENCY_MIN_WEIGHT,
+    max_weight: float = RECENCY_MAX_WEIGHT,
+) -> np.ndarray:
+    """Return normalized time-decay weights where newer rows matter more."""
+    if not rows:
+        return np.array([], dtype=float)
+
+    parsed_dates = [_parse_date(row.get("date", "")) for row in rows]
+    valid_dates = [value for value in parsed_dates if value is not None]
+    if not valid_dates:
+        return np.ones(len(rows), dtype=float)
+
+    latest = max(valid_dates)
+    safe_half_life = max(float(half_life_days), 1.0)
+    raw_weights = []
+    for parsed in parsed_dates:
+        if parsed is None:
+            raw_weights.append(1.0)
+            continue
+        age_days = max((latest - parsed).days, 0)
+        raw_weights.append(0.5 ** (age_days / safe_half_life))
+
+    weights = np.array(raw_weights, dtype=float)
+    weights = weights / (float(np.mean(weights)) or 1.0)
+    weights = np.clip(weights, float(min_weight), float(max_weight))
+    weights = weights / (float(np.mean(weights)) or 1.0)
+    return weights
+
+
+def build_training_sample_weights(
+    rows: list[dict[str, Any]],
+    y: np.ndarray | list[int],
+) -> np.ndarray:
+    """Blend class balancing with a light recency tilt for newer matches."""
+    y_array = np.asarray(y)
+    if y_array.size == 0:
+        return np.array([], dtype=float)
+
+    class_weights = compute_sample_weight("balanced", y_array)
+    recency_weights = compute_recency_weights(rows)
+    combined = np.asarray(class_weights, dtype=float) * np.asarray(recency_weights, dtype=float)
+    combined = combined / (float(np.mean(combined)) or 1.0)
+    return combined
+
+
+def sample_weighting_metadata() -> dict[str, float | str]:
+    return {
+        "type": "balanced_times_recency",
+        "recency_half_life_days": RECENCY_HALF_LIFE_DAYS,
+        "recency_min_weight": RECENCY_MIN_WEIGHT,
+        "recency_max_weight": RECENCY_MAX_WEIGHT,
+    }
+
+
 # ── Training pipeline ─────────────────────────────────────────────────────────
 
 def train_model(
@@ -463,6 +536,9 @@ def train_model(
     n_test  = max(1, int(len(rows) * 0.20))
     n_cal   = max(1, int(len(rows) * 0.20))
     n_train = len(rows) - n_test - n_cal
+    train_rows = rows[:n_train]
+    cal_rows = rows[n_train:n_train+n_cal]
+    test_rows = rows[n_train+n_cal:]
     x_train, y_train = x[:n_train],              y[:n_train]
     x_cal,   y_cal   = x[n_train:n_train+n_cal], y[n_train:n_train+n_cal]
     x_test,  y_test  = x[n_train+n_cal:],        y[n_train+n_cal:]
@@ -473,12 +549,7 @@ def train_model(
 
     # ── Define base estimators ────────────────────────────────────────────────
     estimators: list[tuple[str, Any]] = [
-        ("lr", LogisticRegression(
-            max_iter=1000,
-            solver="lbfgs",
-            C=1.0,
-            random_state=random_state,
-        )),
+        ("lr", build_logistic_estimator(random_state)),
         ("rf", RandomForestClassifier(
             n_estimators=300,
             max_depth=8,
@@ -518,8 +589,13 @@ def train_model(
     print(f"\nBase models: {[name for name, _ in estimators]}")
 
     # ── Compute one balanced sample weighting scheme for every estimator ───────
-    from sklearn.utils.class_weight import compute_sample_weight
-    _sample_weight_train = compute_sample_weight("balanced", y_train)
+    _sample_weight_train = build_training_sample_weights(train_rows, y_train)
+    recency_train = compute_recency_weights(train_rows)
+    print(
+        "Sample weighting: "
+        f"balanced x recency (half-life {RECENCY_HALF_LIFE_DAYS:.0f}d, "
+        f"recent weight range {recency_train.min():.2f}-{recency_train.max():.2f})"
+    )
 
     # ── Train individual base models and report accuracy ──────────────────────
     base_models: dict[str, Any] = {}
@@ -535,10 +611,7 @@ def train_model(
     stack_estimators: list[tuple[str, Any]] = []
     for name, _ in estimators:
         if name == "lr":
-            stack_estimators.append(("lr", LogisticRegression(
-                max_iter=1000, solver="lbfgs",
-                C=1.0, random_state=random_state,
-            )))
+            stack_estimators.append(("lr", build_logistic_estimator(random_state)))
         elif name == "rf":
             stack_estimators.append(("rf", RandomForestClassifier(
                 n_estimators=300, max_depth=8, min_samples_leaf=3,
@@ -560,10 +633,7 @@ def train_model(
 
     stacking_model = StackingClassifier(
         estimators=stack_estimators,
-        final_estimator=LogisticRegression(
-            max_iter=1000, solver="lbfgs",
-            random_state=random_state,
-        ),
+        final_estimator=build_logistic_estimator(random_state),
         cv=5,
         stack_method="predict_proba",
         passthrough=False,
@@ -654,7 +724,11 @@ def train_model(
         "calibrated": True,
         "calibration_method": "isotonic",
         "rolling_window": SHORT_WINDOW,
+        "sample_weighting": sample_weighting_metadata(),
         "dataset_path": str(processed_path),
+        "train_date_range": [train_rows[0].get("date", ""), train_rows[-1].get("date", "")] if train_rows else [],
+        "calibration_date_range": [cal_rows[0].get("date", ""), cal_rows[-1].get("date", "")] if cal_rows else [],
+        "test_date_range": [test_rows[0].get("date", ""), test_rows[-1].get("date", "")] if test_rows else [],
     }
     joblib.dump(bundle, save_path)
     print(f"\nSaved ensemble model → {save_path}")
@@ -671,6 +745,7 @@ def train_model(
         "class_labels": CLASS_LABELS,
         "accuracy": base_models["rf"]["accuracy"],
         "rolling_window": SHORT_WINDOW,
+        "sample_weighting": sample_weighting_metadata(),
         "dataset_path": str(processed_path),
     }
     joblib.dump(rf_bundle, rf_compat_path)
@@ -695,6 +770,7 @@ def train_model(
         "calibrated": True,
         "calibration_method": "isotonic",
         "model_type": "stacking_ensemble",
+        "sample_weighting": sample_weighting_metadata(),
         "base_models": [name for name, _ in estimators],
         "base_accuracies": {name: info["accuracy"] for name, info in base_models.items()},
         "feature_names": FEATURE_COLUMNS,

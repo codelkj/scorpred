@@ -28,6 +28,17 @@ _SPORT_LABELS = {
     "soccer": "Soccer",
     "nba": "NBA",
 }
+_OUTCOME_LABELS = {
+    "HomeWin": "Home Win",
+    "Draw": "Draw",
+    "AwayWin": "Away Win",
+}
+_CONFIDENCE_BUCKET_LABELS = {
+    "under_50": "Under 50%",
+    "50_59": "50-59%",
+    "60_69": "60-69%",
+    "70_plus": "70%+",
+}
 
 _DEFAULT_DATASET = Path(__file__).resolve().parent.parent / "data" / "historical_matches.csv"
 _CLEAN_DATASET = clean_soccer_dataset_path()
@@ -140,7 +151,7 @@ def _format_breakdown_rows(payload: dict[str, Any], order: list[str], labels: di
         item = payload.get(key)
         if not item:
             continue
-        accuracy = item.get("accuracy")
+        accuracy = _as_percent(item.get("accuracy"))
         rows.append(
             {
                 "key": key,
@@ -327,6 +338,19 @@ def _window_summary(window: dict[str, Any] | None, *, label: str) -> dict[str, A
     policy = agg.get("policy", {})
     config = payload.get("config", {})
     best_model_name, best_model_accuracy = _best_model_summary(agg.get("base_models", {}))
+    outcome_rows = _format_breakdown_rows(
+        combined.get("by_predicted_outcome") or {},
+        ["HomeWin", "Draw", "AwayWin"],
+        labels=_OUTCOME_LABELS,
+    )
+    confidence_rows = _format_breakdown_rows(
+        combined.get("by_confidence_bucket") or {},
+        ["under_50", "50_59", "60_69", "70_plus"],
+        labels=_CONFIDENCE_BUCKET_LABELS,
+    )
+    draw_row = next((row for row in outcome_rows if row.get("key") == "Draw"), None)
+    strongest_confidence_row = _best_row(confidence_rows)
+    high_confidence_row = next((row for row in confidence_rows if row.get("key") == "70_plus"), None)
 
     return {
         "available": True,
@@ -345,9 +369,19 @@ def _window_summary(window: dict[str, Any] | None, *, label: str) -> dict[str, A
         "trend_delta": _as_percent(agg.get("trend_delta")),
         "best_model": best_model_name,
         "best_model_accuracy": best_model_accuracy,
+        "outcome_rows": outcome_rows,
+        "confidence_bucket_rows": confidence_rows,
+        "draw_accuracy": draw_row.get("accuracy") if draw_row else None,
+        "draw_accuracy_display": draw_row.get("accuracy_display") if draw_row else "Awaiting sample",
+        "draw_sample_size": draw_row.get("count", 0) if draw_row else 0,
+        "high_confidence_accuracy": high_confidence_row.get("accuracy") if high_confidence_row else None,
+        "high_confidence_accuracy_display": high_confidence_row.get("accuracy_display") if high_confidence_row else "Awaiting sample",
+        "high_confidence_sample_size": high_confidence_row.get("count", 0) if high_confidence_row else 0,
+        "strongest_confidence_bucket": strongest_confidence_row,
         "date_range": config.get("date_range") or [],
         "date_range_display": _date_range_display(config.get("date_range") or []),
         "total_rows": config.get("total_rows", 0),
+        "sample_weighting": config.get("sample_weighting") or {},
     }
 
 
