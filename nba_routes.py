@@ -14,21 +14,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
+import importlib
 import json
 import os
 import re
 import time
 import traceback
 
-import requests
 from flask import (
     Blueprint, render_template, request, session,
     redirect, url_for, jsonify, current_app,
 )
-import nba_live_client as nc
-import nba_predictor as np_nba
 import scorpred_engine as se
-import scormastermind as sm
 import model_tracker as mt
 from runtime_paths import cache_dir
 
@@ -38,6 +35,28 @@ nba_bp = Blueprint(
     url_prefix="/nba",
     template_folder="templates",
 )
+
+
+class _LazyModuleProxy:
+    """Lazy-load heavyweight NBA dependencies on first real use."""
+
+    def __init__(self, module_name: str):
+        self._module_name = module_name
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+
+requests = _LazyModuleProxy("requests")
+nc = _LazyModuleProxy("nba_live_client")
+np_nba = _LazyModuleProxy("nba_predictor")
+sm = _LazyModuleProxy("scormastermind")
 
 
 # -- Helpers -----------------------------------------------------------------

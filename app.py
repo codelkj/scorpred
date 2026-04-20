@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 
 import re
@@ -24,7 +25,6 @@ import api_client as ac
 import predictor as pred
 import props_engine as pe
 import scorpred_engine as se
-import scormastermind as sm
 import model_tracker as mt
 import user_auth
 import odds_fetcher
@@ -41,8 +41,6 @@ except ImportError:  # pragma: no cover
     nc = None  # type: ignore[assignment]
     np_nba = None  # type: ignore[assignment]
 from services import evidence as evidence_services
-from services import strategy_lab as strategy_lab_services
-from services.strategy_lab import _EMPTY_METRICS
 from services import tracking_bootstrap as bootstrap_services
 from services.tracking_bootstrap import fixture_context_from_form
 from league_config import (
@@ -65,6 +63,45 @@ ensure_runtime_dirs()
 import logging as _logging
 _logger = _logging.getLogger(__name__)
 _RELEASE_TAG = "2026-04-20-d53ddbe"
+
+
+class _LazyModuleProxy:
+    """Lazy-load heavyweight modules to keep cold starts leaner."""
+
+    def __init__(self, module_name: str):
+        self._module_name = module_name
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+
+sm = _LazyModuleProxy("scormastermind")
+strategy_lab_services = _LazyModuleProxy("services.strategy_lab")
+_EMPTY_METRICS = {
+    "total_predictions": 0,
+    "finalized_predictions": 0,
+    "wins": 0,
+    "losses": 0,
+    "overall_accuracy": None,
+    "by_confidence": {},
+    "by_sport": {},
+    "recent_predictions": [],
+}
+
+
+def _runtime_release_tag() -> str:
+    commit = (os.environ.get("RENDER_GIT_COMMIT") or "").strip()
+    branch = (os.environ.get("RENDER_GIT_BRANCH") or "").strip()
+    if commit:
+        short = commit[:7]
+        return f"{branch}@{short}" if branch else short
+    return _RELEASE_TAG
 
 # ── Production startup guard ───────────────────────────────────────────────────
 _secret_key = os.environ.get("SECRET_KEY", "").strip()
@@ -4026,7 +4063,7 @@ def health():
         {
             "ok": True,
             "app": "ScorPred",
-            "release": _RELEASE_TAG,
+            "release": _runtime_release_tag(),
             "data_source": _football_data_source(),
             "runtime_root": str(data_root()),
             "walk_forward_report_exists": walk_forward_report_path().exists(),

@@ -12,6 +12,7 @@ it as shared state across gunicorn workers.
 
 import logging
 import hashlib
+import importlib
 import json
 import os
 import time
@@ -21,7 +22,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
-import requests
 from dotenv import load_dotenv
 from runtime_paths import cache_dir
 from utils.parsing import safe_float as _sf, safe_int
@@ -36,6 +36,25 @@ from league_config import (
 )
 
 load_dotenv()
+
+
+class _LazyModuleProxy:
+    """Delay heavyweight imports until the first live provider call."""
+
+    def __init__(self, module_name: str):
+        self._module_name = module_name
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+
+requests = _LazyModuleProxy("requests")
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
