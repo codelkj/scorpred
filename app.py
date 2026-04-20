@@ -2459,13 +2459,6 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
-@app.route("/health", methods=["GET"])
-def health():
-    """Render health check endpoint — must return 200 for the container to stay live."""
-    from flask import jsonify
-    return jsonify({"status": "ok"}), 200
-
-
 @app.route("/", methods=["GET"])
 def index():
     home_context = _build_home_dashboard_context()
