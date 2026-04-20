@@ -9,6 +9,7 @@ from shutil import copy2
 
 _REPO_ROOT = Path(__file__).resolve().parent
 _DATA_ROOT_ENV = "SCORPRED_DATA_ROOT"
+_PERSISTENT_ROOT_ENV = "SCORPRED_PERSISTENT_ROOT"
 
 
 def repo_root() -> Path:
@@ -20,6 +21,23 @@ def data_root() -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     return _REPO_ROOT
+
+
+def persistent_root() -> Path:
+    configured = os.getenv(_PERSISTENT_ROOT_ENV, "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    if os.getenv("RENDER"):
+        render_candidates = (
+            Path("/var/data/scorpred"),
+            Path("/persistent/scorpred"),
+        )
+        for candidate in render_candidates:
+            if candidate.exists():
+                return candidate.resolve()
+
+    return (data_root() / "persistent").resolve()
 
 
 def cache_root() -> Path:
@@ -43,6 +61,51 @@ def prediction_tracking_path() -> Path:
 
 def prediction_history_path() -> Path:
     return cache_root() / "prediction_history.json"
+
+
+def auth_db_path() -> Path:
+    return persistent_root() / "auth.db"
+
+
+def auth_storage_diagnostics() -> dict[str, str | bool]:
+    if os.getenv("DATABASE_URL", "").strip():
+        return {
+            "mode": "database_url",
+            "path": str(auth_db_path()),
+            "durable": True,
+        }
+
+    configured_persistent_root = os.getenv(_PERSISTENT_ROOT_ENV, "").strip()
+    if configured_persistent_root:
+        return {
+            "mode": "persistent_root_env",
+            "path": str(auth_db_path()),
+            "durable": True,
+        }
+
+    if os.getenv("RENDER"):
+        render_candidates = (
+            Path("/var/data/scorpred"),
+            Path("/persistent/scorpred"),
+        )
+        resolved_path = auth_db_path().resolve()
+        if any(resolved_path.is_relative_to(candidate) for candidate in render_candidates if candidate.exists()):
+            return {
+                "mode": "render_disk",
+                "path": str(resolved_path),
+                "durable": True,
+            }
+        return {
+            "mode": "render_ephemeral",
+            "path": str(resolved_path),
+            "durable": False,
+        }
+
+    return {
+        "mode": "local_sqlite",
+        "path": str(auth_db_path()),
+        "durable": True,
+    }
 
 
 def ml_report_path() -> Path:
@@ -134,6 +197,7 @@ def seed_runtime_artifacts() -> None:
 
 def ensure_runtime_dirs() -> None:
     data_root().mkdir(parents=True, exist_ok=True)
+    persistent_root().mkdir(parents=True, exist_ok=True)
     data_dir().mkdir(parents=True, exist_ok=True)
     for folder in (
         cache_root(),

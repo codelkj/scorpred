@@ -18,6 +18,7 @@
 
     <form method="POST" action="/login" class="sp-auth-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="next" value="{{ next_url or '' }}" />
 
       <div class="sp-auth-field">
         <label for="email" class="sp-label">Email</label>
@@ -31,8 +32,8 @@
 
       <div class="sp-auth-field sp-auth-remember">
         <label class="sp-label sp-remember-label">
-          <input type="checkbox" name="remember" id="remember" />
-          Remember me
+          <input type="checkbox" name="remember" id="remember" checked />
+          Keep me signed in on this device
         </label>
       </div>
       <button type="submit" class="btn btn-primary btn-full sp-auth-submit">Sign in</button>

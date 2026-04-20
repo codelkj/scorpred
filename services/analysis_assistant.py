@@ -98,10 +98,12 @@ def _context_aware_fallback(message: str, page_ctx: dict) -> tuple[str, list[str
         wins = page_ctx.get("wins")
         losses = page_ctx.get("losses")
         grading = page_ctx.get("grading_logic", "")
+        tracked = (wins or 0) + (losses or 0)
 
         acc_str = f"{accuracy:.1f}%" if accuracy is not None else "N/A"
         wl_str = f"{wins} wins and {losses} losses" if wins is not None and losses is not None else "tracked results"
-        reply = f"Overall accuracy: {acc_str} ({wl_str})."
+        sample_note = "This is still an early live sample." if tracked < 8 else "This reflects live tracked results."
+        reply = f"Live tracked accuracy: {acc_str} ({wl_str}). {sample_note}"
         if grading:
             reply += f" {grading}"
         if "winner leg" not in reply:
@@ -136,8 +138,8 @@ def fallback_chat_reply(
         )
     if "prediction" in lower or "winner" in lower:
         return (
-            f"The Prediction page uses the Scorpred Engine - a weighted model combining "
-            f"form, H2H, injuries, venue advantage, and opponent strength - to predict {matchup}.",
+            f"The Prediction page combines form, matchup context, and probability modeling "
+            f"to judge {matchup} and explain whether the edge looks worth trusting.",
             ["What model factors matter most?"],
         )
     if "player" in lower:

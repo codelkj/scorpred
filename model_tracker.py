@@ -950,7 +950,7 @@ def get_summary_metrics(exclude_seeded: bool = True) -> dict[str, Any]:
             else:
                 label = "Well-calibrated"
         else:
-            label = "No probability data"
+            label = "Collecting probability tracking"
         calibration[conf_level] = {
             "avg_model_probability": avg_model,
             "actual_hit_rate":       actual_hr,
@@ -1257,6 +1257,49 @@ def _recommendation_label(pred: dict[str, Any]) -> str:
     return "--"
 
 
+def _strategy_sample_status(source: str, sample_size: int | None) -> str:
+    count = max(int(sample_size or 0), 0)
+    if count == 0:
+        return "Collecting data"
+    if source == "offline":
+        if count < 80:
+            return "Limited evaluation sample"
+        if count < 250:
+            return "Building evaluation sample"
+        return "Established evaluation sample"
+    if source == "live":
+        if count < 8:
+            return "Early live sample"
+        if count < 25:
+            return "Limited live sample"
+        return "Established live sample"
+    if count < 25:
+        return "Experimental sample"
+    return "Experimental"
+
+
+def _strategy_rank_key(row: dict[str, Any]) -> tuple[float, float, int]:
+    accuracy = row.get("accuracy")
+    if not isinstance(accuracy, (int, float)):
+        return (-1.0, -1.0, 0)
+
+    source = str(row.get("source") or "")
+    sample_size = max(int(row.get("sample_size") or 0), 0)
+    sample_status = str(row.get("sample_status") or "")
+
+    if source == "offline":
+        reliability = 3.0 if sample_size >= 80 else 2.5
+    elif source == "live":
+        reliability = 2.0 if sample_size >= 25 else 1.25 if sample_size >= 8 else 0.75
+    else:
+        reliability = 0.5 if sample_size >= 25 else 0.0
+
+    if "Early" in sample_status:
+        reliability -= 0.5
+
+    return (reliability, float(accuracy), sample_size)
+
+
 def _build_failure_rows(finalized: list[dict[str, Any]], failure_limit: int) -> list[dict[str, Any]]:
     failures = [pred for pred in finalized if not _is_win(pred)]
     failures.sort(key=_prediction_timestamp, reverse=True)
@@ -1326,13 +1369,46 @@ def _build_strategy_comparison(
     ml_accuracy = strategy_reference.get("ml_accuracy")
     combined_accuracy = strategy_reference.get("combined_accuracy")
 
-    return [
-        {"strategy": "Rule-Based", "accuracy": tracker_accuracy, "sample_size": metrics.get("finalized_predictions", 0), "source": "live"},
-        {"strategy": "ML (Stacking)", "accuracy": ml_accuracy, "sample_size": strategy_reference.get("evaluation_matches"), "source": "offline"},
-        {"strategy": "Combined Signal", "accuracy": combined_accuracy, "sample_size": strategy_reference.get("evaluation_matches"), "source": "offline"},
-        {"strategy": "Edge-Filtered", "accuracy": edge_filtered_accuracy, "sample_size": len(edge_filtered_subset), "source": "live"},
-        {"strategy": "Avoid-Aware", "accuracy": avoid_aware_score, "sample_size": len(all_predictions), "source": "live"},
+    rows = [
+        {
+            "strategy": "Live tracked production picks",
+            "accuracy": tracker_accuracy,
+            "sample_size": metrics.get("finalized_predictions", 0),
+            "source": "live",
+            "note": "Real predictions graded after matches finish.",
+        },
+        {
+            "strategy": "Combined Signal",
+            "accuracy": combined_accuracy,
+            "sample_size": strategy_reference.get("evaluation_matches"),
+            "source": "offline",
+            "note": "Primary offline evaluation for the production decision layer.",
+        },
+        {
+            "strategy": "ML (Stacking)",
+            "accuracy": ml_accuracy,
+            "sample_size": strategy_reference.get("evaluation_matches"),
+            "source": "offline",
+            "note": "Offline evaluation for the standalone model stack.",
+        },
+        {
+            "strategy": "High-confidence live subset",
+            "accuracy": edge_filtered_accuracy,
+            "sample_size": len(edge_filtered_subset),
+            "source": "experimental",
+            "note": "Smaller live slice using only higher-confidence picks.",
+        },
+        {
+            "strategy": "Avoid-aware live policy",
+            "accuracy": avoid_aware_score,
+            "sample_size": len(all_predictions),
+            "source": "experimental",
+            "note": "Experimental lens that credits avoided matches as skipped risk.",
+        },
     ]
+    for row in rows:
+        row["sample_status"] = _strategy_sample_status(row.get("source", ""), row.get("sample_size"))
+    return rows
 
 
 def get_evaluation_dashboard(
@@ -1370,7 +1446,7 @@ def get_evaluation_dashboard(
     tracker_accuracy = metrics.get("overall_accuracy")
 
     valid_strategies = [item for item in strategy_comparison if isinstance(item.get("accuracy"), (int, float))]
-    best_strategy = max(valid_strategies, key=lambda item: item.get("accuracy", -1))["strategy"] if valid_strategies else "Awaiting sample"
+    best_strategy = max(valid_strategies, key=_strategy_rank_key)["strategy"] if valid_strategies else "Awaiting sample"
 
     roi_fields = ["profit", "roi", "points_won"]
     roi_values = [

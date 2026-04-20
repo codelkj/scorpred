@@ -645,6 +645,159 @@ def _apply_nba_confidence_profile(
     return prediction
 
 
+def _nba_data_completeness(
+    *,
+    form_a_games: int,
+    form_b_games: int,
+    stats_a_available: bool,
+    stats_b_available: bool,
+    used_historical_context: bool,
+    data_limited: bool,
+) -> dict:
+    form_quality = min(form_a_games, form_b_games)
+    stats_ok = bool(stats_a_available and stats_b_available)
+
+    if data_limited or form_quality < 2 or not stats_ok:
+        return {
+            "tier": "limited",
+            "label": "Limited data",
+            "summary": "Current-season coverage is thin here, so treat this matchup as a lower-trust read.",
+        }
+    if used_historical_context or form_quality < 4:
+        return {
+            "tier": "partial",
+            "label": "Mixed data quality",
+            "summary": "Mostly current-season context is available, with some historical support filling the gaps.",
+        }
+    return {
+        "tier": "full",
+        "label": "Current-season data",
+        "summary": "Form, team stats, and matchup context are all coming from current-season inputs.",
+    }
+
+
+def _nba_prediction_edge_state(prediction: dict) -> dict[str, str]:
+    win_probs = prediction.get("win_probabilities") or {}
+    prob_a = float(win_probs.get("a", 50.0) or 50.0)
+    prob_b = float(win_probs.get("b", 50.0) or 50.0)
+    gap = abs(prob_a - prob_b)
+
+    if gap < 4:
+        return {
+            "title": "No clear advantage detected",
+            "summary": "The teams project closely enough that the safer read is to treat this as a high-uncertainty matchup.",
+        }
+    if gap < 8:
+        return {
+            "title": "Small edge",
+            "summary": "One side grades better, but the separation is still modest.",
+        }
+    if gap < 14:
+        return {
+            "title": "Clear edge",
+            "summary": "The model sees a meaningful pre-game gap between the two teams.",
+        }
+    return {
+        "title": "Strong edge",
+        "summary": "Several inputs are lining up in the same direction, creating a stronger-than-usual signal.",
+    }
+
+
+def _nba_reason_tags(prediction: dict, data_completeness: dict) -> list[str]:
+    tags: list[str] = []
+    key_edges = prediction.get("key_edges") or []
+    if key_edges:
+        category = str((key_edges[0] or {}).get("category") or "").strip()
+        if category:
+            tags.append(f"{category} edge")
+
+    win_probs = prediction.get("win_probabilities") or {}
+    prob_a = float(win_probs.get("a", 50.0) or 50.0)
+    prob_b = float(win_probs.get("b", 50.0) or 50.0)
+    prob_gap = abs(prob_a - prob_b)
+    if prob_gap < 4:
+        tags.append("Close matchup")
+    elif prob_gap >= 14:
+        tags.append("Strong separation")
+
+    tier = str(data_completeness.get("tier") or "")
+    if tier == "limited":
+        tags.append("Limited data")
+    elif tier == "partial":
+        tags.append("Mixed data")
+
+    return tags[:4]
+
+
+def _build_nba_prediction_explainer(
+    prediction: dict,
+    *,
+    data_completeness: dict,
+    team_a_name: str,
+    team_b_name: str,
+) -> dict:
+    best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
+    edge_state = _nba_prediction_edge_state(prediction)
+    summary = str(
+        best_pick.get("reasoning")
+        or prediction.get("matchup_reading")
+        or edge_state["summary"]
+    ).strip()
+
+    return {
+        "headline": edge_state["title"],
+        "summary": summary,
+        "supporting_note": edge_state["summary"],
+        "reliability_label": data_completeness.get("label") or "Match context",
+        "reliability_note": data_completeness.get("summary") or "The prediction is using the available pre-game context.",
+        "tags": _nba_reason_tags(prediction, data_completeness),
+        "raw_score_note": (
+            f"Internal rating: {team_a_name} {prediction.get('team_a_score', 0)} - "
+            f"{prediction.get('team_b_score', 0)} {team_b_name}"
+        ),
+    }
+
+
+def _apply_nba_product_presentation(
+    prediction: dict,
+    *,
+    data_completeness: dict,
+    team_a_name: str,
+    team_b_name: str,
+) -> dict:
+    if not isinstance(prediction, dict):
+        return prediction
+
+    best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
+    confidence = str(best_pick.get("confidence") or "")
+    win_probs = prediction.get("win_probabilities") or {}
+    prob_a = float(win_probs.get("a", 50.0) or 50.0)
+    prob_b = float(win_probs.get("b", 50.0) or 50.0)
+    prob_gap = abs(prob_a - prob_b)
+
+    if data_completeness.get("tier") == "limited" or confidence in {"Low", "Limited Data"} or prob_gap < 4:
+        play_type = "AVOID"
+        risk_label = "Elevated"
+    elif confidence == "High" and prob_gap >= 14:
+        play_type = "BET"
+        risk_label = "Controlled"
+    else:
+        play_type = "LEAN"
+        risk_label = "Balanced"
+
+    prediction["play_type"] = play_type
+    prediction["confidence_pct"] = round(max(prob_a, prob_b), 1)
+    prediction["risk_label"] = risk_label
+    prediction["data_completeness"] = data_completeness
+    prediction["decision_explainer"] = _build_nba_prediction_explainer(
+        prediction,
+        data_completeness=data_completeness,
+        team_a_name=team_a_name,
+        team_b_name=team_b_name,
+    )
+    return prediction
+
+
 def _refresh_requested() -> bool:
     return str(request.args.get("refresh", "")).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -1585,6 +1738,22 @@ def _prediction_inner():
         "limited_current_season": limited_current_season,
         "stats_current_available": bool(stats_a and stats_b),
     }
+
+    if scorpred:
+        data_completeness = _nba_data_completeness(
+            form_a_games=season_context["form_a_current"],
+            form_b_games=season_context["form_b_current"],
+            stats_a_available=bool(stats_a),
+            stats_b_available=bool(stats_b),
+            used_historical_context=has_historical_context,
+            data_limited=limited_current_season,
+        )
+        scorpred = _apply_nba_product_presentation(
+            scorpred,
+            data_completeness=data_completeness,
+            team_a_name=team_a.get("nickname") or team_a["name"],
+            team_b_name=team_b.get("nickname") or team_b["name"],
+        )
 
     # Track this prediction
     try:

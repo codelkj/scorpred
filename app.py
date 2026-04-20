@@ -29,7 +29,14 @@ import model_tracker as mt
 import user_auth
 import odds_fetcher
 import result_updater as ru
-from runtime_paths import data_root, ensure_runtime_dirs, ml_report_path, walk_forward_report_path
+from runtime_paths import (
+    auth_db_path,
+    auth_storage_diagnostics,
+    data_root,
+    ensure_runtime_dirs,
+    ml_report_path,
+    walk_forward_report_path,
+)
 from security import check_chat_rate_limit, configure_security, sanitize_error
 from services import analysis_assistant as assistant_services
 from db_models import db
@@ -119,14 +126,38 @@ if not _secret_key:
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 configure_security(app, _secret_key)
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///scorpred.db")
+_database_url = (os.getenv("DATABASE_URL") or "").strip()
+if _database_url.startswith("postgres://"):
+    _database_url = _database_url.replace("postgres://", "postgresql://", 1)
+if not _database_url:
+    _database_url = f"sqlite:///{auth_db_path().as_posix()}"
+app.config["SQLALCHEMY_DATABASE_URI"] = _database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
+app.config["SESSION_COOKIE_NAME"] = "scorpred_session"
 app.config["SESSION_COOKIE_SECURE"] = _is_production
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 db.init_app(app)
 # --- Persistent session config ---
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+with app.app_context():
+    db.create_all()
+
+_auth_storage = auth_storage_diagnostics()
+if _auth_storage["durable"]:
+    _logger.info(
+        "Auth storage ready at %s (%s).",
+        _auth_storage["path"],
+        _auth_storage["mode"],
+    )
+else:
+    _logger.warning(
+        "Auth storage is using an ephemeral path (%s). Accounts will not survive redeploys until "
+        "DATABASE_URL or SCORPRED_PERSISTENT_ROOT points to durable storage.",
+        _auth_storage["path"],
+    )
 
 # ── Blueprints ──────────────────────────────────────────────────────────────────
 app.register_blueprint(nba_bp)
@@ -546,6 +577,232 @@ def _format_percent_value(value: float | None) -> str | None:
         return None
     rounded = round(value, 1)
     return f"{int(rounded)}%" if float(rounded).is_integer() else f"{rounded}%"
+
+
+def _pluralize(count: int, singular: str, plural: str | None = None) -> str:
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
+def _sample_size_state(
+    sample_size: int | None,
+    *,
+    unit: str,
+    early_threshold: int,
+    limited_threshold: int,
+) -> dict[str, Any]:
+    count = max(int(sample_size or 0), 0)
+    unit_label = _pluralize(count, unit, "matches" if unit == "match" else None)
+
+    if count <= 0:
+        return {
+            "count": 0,
+            "status": "warming_up",
+            "badge": "Collecting data",
+            "sample_label": f"No graded {unit_label} yet",
+        }
+    if count < early_threshold:
+        return {
+            "count": count,
+            "status": "early",
+            "badge": "Early sample",
+            "sample_label": f"{count} graded {unit_label} - early sample",
+        }
+    if count < limited_threshold:
+        return {
+            "count": count,
+            "status": "limited",
+            "badge": "Limited sample",
+            "sample_label": f"{count} graded {unit_label} - limited sample",
+        }
+    return {
+        "count": count,
+        "status": "mature",
+        "badge": "Established sample",
+        "sample_label": f"{count} graded {unit_label}",
+    }
+
+
+def _build_live_metric_summary(accuracy: float | None, sample_size: int | None) -> dict[str, Any]:
+    sample = _sample_size_state(sample_size, unit="game", early_threshold=8, limited_threshold=25)
+    if accuracy is None or sample["count"] == 0:
+        return {
+            "title": "Live tracked accuracy",
+            "value": "Collecting data",
+            "badge": sample["badge"],
+            "sample_label": sample["sample_label"],
+            "summary": "Real match results are being graded, but the live sample is not large enough to anchor the product yet.",
+            "tone": "muted",
+        }
+
+    summary = "Real graded picks from the live app."
+    if sample["status"] == "early":
+        summary = "Useful as an early health check, but too small to compare directly with the backtest headline."
+    elif sample["status"] == "limited":
+        summary = "Live tracking is building, but it still needs more graded games before it should outrank offline validation."
+
+    return {
+        "title": "Live tracked accuracy",
+        "value": _format_percent_value(accuracy),
+        "badge": sample["badge"],
+        "sample_label": sample["sample_label"],
+        "summary": summary,
+        "tone": "positive" if accuracy >= 55 else "negative" if accuracy < 45 else "neutral",
+    }
+
+
+def _build_offline_metric_summary(
+    accuracy: float | None,
+    sample_size: int | None,
+    *,
+    title: str,
+    summary: str,
+) -> dict[str, Any]:
+    sample = _sample_size_state(sample_size, unit="match", early_threshold=80, limited_threshold=250)
+    if accuracy is None:
+        return {
+            "title": title,
+            "value": "Awaiting report",
+            "badge": "Refreshing",
+            "sample_label": sample["sample_label"],
+            "summary": summary,
+            "tone": "muted",
+        }
+
+    return {
+        "title": title,
+        "value": _format_percent_value(accuracy),
+        "badge": sample["badge"],
+        "sample_label": sample["sample_label"],
+        "summary": summary,
+        "tone": "positive" if accuracy >= 55 else "negative" if accuracy < 45 else "neutral",
+    }
+
+
+def _build_walk_forward_metric_summary(walk_forward: dict[str, Any] | None) -> dict[str, Any]:
+    payload = walk_forward or {}
+    if not payload.get("available"):
+        return {
+            "title": "Primary performance metric",
+            "value": "Backtest pending",
+            "badge": "Refreshing",
+            "sample_label": "Walk-forward report is not available yet",
+            "summary": "This is the metric that should headline the product once the offline report is present.",
+            "tone": "muted",
+        }
+
+    total_matches = payload.get("total_test_matches") or 0
+    sample = _sample_size_state(total_matches, unit="match", early_threshold=250, limited_threshold=800)
+    accuracy = payload.get("mean_combined_accuracy")
+    return {
+        "title": "Primary performance metric",
+        "value": _format_percent_value(accuracy),
+        "badge": "Most reliable",
+        "sample_label": sample["sample_label"],
+        "summary": "Walk-forward accuracy is the fairest headline metric because each fold predicts matches the model had not seen during training.",
+        "tone": "positive" if isinstance(accuracy, (int, float)) and accuracy >= 55 else "negative" if isinstance(accuracy, (int, float)) and accuracy < 45 else "neutral",
+    }
+
+
+def _prediction_edge_state(prediction: dict[str, Any]) -> dict[str, str]:
+    gap = _safe_float(prediction.get("score_gap"), 0.0)
+    play_type = str(prediction.get("play_type") or "LEAN").upper()
+
+    if gap < 0.35:
+        return {
+            "title": "No clear advantage detected",
+            "summary": "The teams grade out almost evenly, so the model is treating this as a high-uncertainty spot.",
+        }
+    if play_type == "AVOID":
+        return {
+            "title": "Edge too small to trust",
+            "summary": "There is a lean, but not enough separation to justify a confident decision.",
+        }
+    if gap < 1.0:
+        return {
+            "title": "Small edge",
+            "summary": "One side rates slightly better, but the advantage is still modest.",
+        }
+    if gap < 1.8:
+        return {
+            "title": "Clear edge",
+            "summary": "The model sees a meaningful pre-match separation between the two teams.",
+        }
+    return {
+        "title": "Strong edge",
+        "summary": "Multiple inputs are lining up in the same direction, creating a stronger-than-normal signal.",
+    }
+
+
+def _build_prediction_reason_tags(prediction: dict[str, Any]) -> list[str]:
+    tags: list[str] = []
+    key_edges = prediction.get("key_edges") or []
+    if key_edges:
+        first_edge = key_edges[0]
+        category = str(first_edge.get("category") or "").strip()
+        if category:
+            tags.append(f"{category} edge")
+
+    gap = _safe_float(prediction.get("score_gap"), 0.0)
+    if gap < 0.35:
+        tags.append("No clear edge")
+    elif gap < 1.0:
+        tags.append("Weak edge")
+    else:
+        tags.append("Model separation")
+
+    draw_prob = _safe_float((prediction.get("win_probabilities") or {}).get("draw"), 0.0)
+    if draw_prob >= 28.0:
+        tags.append("Draw risk")
+
+    completeness = prediction.get("data_completeness") or {}
+    completeness_tier = str(completeness.get("tier") or "")
+    if completeness_tier in {"limited", "partial"}:
+        tags.append("Limited data" if completeness_tier == "limited" else "Some live feeds missing")
+
+    if str(prediction.get("play_type") or "").upper() == "AVOID":
+        tags.append("High uncertainty")
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        key = tag.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(tag)
+    return deduped[:4]
+
+
+def _build_prediction_explainer(prediction: dict[str, Any], *, team_a_name: str, team_b_name: str) -> dict[str, Any]:
+    best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
+    completeness = prediction.get("data_completeness") or {}
+    quality = str(prediction.get("data_quality") or "Moderate")
+    edge_state = _prediction_edge_state(prediction)
+    reason = str(
+        best_pick.get("reasoning")
+        or prediction.get("matchup_reading")
+        or edge_state["summary"]
+    ).strip()
+
+    reliability_label = completeness.get("label") or f"{quality} data"
+    reliability_note = completeness.get("summary") or (
+        "Most pre-match inputs loaded cleanly." if quality == "Strong"
+        else "Some live inputs were thin, so the model leaned more on fallback assumptions."
+        if quality == "Limited"
+        else "The prediction has a usable but not perfect pre-match data picture."
+    )
+
+    return {
+        "headline": edge_state["title"],
+        "summary": reason,
+        "supporting_note": edge_state["summary"],
+        "reliability_label": reliability_label,
+        "reliability_note": reliability_note,
+        "tags": _build_prediction_reason_tags(prediction),
+        "raw_score_note": (
+            f"Internal rating: {team_a_name} {prediction.get('team_a_score', 0)} - {prediction.get('team_b_score', 0)} {team_b_name}"
+        ),
+    }
 
 
 def _outcome_range_label(actual_prob: float | None) -> str | None:
@@ -2293,6 +2550,10 @@ def _build_home_dashboard_context() -> dict[str, Any]:
     metrics = mt.get_summary_metrics()
     pending = mt.get_pending_predictions(limit=40)
     completed = mt.get_completed_predictions(limit=8)
+    try:
+        walk_forward = strategy_lab_services.walk_forward_summary()
+    except Exception:
+        walk_forward = {}
 
     conf_rank = {"High": 3, "Medium": 2, "Low": 1}
     candidates = [
@@ -2332,16 +2593,31 @@ def _build_home_dashboard_context() -> dict[str, Any]:
         for pred in completed[:6]
     ]
 
+    primary_metric = _build_walk_forward_metric_summary(walk_forward)
+    live_metric = _build_live_metric_summary(
+        metrics.get("overall_accuracy"),
+        metrics.get("finalized_predictions"),
+    )
+    trust_cards = [
+        primary_metric,
+        live_metric,
+        {
+            "title": "How to trust a pick",
+            "value": "Decision first",
+            "badge": "Product guide",
+            "sample_label": "Confidence, explanation, and data reliability should agree",
+            "summary": "The cleanest spots are matches with a clear lean, a simple reason, and strong live context. Thin edges should stay as leans or avoids.",
+            "tone": "neutral",
+        },
+    ]
+
     return {
         "system_snapshot": {
-            "overall_accuracy": (
-                f"{metrics.get('overall_accuracy'):.1f}%"
-                if metrics.get("overall_accuracy") is not None
-                else "Awaiting sample"
-            ),
+            "primary_metric": primary_metric,
+            "live_metric": live_metric,
             "tracked_predictions": int(metrics.get("total_predictions") or 0),
-            "best_strategy": _best_strategy_label(metrics),
         },
+        "trust_cards": trust_cards,
         "top_picks": top_picks,
         "performance_preview": performance_preview,
     }
@@ -3044,6 +3320,20 @@ def matchup():
         }
     )
     scorpred = mastermind.get("ui_prediction") or {}
+    scorpred["data_completeness"] = _build_prediction_data_completeness(
+        form_a=form_a,
+        form_b=form_b,
+        h2h=h2h_raw,
+        injuries_a=injuries_a_raw,
+        injuries_b=injuries_b_raw,
+        standings_for_opp=standings_for_opp,
+        task_status={},
+    )
+    scorpred["decision_explainer"] = _build_prediction_explainer(
+        scorpred,
+        team_a_name=team_a["name"],
+        team_b_name=team_b["name"],
+    )
 
     # ── Compute odds edge for template display ─────────────────────────────────
     edge_data: dict[str, Any] = {}
@@ -3547,6 +3837,11 @@ def prediction():
         standings_for_opp=standings_for_opp,
         task_status=task_status,
     )
+    prediction["decision_explainer"] = _build_prediction_explainer(
+        prediction,
+        team_a_name=team_a["name"],
+        team_b_name=team_b["name"],
+    )
     mastermind["ui_prediction"] = prediction
     league_id = _set_active_league(_active_league_id())
 
@@ -4034,6 +4329,7 @@ def model_performance():
         strategy_context = strategy_lab_services.build_strategy_lab_context()
         performance_comparison = strategy_context.get("performance_comparison") or {}
         ml_comparison = strategy_context.get("ml_comparison") or {}
+        walk_forward_context = strategy_context.get("walk_forward") or strategy_lab_services.walk_forward_summary()
         evaluation = mt.get_evaluation_dashboard(
             rolling_window=max(1, min(rolling_window, 50)),
             strategy_reference=performance_comparison,
@@ -4092,6 +4388,24 @@ def model_performance():
         }
         performance_comparison = {}
         ml_comparison = {}
+        walk_forward_context = {}
+
+    primary_metric = _build_walk_forward_metric_summary(walk_forward_context)
+    live_metric = _build_live_metric_summary(
+        metrics.get("overall_accuracy"),
+        metrics.get("finalized_predictions"),
+    )
+    offline_metric = _build_offline_metric_summary(
+        performance_comparison.get("combined_accuracy") or ml_comparison.get("ensemble_accuracy"),
+        performance_comparison.get("evaluation_matches") or ml_comparison.get("evaluation_matches"),
+        title="Offline model evaluation",
+        summary="Use this to compare model variants. It is more trustworthy than a tiny live sample, but the walk-forward number should still be the main headline metric.",
+    )
+    reading_guide = [
+        "~50% is realistic for a noisy sports prediction model.",
+        "55%+ is a strong edge if the sample behind it is large enough.",
+        "Small live samples should be treated as early signals, not headline proof.",
+    ]
 
     _assistant_store_model_performance_context(metrics, sport_filter)
 
@@ -4105,7 +4419,11 @@ def model_performance():
             evaluation=evaluation,
             performance_comparison=performance_comparison,
             ml_comparison=ml_comparison,
-            walk_forward=strategy_lab_services.walk_forward_summary(),
+            walk_forward=walk_forward_context,
+            primary_metric=primary_metric,
+            live_metric=live_metric,
+            offline_metric=offline_metric,
+            reading_guide=reading_guide,
         ),
     )
 
@@ -4198,6 +4516,24 @@ def strategy_lab():
         context.setdefault("seeded_count", 0)
         context.setdefault("real_prediction_count", 0)
         context.setdefault("exclude_seeded", exclude_seeded)
+
+    context["primary_metric"] = _build_walk_forward_metric_summary(context.get("walk_forward"))
+    context["live_metric"] = _build_live_metric_summary(
+        context.get("live_hit_rate"),
+        context.get("live_sample_size"),
+    )
+    context["offline_metric"] = _build_offline_metric_summary(
+        context.get("offline_accuracy"),
+        (context.get("performance_comparison") or {}).get("evaluation_matches")
+        or (context.get("ml_comparison") or {}).get("evaluation_matches"),
+        title="Offline model evaluation",
+        summary="This is the cleaner number for comparing models. The walk-forward result still matters most when you want the fairest end-to-end test.",
+    )
+    context["reading_guide"] = [
+        "Lead with walk-forward accuracy when you want the fairest performance read.",
+        "Use offline model evaluation to compare variants, not to overpromise production results.",
+        "Treat live tracking as early evidence until the graded sample is large enough.",
+    ]
 
     return render_template(
         "strategy_lab.html",

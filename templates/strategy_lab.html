@@ -1,23 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Strategy Intelligence Engine | ScorPred{% endblock %}
 
-{% block head %}
-<style>
-  .c-positive { color: var(--c-strong); }
-  .c-negative { color: var(--c-danger); }
-  .c-neutral  { color: var(--text); }
-  .c-active   { color: var(--c-active); }
-  .c-muted    { color: var(--text-3); }
-  .border-active { border-color: var(--c-active); }
-</style>
-{% endblock %}
-
 {% block content %}
-{# ── Template variables ────────────────────────────────────────────────────── #}
 {% set strategy_rec = strategy_recommendation if strategy_recommendation else {} %}
-{% set best_strategy = strategy_rec.get('label') or (backtest_summary.best_sport.label if backtest_summary.best_sport else (ml_comparison.best_model_label if ml_comparison.available else 'Awaiting sample')) %}
-{% set best_accuracy = strategy_rec.get('trust_score') if strategy_rec.get('trust_score') is not none else (backtest_summary.best_sport.accuracy if backtest_summary.best_sport else metrics.overall_accuracy) %}
-{% set edge_display = ml_comparison.accuracy_gap_display if ml_comparison.available else 'Awaiting ML report' %}
+{% set best_strategy = strategy_rec.get('label') or 'Awaiting sample' %}
 {% set confidence_rows = confidence_breakdown or [] %}
 {% set row_high = confidence_rows | selectattr('key', 'equalto', 'High') | list %}
 {% set row_medium = confidence_rows | selectattr('key', 'equalto', 'Medium') | list %}
@@ -25,8 +11,13 @@
 {% set high_row = row_high[0] if row_high else None %}
 {% set medium_row = row_medium[0] if row_medium else None %}
 {% set low_row = row_low[0] if row_low else None %}
-
-{% set avoid_recent = metrics.recent_predictions | selectattr('predicted_winner', 'equalto', 'avoid') | list if metrics.recent_predictions else [] %}
+{% set mlc = ml_comparison if ml_comparison else {} %}
+{% set pc = performance_comparison if performance_comparison else {} %}
+{% set wf = walk_forward if walk_forward else {} %}
+{% set wf_windows = wf.get('windows', {}) if wf else {} %}
+{% set wf_all = wf_windows.get('all_history', {}) if wf_windows else {} %}
+{% set wf_recent = wf_windows.get('last_3_years', {}) if wf_windows else {} %}
+{% set wf_selector = wf.get('selector', {}) if wf else {} %}
 {% set avoid_completed_source = avoid_impact_predictions if avoid_impact_predictions is defined else recent_completed_predictions %}
 {% set avoid_completed = avoid_completed_source | selectattr('predicted_winner', 'equalto', 'avoid') | list if avoid_completed_source else [] %}
 {% set avoid_if_played = (avoid_completed | selectattr('winner_hit', 'equalto', true) | list | length) %}
@@ -34,23 +25,6 @@
 {% set avoid_if_played_acc = ((avoid_if_played / avoid_total_completed) * 100) if avoid_total_completed else none %}
 {% set avoid_after_avoiding_acc = ((avoid_total_completed - avoid_if_played) / avoid_total_completed * 100) if avoid_total_completed else none %}
 
-{% set mlc = ml_comparison if ml_comparison else {} %}
-{% set pc = performance_comparison if performance_comparison else {} %}
-{% set wf = walk_forward if walk_forward is defined and walk_forward else {} %}
-{% set wf_windows = wf.get('windows', {}) if wf else {} %}
-{% set wf_all = wf_windows.get('all_history', {}) if wf_windows else {} %}
-{% set wf_recent = wf_windows.get('last_3_years', {}) if wf_windows else {} %}
-{% set wf_selector = wf.get('selector', {}) if wf else {} %}
-{% set strategy_badge = 'sp-badge--muted' %}
-{% if strategy_rec.get('tone') == 'positive' %}
-  {% set strategy_badge = 'sp-badge--strong' %}
-{% elif strategy_rec.get('tone') == 'warning' %}
-  {% set strategy_badge = 'sp-badge--caution' %}
-{% elif strategy_rec.get('tone') == 'critical' %}
-  {% set strategy_badge = 'sp-badge--danger' %}
-{% endif %}
-
-{# ── Seeded-data notice ───────────────────────────────────────────────────── #}
 {% if exclude_seeded is defined and exclude_seeded %}
 <div class="sp-notice sp-notice--info">
   Showing <strong>{{ real_prediction_count|default(0) }}</strong> real predictions.
@@ -59,18 +33,17 @@
 </div>
 {% elif exclude_seeded is defined and not exclude_seeded %}
 <div class="sp-notice sp-notice--warn">
-  Demo mode: includes seeded predictions. Metrics may not reflect live model accuracy.
+  Demo data is included right now, so these numbers are not purely live production tracking.
   <a href="?" style="margin-left:auto; color:var(--c-caution); text-decoration:none">Hide demo data</a>
 </div>
 {% endif %}
 
-{# ═══ Hero ════════════════════════════════════════════════════════════════ #}
 <section class="sp-hero">
   <span class="sp-kicker">Strategy Intelligence Engine</span>
   <h1 style="font-size:1.4rem; font-weight:800; margin:.2rem 0 .3rem">{{ best_strategy }}</h1>
-  <p style="color:var(--text-2); font-size:.85rem; margin-bottom:.75rem">{{ strategy_rec.get('summary') or 'Current best strategy based on tracked outcomes, model accuracy, and confidence behavior.' }}</p>
+  <p style="color:var(--text-2); font-size:.85rem; margin-bottom:.75rem">{{ strategy_rec.get('summary') or 'Current default based on offline validation, live tracking, and stability checks.' }}</p>
   <div style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap">
-    <span class="sp-badge {{ strategy_badge }}">{{ strategy_rec.get('action_label') or 'Use This Strategy' }}</span>
+    <span class="sp-badge sp-badge--strong">{{ strategy_rec.get('action_label') or 'Use this strategy' }}</span>
     {% if strategy_rec.get('trust_label') %}
     <span class="sp-badge sp-badge--muted">{{ strategy_rec.get('trust_label') }}</span>
     {% endif %}
@@ -78,73 +51,39 @@
     <span class="sp-badge sp-badge--muted">Trust {{ strategy_rec.get('trust_score_display') }}</span>
     {% endif %}
   </div>
-  {% if strategy_rec.get('window_bias_note') %}
-  <p style="color:var(--text-3); font-size:.78rem; margin:.65rem 0 0">{{ strategy_rec.get('window_bias_note') }}</p>
-  {% endif %}
-  {% if strategy_rec.get('reason_lines') %}
-  <div class="sp-list" style="margin-top:.7rem">
-    {% for line in strategy_rec.get('reason_lines')[:3] %}
-    <div class="sp-stat-row">
-      <span>{{ line }}</span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
 </section>
 
-{# ═══ KPI Strip ══════════════════════════════════════════════════════════ #}
-<div class="sp-kpi-strip">
-  <div class="sp-kpi">
-    <span class="sp-kpi__label">Live Hit Rate</span>
-    <strong class="sp-kpi__value {%- if live_hit_rate is not none and live_hit_rate >= 55 -%}c-positive{%- elif live_hit_rate is not none and live_hit_rate < 45 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
-      {{ ('%.1f'|format(live_hit_rate) ~ '%') if live_hit_rate is not none else 'Awaiting' }}
-    </strong>
-    <span style="font-size:.7rem; color:var(--text-3)">{{ live_sample_size }} tracked</span>
+<section class="sp-panel" style="margin-bottom:1rem">
+  <div class="sp-panel-head">
+    <div class="sp-panel-head__left">
+      <span class="sp-kicker">How to read this</span>
+      <h2 class="sp-panel-title">Strategy trust hierarchy</h2>
+    </div>
   </div>
-  <div class="sp-kpi">
-    <span class="sp-kpi__label">Live Accuracy</span>
-    {% if live_sample_size == 0 %}
-      <strong class="sp-kpi__value" style="color:var(--text-3)">Collecting data</strong>
-      <span class="sp-badge sp-badge--muted" style="margin-left:.3rem">Warming up</span>
-    {% else %}
-      <strong class="sp-kpi__value {%- if live_hit_rate is not none and live_hit_rate >= 55 -%}c-positive{%- elif live_hit_rate is not none and live_hit_rate < 45 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
-        {{ ('%.1f'|format(live_hit_rate) ~ '%') if live_hit_rate is not none else '—' }}
-      </strong>
-      <span style="font-size:.7rem; color:var(--text-3)">{{ live_sample_size }} tracked</span>
-    {% endif %}
+  <div style="display:flex; flex-wrap:wrap; gap:.45rem; margin-bottom:.75rem">
+    {% for line in reading_guide %}
+    <span class="sp-badge sp-badge--muted">{{ line }}</span>
+    {% endfor %}
   </div>
-  <div class="sp-kpi">
-    <span class="sp-kpi__label">Last 7 Days</span>
-    <strong class="sp-kpi__value">{{ metrics.last_7d_accuracy or '—' }}</strong>
-    <span style="font-size:.7rem; color:var(--text-3)">recent</span>
+  <p style="color:var(--text-3); margin:0; font-size:.82rem">{{ backtest_summary.blurb }}</p>
+</section>
+
+<div class="sp-kpi-strip" style="margin-bottom:1rem">
+  {% for card in [primary_metric, offline_metric, live_metric] %}
+  <div class="sp-kpi {% if loop.first %}sp-kpi--strong{% endif %}">
+    <span class="sp-kpi__label">{{ card.title }}</span>
+    <strong class="sp-kpi__value" style="font-size:1.05rem">{{ card.value }}</strong>
+    <span class="sp-badge sp-badge--{{ 'strong' if card.badge == 'Most reliable' else 'muted' }}" style="margin:.35rem 0 .45rem; display:inline-block">{{ card.badge }}</span>
+    <span style="font-size:.76rem; color:var(--text-2); display:block; line-height:1.5">{{ card.sample_label }}</span>
+    <span style="font-size:.74rem; color:var(--text-3); display:block; margin-top:.35rem; line-height:1.5">{{ card.summary }}</span>
   </div>
-  <div class="sp-kpi">
-    <span class="sp-kpi__label">Total Predictions</span>
-    <strong class="sp-kpi__value">{{ metrics.total_predictions or 0 }}</strong>
-  </div>
-  <div class="sp-kpi">
-    <span class="sp-kpi__label">Breakdown</span>
-    <strong class="sp-kpi__value">BET: {{ metrics.bet_count or 0 }} / LEAN: {{ metrics.lean_count or 0 }} / AVOID: {{ metrics.avoid_count or 0 }}</strong>
-  </div>
-  <div class="sp-kpi">
-    <span class="sp-kpi__label">Last Updated</span>
-    <strong class="sp-kpi__value">{{ metrics.last_updated or '—' }}</strong>
-    <span style="font-size:.7rem; color:var(--text-3)">Based on {{ metrics.finalized_predictions or 0 }} tracked</span>
-  </div>
-  {% if wf.get('available') and wf.get('mean_combined_accuracy') is not none %}
-  <div class="sp-kpi">
-    <span class="sp-kpi__label">Walk-Forward</span>
-    <strong class="sp-kpi__value" style="color:var(--c-strong)">{{ wf.mean_combined_accuracy|round(1) }}%</strong>
-    <span style="font-size:.7rem; color:var(--text-3)">{{ wf.n_folds }} folds</span>
-  </div>
-  {% endif %}
+  {% endfor %}
 </div>
 
-{# ═══ Tabs ════════════════════════════════════════════════════════════════ #}
 {% if wf.get('available') %}
-<div class="sp-split" style="margin:1rem 0" data-testid="strategy-backtest-window-section">
+<div class="sp-split" style="margin:1rem 0">
   <div class="sp-panel" style="flex:1.35">
-    <span class="sp-kicker">Offline Windows</span>
+    <span class="sp-kicker">Offline windows</span>
     <h3 class="sp-section-title">Train on all history, inspect the recent window separately</h3>
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.7rem; margin-top:.6rem">
       {% for row in [wf_all, wf_recent] %}
@@ -154,14 +93,11 @@
           <strong style="font-size:.9rem">{{ row.get('label') }}</strong>
           <span class="sp-badge sp-badge--muted">{{ row.get('n_folds') }} folds</span>
         </div>
-        <strong style="display:block; font-size:1.2rem; margin:.35rem 0; color:{% if row.get('mean_combined_accuracy') is not none and row.get('mean_combined_accuracy') >= 55 %}var(--c-strong){% elif row.get('mean_combined_accuracy') is not none and row.get('mean_combined_accuracy') < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
-          {{ (row.get('mean_combined_accuracy')|round(1) ~ '%') if row.get('mean_combined_accuracy') is not none else '—' }}
-        </strong>
+        <strong style="display:block; font-size:1.2rem; margin:.35rem 0">{{ (row.get('mean_combined_accuracy')|round(1) ~ '%') if row.get('mean_combined_accuracy') is not none else 'Awaiting report' }}</strong>
         <div style="font-size:.76rem; color:var(--text-3); line-height:1.6">
           <div>{{ row.get('total_test_matches') or 0 }} evaluated matches</div>
           <div>{{ row.get('date_range_display') }}</div>
-          <div>Best base model: {{ row.get('best_model') or '—' }}</div>
-          <div>Draw picks: {{ row.get('draw_accuracy_display') }} on {{ row.get('draw_sample_size') or 0 }}</div>
+          <div>Draw bucket: {{ row.get('draw_accuracy_display') }} on {{ row.get('draw_sample_size') or 0 }}</div>
           <div>70%+ confidence: {{ row.get('high_confidence_accuracy_display') }} on {{ row.get('high_confidence_sample_size') or 0 }}</div>
         </div>
       </div>
@@ -171,14 +107,11 @@
   </div>
 
   <div class="sp-panel">
-    <span class="sp-kicker">Runtime Selector</span>
+    <span class="sp-kicker">Runtime selector</span>
     <h3 class="sp-section-title">What the live app defaults to</h3>
     {% if wf_selector.get('available') %}
     <strong style="display:block; font-size:1.05rem; margin:.25rem 0">{{ wf_selector.get('default_source_label') }}</strong>
     <p style="font-size:.8rem; color:var(--text-2); line-height:1.6">{{ wf_selector.get('summary') }}</p>
-    {% if wf_recent.get('sample_weighting') %}
-    <p style="font-size:.75rem; color:var(--text-3); margin-top:.35rem">The latest offline runs now use balanced + recency weighting, so the selector is learning from the full history while leaning harder on newer seasons.</p>
-    {% endif %}
     {% if wf_selector.get('override_rows') %}
     <div class="sp-list" style="margin-top:.7rem">
       {% for row in wf_selector.get('override_rows')[:4] %}
@@ -189,10 +122,10 @@
       {% endfor %}
     </div>
     {% else %}
-    <p style="font-size:.78rem; color:var(--text-3); margin-top:.6rem">Recent evidence did not justify segment overrides, so the app keeps one stable default source.</p>
+    <p style="font-size:.78rem; color:var(--text-3); margin-top:.6rem">Recent evidence did not justify segment-specific overrides, so the runtime stays on one stable default.</p>
     {% endif %}
     {% else %}
-    <p style="font-size:.82rem; color:var(--text-3)">Runtime selector details will appear after the backtest report is refreshed.</p>
+    <p style="font-size:.82rem; color:var(--text-3)">Runtime selector details will appear after the offline report refreshes.</p>
     {% endif %}
   </div>
 </div>
@@ -206,229 +139,153 @@
     <button class="sp-tab" data-tab="advanced">Advanced</button>
   </div>
 
-  {# ── TAB: Summary ───────────────────────────────────────────────────── #}
   <div class="sp-tab-panel active" data-panel="summary">
-
-    {# Why This Strategy #}
     <div class="sp-split">
       <div class="sp-panel" style="flex:1.5">
-        <span class="sp-kicker">Explainable Intelligence</span>
-        <h2 class="sp-section-title">Why This Strategy Works</h2>
+        <span class="sp-kicker">Why this strategy</span>
+        <h2 class="sp-section-title">Current recommendation</h2>
+        <ul class="sp-insight-list" style="margin-top:.5rem">
+          {% for line in strategy_rec.get('reason_lines', [])[:4] %}
+          <li>{{ line }}</li>
+          {% else %}
+          <li>Strategy evidence is still warming up, so the runtime default is staying conservative.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="sp-panel">
+        <span class="sp-kicker">Key insights</span>
         <ul class="sp-insight-list" style="margin-top:.5rem">
           {% for insight in key_insights[:4] %}
           <li>{{ insight }}</li>
           {% else %}
-          <li>Awaiting finalized sample before strategy insights can be ranked with confidence.</li>
-          {% endfor %}
-        </ul>
-      </div>
-      <div class="sp-panel">
-        <span class="sp-kicker">ML vs Rule Synergy</span>
-        <ul class="sp-insight-list" style="margin-top:.5rem">
-          {% for insight in (ml_rule_insights or key_insights[:3]) %}
-          <li>{{ insight }}</li>
+          <li>More finalized outcomes are needed before the summary becomes reliable.</li>
           {% endfor %}
         </ul>
       </div>
     </div>
 
-    {# Strategy Comparison Table #}
-      <div class="sp-panel">
-        <span class="sp-kicker">Head-to-Head</span>
-        <h3 class="sp-section-title">Strategy Comparison</h3>
-        {% set all_live_empty = (metrics.finalized_predictions or 0) == 0 %}
-        {% if all_live_empty %}
-          <div class="sp-notice sp-notice--info" style="margin-bottom:.7rem">
-            <strong>Live performance is being tracked.</strong> Results will appear after matches complete.
-          </div>
-        {% endif %}
-        <div class="sp-table-wrap" style="margin-top:.5rem">
-          <table class="sp-table sp-table--compare">
-            <thead>
-              <tr>
-                <th>Strategy</th>
-                <th>Accuracy</th>
-                <th>Sample</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="sp-row-prod">
-                <td><strong>Combined Signal</strong> <span class="sp-badge sp-badge--active" title="Production model — used for live picks">Prod</span></td>
-                <td>{% if performance_comparison.combined_accuracy is not none %}{{ performance_comparison.combined_accuracy }}%{% else %}{% if all_live_empty %}<span class="sp-badge sp-badge--muted">Warming up</span>{% else %}—{% endif %}{% endif %}</td>
-                <td>{{ performance_comparison.evaluation_matches or (all_live_empty and '—') or '—' }}</td>
-              </tr>
-              <tr>
-                <td><strong>Live Tracked</strong> <span class="sp-badge sp-badge--strong" title="Live — real results">Live</span></td>
-                <td>{% if all_live_empty %}<span class="sp-badge sp-badge--muted">Collecting data</span>{% else %}{{ backtest_summary.overall_accuracy_display }}{% endif %}</td>
-                <td>{{ metrics.finalized_predictions or (all_live_empty and '—') or '—' }}</td>
-              </tr>
-              <tr>
-                <td>Stacking Ensemble <span class="sp-badge sp-badge--muted" title="Offline — backtested">Offline</span></td>
-                <td>{% if ml_comparison.available and ml_comparison.ensemble_accuracy is not none %}{{ ml_comparison.ensemble_accuracy }}%{% elif ml_comparison.available %}{{ ml_comparison.random_forest_accuracy }}%{% else %}—{% endif %}</td>
-                <td>{{ ml_comparison.evaluation_matches or '—' }}</td>
-              </tr>
-              <tr>
-                <td>Logistic Benchmark <span class="sp-badge sp-badge--muted" title="Offline — backtested">Offline</span></td>
-                <td>{% if ml_comparison.available %}{{ ml_comparison.baseline_logistic_accuracy }}%{% else %}—{% endif %}</td>
-                <td>{{ ml_comparison.evaluation_matches or '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-    {# Final Recommendation #}
-    <div class="sp-panel" style="border-color:var(--c-strong)">
-      <span class="sp-kicker">System Output</span>
-      <h2 class="sp-section-title">Final Recommendation</h2>
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:.8rem; margin-top:.6rem">
-        <div>
-          <span style="color:var(--text-3); font-size:.72rem">Best Strategy</span>
-          <strong style="display:block; font-size:1rem; color:var(--c-strong)">{{ best_strategy }}</strong>
-          <span class="sp-badge sp-badge--strong" style="margin-top:.3rem">Recommended</span>
-        </div>
-        <div>
-          <span style="color:var(--text-3); font-size:.72rem">Expected Range</span>
-          <strong style="display:block; font-size:1rem">
-            {% if metrics.overall_accuracy is not none %}{{ '%.1f'|format((metrics.overall_accuracy - 4.0 if metrics.overall_accuracy >= 4 else metrics.overall_accuracy)) }}% – {{ '%.1f'|format(metrics.overall_accuracy + 4.0) }}%{% else %}Awaiting outcomes{% endif %}
-          </strong>
-        </div>
-        <div>
-          <span style="color:var(--text-3); font-size:.72rem">Decision Profile</span>
-          <strong style="display:block; font-size:.85rem">{{ backtest_summary.blurb }}</strong>
-        </div>
+    <div class="sp-panel">
+      <span class="sp-kicker">Head-to-head</span>
+      <h3 class="sp-section-title">Strategy comparison</h3>
+      <div class="sp-table-wrap" style="margin-top:.5rem">
+        <table class="sp-table sp-table--compare">
+          <thead>
+            <tr>
+              <th>Strategy</th>
+              <th>Accuracy</th>
+              <th>Sample</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="sp-row-prod">
+              <td><strong>Combined Signal</strong> <span class="sp-badge sp-badge--active">Production</span></td>
+              <td>{% if performance_comparison.combined_accuracy is not none %}{{ performance_comparison.combined_accuracy }}%{% else %}Awaiting report{% endif %}</td>
+              <td>{{ performance_comparison.evaluation_matches or 'Awaiting sample' }}</td>
+            </tr>
+            <tr>
+              <td><strong>Live tracked production picks</strong> <span class="sp-badge sp-badge--strong">Live</span></td>
+              <td>{% if live_hit_rate is not none %}{{ '%.1f'|format(live_hit_rate) }}%{% else %}Collecting data{% endif %}</td>
+              <td>{{ live_sample_size or 0 }}</td>
+            </tr>
+            <tr>
+              <td>Stacking Ensemble <span class="sp-badge sp-badge--muted">Offline</span></td>
+              <td>{% if ml_comparison.available and ml_comparison.ensemble_accuracy is not none %}{{ ml_comparison.ensemble_accuracy }}%{% else %}Awaiting report{% endif %}</td>
+              <td>{{ ml_comparison.evaluation_matches or 'Awaiting sample' }}</td>
+            </tr>
+            <tr>
+              <td>Logistic Benchmark <span class="sp-badge sp-badge--muted">Offline</span></td>
+              <td>{% if ml_comparison.available %}{{ ml_comparison.baseline_logistic_accuracy }}%{% else %}Awaiting report{% endif %}</td>
+              <td>{{ ml_comparison.evaluation_matches or 'Awaiting sample' }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
 
-  {# ── TAB: Models ────────────────────────────────────────────────────── #}
   <div class="sp-tab-panel" data-panel="models" data-testid="strategy-lab-models">
     {% if mlc.available %}
-    <span class="sp-kicker" data-testid="ml-comparison-section">ML Model Comparison</span>
     {% set models = [
-      ('Logistic Regression', mlc.get('baseline_logistic_accuracy'), 'logistic',   'BENCHMARK',  'Offline benchmark — accuracy floor'),
-      ('Random Forest',       mlc.get('random_forest_accuracy'),     'tree',       'BASE',       'Base learner — feeds ensemble'),
-      ('XGBoost',             mlc.get('xgboost_accuracy'),           'boosted',    'BASE',       'Gradient boosting + regularization'),
-      ('LightGBM',            mlc.get('lightgbm_accuracy'),          'boosted',    'BASE',       'Fast gradient boosting, leaf-wise'),
-      ('Stacking Ensemble',   mlc.get('ensemble_accuracy'),          'ensemble',   'RUNTIME ML', 'Meta-learner combining all base models'),
-      ('Combined Signal',     pc.get('combined_accuracy'),           'production', 'PRODUCTION', 'Stacker + rules + policy + risk'),
+      ('Logistic Regression', mlc.get('baseline_logistic_accuracy'), 'Benchmark', 'Simple baseline used to set the floor'),
+      ('Random Forest', mlc.get('random_forest_accuracy'), 'Base model', 'Tree-based learner feeding the stack'),
+      ('XGBoost', mlc.get('xgboost_accuracy'), 'Base model', 'Boosted baseline with stronger regularization'),
+      ('LightGBM', mlc.get('lightgbm_accuracy'), 'Base model', 'Fast gradient boosting baseline'),
+      ('Stacking Ensemble', mlc.get('ensemble_accuracy'), 'Runtime ML', 'Primary model stack before rules and policy'),
+      ('Combined Signal', pc.get('combined_accuracy'), 'Production layer', 'Final decision layer after model, policy, and risk filters'),
     ] %}
 
-    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.6rem; margin-bottom:1rem">
-      {% for name, acc, role, badge, desc in models %}
-      {% set is_best = (mlc.get('best_model_label') and name == mlc.get('best_model_label')) %}
-      <div class="sp-panel sp-panel--tight {% if is_best %}sp-panel--highlight{% endif %} {%- if role == 'production' %} border-active{%- endif %}">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.3rem">
-          <strong style="font-size:.85rem">{{ name }}</strong>
-          <div style="display:flex; gap:.25rem">
-            {% if is_best %}<span class="sp-badge sp-badge--strong" style="font-size:.65rem">BEST</span>{% endif %}
-            <span class="sp-badge sp-badge--{{ 'strong' if badge == 'RUNTIME ML' else ('active' if badge == 'PRODUCTION' else 'muted') }}" style="font-size:.65rem">{{ badge }}</span>
-          </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.6rem; margin-bottom:1rem">
+      {% for name, acc, badge, desc in models %}
+      <div class="sp-panel sp-panel--tight {% if name == 'Combined Signal' %}sp-panel--highlight{% endif %}">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.35rem">
+          <strong style="font-size:.9rem">{{ name }}</strong>
+          <span class="sp-badge sp-badge--{{ 'active' if badge == 'Production layer' else ('strong' if badge == 'Runtime ML' else 'muted') }}">{{ badge }}</span>
         </div>
-        <strong style="font-size:1.3rem" class="{%- if acc is not none and acc >= 55 -%}c-positive{%- elif acc is not none and acc < 45 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
-          {{ (acc|round(1) ~ '%') if acc is not none else '—' }}
-        </strong>
-        <p style="font-size:.72rem; color:var(--text-3); margin-top:.25rem">{{ desc }}</p>
-        <span style="font-size:.7rem; color:var(--text-3)">{{ (mlc.get('evaluation_matches') or pc.get('evaluation_matches') or '—') }} eval</span>
+        <strong style="display:block; font-size:1.2rem">{{ (acc|round(1) ~ '%') if acc is not none else 'Awaiting report' }}</strong>
+        <span style="font-size:.72rem; color:var(--text-3); display:block; margin-top:.3rem">{{ mlc.get('evaluation_matches') or pc.get('evaluation_matches') or 0 }} evaluation matches</span>
+        <p style="font-size:.74rem; color:var(--text-3); margin:.35rem 0 0">{{ desc }}</p>
       </div>
       {% endfor %}
     </div>
 
     {% if mlc.get('accuracy_gap_display') %}
     <div class="sp-panel sp-panel--tight" style="display:flex; gap:.75rem; flex-wrap:wrap; font-size:.82rem; color:var(--text-2)">
-      <span>Ensemble vs. baseline: <strong>{{ mlc.get('accuracy_gap_display') }}</strong></span>
+      <span>Ensemble vs baseline: <strong>{{ mlc.get('accuracy_gap_display') }}</strong></span>
       {% if mlc.get('top_signals') %}<span>Top signals: <strong>{{ mlc.get('top_signals')[:3] | join(', ') }}</strong></span>{% endif %}
     </div>
     {% endif %}
-
-    {# Decision flow #}
-    <div class="sp-panel sp-panel--tight" style="display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; justify-content:center; margin-top:.75rem">
-      {% for step in ['Match Data', 'Features', '4 Models', 'Ensemble', 'Rules', 'Combined'] %}
-      {% if not loop.first %}<span style="color:var(--text-3)">→</span>{% endif %}
-      <span class="sp-badge sp-badge--{{ 'strong' if step == 'Ensemble' else ('active' if step == 'Combined' else 'muted') }}">{{ loop.index }}. {{ step }}</span>
-      {% endfor %}
-    </div>
-
     {% else %}
-    <div class="sp-panel" data-testid="ml-comparison-fallback">
-      <p style="color:var(--text-3)">ML comparison is not available yet. {{ ml_comparison.message }}</p>
-      {% if ml_comparison.command %}<code style="display:block; margin-top:.4rem; font-size:.8rem; color:var(--c-active)">{{ ml_comparison.command }}</code>{% endif %}
+    <div class="sp-panel">
+      <p style="color:var(--text-3)">Offline model comparison is still refreshing. This page will use the saved report as soon as it is available.</p>
     </div>
     {% endif %}
   </div>
 
-  {# ── TAB: Segments ─────────────────────────────────────────────────── #}
   <div class="sp-tab-panel" data-panel="segments">
-
-    {# Confidence Tiers #}
     <div class="sp-panel">
-      <span class="sp-kicker">Confidence Tiers</span>
-      <h3 class="sp-section-title">Segment Performance</h3>
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.6rem; margin-top:.6rem">
+      <span class="sp-kicker">Confidence tiers</span>
+      <h3 class="sp-section-title">Segment performance</h3>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:.6rem; margin-top:.6rem">
         {% set tiers = [('High', high_row, 'strong'), ('Medium', medium_row, 'caution'), ('Low', low_row, 'muted')] %}
         {% for label, row, color in tiers %}
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
           <span class="sp-badge sp-badge--{{ color }}">{{ label }}</span>
-          <strong style="display:block; font-size:1.2rem; margin:.3rem 0" class="{%- if row and row.accuracy is not none and row.accuracy >= 55 -%}c-positive{%- elif row and row.accuracy is not none and row.accuracy < 45 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
-            {{ row.accuracy_display if row else 'Awaiting' }}
-          </strong>
+          <strong style="display:block; font-size:1.2rem; margin:.3rem 0">{{ row.accuracy_display if row else 'Collecting data' }}</strong>
           {% if row %}<span style="font-size:.72rem; color:var(--text-3)">{{ row.wins }}W / {{ row.losses }}L · {{ row.count }} matches</span>{% endif %}
         </div>
         {% endfor %}
-
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
           <span class="sp-badge sp-badge--active">Avoided</span>
-          <strong style="display:block; font-size:1.2rem; margin:.3rem 0">
-            {% if avoid_total_completed %}{{ '%.1f'|format(avoid_after_avoiding_acc) }}%{% else %}—{% endif %}
-          </strong>
+          <strong style="display:block; font-size:1.2rem; margin:.3rem 0">{% if avoid_total_completed %}{{ '%.1f'|format(avoid_after_avoiding_acc) }}%{% else %}Awaiting sample{% endif %}</strong>
           {% if avoid_total_completed %}<span style="font-size:.72rem; color:var(--text-3)">{{ avoid_total_completed }} graded</span>{% endif %}
         </div>
       </div>
     </div>
 
-    {# Avoid Impact #}
     <div class="sp-panel">
-      <span class="sp-kicker">Risk Management</span>
-      <h3 class="sp-section-title">Avoid Impact</h3>
-      <p style="font-size:.82rem; color:var(--text-2); margin-bottom:.6rem">How the avoid system protects overall accuracy by filtering low-quality matches.</p>
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:.6rem">
+      <span class="sp-kicker">Risk management</span>
+      <h3 class="sp-section-title">Avoid impact</h3>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.6rem">
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
-          <span style="font-size:.72rem; color:var(--text-3)">Avoided</span>
-          <strong style="display:block; font-size:1.1rem">{{ avoid_recent | length }}</strong>
+          <span style="font-size:.72rem; color:var(--text-3)">Graded avoids</span>
+          <strong style="display:block; font-size:1.1rem">{{ avoid_total_completed or 0 }}</strong>
         </div>
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
-          <span style="font-size:.72rem; color:var(--text-3)">If Played</span>
-          <strong style="display:block; font-size:1.1rem" class="{%- if avoid_if_played_acc is not none and avoid_if_played_acc < 50 -%}c-negative{%- else -%}c-neutral{%- endif -%}">
-            {% if avoid_if_played_acc is not none %}{{ '%.1f'|format(avoid_if_played_acc) }}%{% else %}—{% endif %}
-          </strong>
+          <span style="font-size:.72rem; color:var(--text-3)">If played</span>
+          <strong style="display:block; font-size:1.1rem">{% if avoid_if_played_acc is not none %}{{ '%.1f'|format(avoid_if_played_acc) }}%{% else %}Awaiting sample{% endif %}</strong>
         </div>
         <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
-          <span style="font-size:.72rem; color:var(--text-3)">Post-Avoid</span>
-          <strong style="display:block; font-size:1.1rem" class="{%- if avoid_after_avoiding_acc is not none and avoid_after_avoiding_acc >= 55 -%}c-positive{%- else -%}c-neutral{%- endif -%}">
-            {% if avoid_after_avoiding_acc is not none %}{{ '%.1f'|format(avoid_after_avoiding_acc) }}%{% else %}—{% endif %}
-          </strong>
-        </div>
-        <div class="sp-panel sp-panel--tight" style="text-align:center; margin-bottom:0">
-          <span style="font-size:.72rem; color:var(--text-3)">Improvement</span>
-          <strong style="display:block; font-size:1.1rem" class="{%- if avoid_after_avoiding_acc is not none and avoid_if_played_acc is not none and (avoid_after_avoiding_acc - avoid_if_played_acc) > 0 -%}c-positive{%- else -%}c-neutral{%- endif -%}">
-            {% if avoid_after_avoiding_acc is not none and avoid_if_played_acc is not none %}{{ '%.1fpp'|format(avoid_after_avoiding_acc - avoid_if_played_acc) }}{% else %}—{% endif %}
-          </strong>
+          <span style="font-size:.72rem; color:var(--text-3)">After avoiding</span>
+          <strong style="display:block; font-size:1.1rem">{% if avoid_after_avoiding_acc is not none %}{{ '%.1f'|format(avoid_after_avoiding_acc) }}%{% else %}Awaiting sample{% endif %}</strong>
         </div>
       </div>
-      {% if avoid_total_completed and avoid_if_played_acc is not none %}
-      <p style="font-size:.78rem; color:var(--text-2); margin-top:.5rem">
-        Avoid logic prevented {{ '%.0f'|format(100 - avoid_if_played_acc) }}% of potential losses from low-quality matches.
-      </p>
-      {% endif %}
     </div>
   </div>
 
-  {# ── TAB: Advanced ─────────────────────────────────────────────────── #}
   <div class="sp-tab-panel" data-panel="advanced">
     <div class="sp-split">
-      {# Recent Outcomes #}
       <div class="sp-panel">
-        <span class="sp-kicker">Recent Graded Outcomes</span>
+        <span class="sp-kicker">Recent graded outcomes</span>
         {% if recent_completed_predictions %}
         <div class="sp-list" style="margin-top:.5rem">
           {% for pred in recent_completed_predictions %}
@@ -448,10 +305,9 @@
         {% endif %}
       </div>
 
-      {# Top Signals #}
       <div class="sp-panel">
-        <span class="sp-kicker">Top Signals</span>
-        <p style="font-size:.82rem; color:var(--text-2); margin-top:.3rem">{{ ml_comparison.summary if ml_comparison.available else ml_comparison.message }}</p>
+        <span class="sp-kicker">Top signals</span>
+        <p style="font-size:.82rem; color:var(--text-2); margin-top:.3rem">{{ ml_comparison.summary if ml_comparison.available else 'Offline model comparison is still refreshing.' }}</p>
         {% if ml_comparison.top_signals %}
         <div style="display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.5rem">
           {% for signal in ml_comparison.top_signals %}
@@ -462,9 +318,8 @@
       </div>
     </div>
 
-    {# Calibration Table #}
     <div class="sp-panel">
-      <span class="sp-kicker">Model Calibration by Confidence Tier</span>
+      <span class="sp-kicker">Model calibration by confidence tier</span>
       {% if calibration %}
       <div class="sp-table-wrap" style="margin-top:.5rem">
         <table class="sp-table">
@@ -475,15 +330,13 @@
             {% if cal %}
             <tr>
               <td><strong>{{ tier }}</strong></td>
-              <td>{% if cal.avg_model_probability is not none %}{{ (cal.avg_model_probability * 100) | round(1) }}%{% else %}—{% endif %}</td>
+              <td>{% if cal.avg_model_probability is not none %}{{ (cal.avg_model_probability * 100) | round(1) }}%{% else %}Awaiting sample{% endif %}</td>
               <td>{{ (cal.actual_hit_rate * 100) | round(1) }}%</td>
               <td>
                 {% if cal.calibration_gap is not none %}
                 {% set gap_pct = (cal.calibration_gap * 100) | round(1) %}
-                <span class="{%- if cal.calibration_gap < -0.05 -%}c-negative{%- elif cal.calibration_gap > 0.05 -%}c-active{%- else -%}c-positive{%- endif -%}">
-                  {{ '+' if cal.calibration_gap > 0 else '' }}{{ gap_pct }}%
-                </span>
-                {% else %}—{% endif %}
+                {{ '+' if cal.calibration_gap > 0 else '' }}{{ gap_pct }}%
+                {% else %}Awaiting sample{% endif %}
               </td>
               <td>
                 <span class="sp-badge sp-badge--{{ 'danger' if cal.label == 'Overconfident' else ('active' if cal.label == 'Underconfident' else 'strong') }}">{{ cal.label }}</span>
@@ -494,61 +347,19 @@
           </tbody>
         </table>
       </div>
-      <p style="font-size:.72rem; color:var(--text-3); margin-top:.3rem">Gap = Actual − Expected. Positive = underconfident, negative = overconfident.</p>
+      <p style="font-size:.72rem; color:var(--text-3); margin-top:.3rem">Gap = Actual minus expected. Positive means the model was too cautious. Negative means it was too aggressive.</p>
       {% else %}
-      <p style="color:var(--text-3); font-size:.82rem; margin-top:.4rem">No calibration data yet — predictions need model_probability stored.</p>
+      <p style="color:var(--text-3); font-size:.82rem; margin-top:.4rem">Not enough probability tracking data yet.</p>
       {% endif %}
     </div>
 
-    {# Raw Eval Context #}
     {% if ml_comparison.available %}
     <div class="sp-panel sp-panel--tight" style="font-size:.78rem; color:var(--text-3); line-height:1.6">
-      Train: {{ ml_comparison.workflow.train_start }} → {{ ml_comparison.workflow.train_end }} ·
-      Eval: {{ ml_comparison.workflow.test_start }} → {{ ml_comparison.workflow.test_end }} ·
+      Train: {{ ml_comparison.workflow.train_start }} -> {{ ml_comparison.workflow.train_end }} ·
+      Eval: {{ ml_comparison.workflow.test_start }} -> {{ ml_comparison.workflow.test_end }} ·
       Features: {{ ml_comparison.workflow.feature_count }}
     </div>
     {% endif %}
   </div>
 </div>
-{# --- VISUALIZATION: Win Rate Trend --- #}
-  <div class="sp-panel" style="margin:1.5rem 0 0 0">
-    <span class="sp-kicker">Performance Trend</span>
-    <h3 class="sp-section-title">Win Rate Over Time</h3>
-    <div id="winrate-chart" style="height:180px; width:100%; margin-top:.5rem"></div>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-      // Example: expects window.winrate_data = [{date: '2026-04-01', win_rate: 60}, ...]
-      document.addEventListener('DOMContentLoaded', function() {
-        if (window.winrate_data && document.getElementById('winrate-chart')) {
-          const ctx = document.getElementById('winrate-chart').getContext('2d');
-          new Chart(ctx, {
-            type: 'line',
-            data: {
-              labels: window.winrate_data.map(d => d.date),
-              datasets: [{
-                label: 'Win Rate (%)',
-                data: window.winrate_data.map(d => d.win_rate),
-                borderColor: '#3CF2A4',
-                backgroundColor: 'rgba(60,242,164,0.08)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 2
-              }]
-            },
-            options: {
-              scales: {
-                y: {min: 0, max: 100, ticks: {stepSize: 20}},
-                x: {ticks: {autoSkip: true, maxTicksLimit: 10}}
-              },
-              plugins: {
-                legend: {display: false},
-                tooltip: {enabled: true}
-              }
-            }
-          });
-        }
-      });
-    </script>
-  </div>
-  {# --- END VISUALIZATION --- #}
 {% endblock %}

@@ -55,8 +55,9 @@
   <div class="sp-kpi-strip" style="margin:.5rem 0">
     <div class="sp-kpi"><span class="sp-kpi__val">{{ metrics.total_predictions }}</span><span class="sp-kpi__label">Total</span></div>
     <div class="sp-kpi"><span class="sp-kpi__val">{{ metrics.finalized_predictions }}</span><span class="sp-kpi__label">Finalized</span></div>
-    <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{% if metrics.overall_accuracy is not none %}{{ metrics.overall_accuracy }}%{% else %}—{% endif %}</span><span class="sp-kpi__label">Overall Accuracy</span></div>
+    <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{% if metrics.overall_accuracy is not none %}{{ metrics.overall_accuracy }}%{% else %}—{% endif %}</span><span class="sp-kpi__label">Tracked Accuracy</span></div>
   </div>
+  <p style="font-size:.78rem; color:var(--text-3); margin:.35rem 0 0">Use this as live tracking only. The walk-forward backtest remains the primary trust metric for the product.</p>
 
   {% if metrics.by_confidence %}
   <div style="display:flex; gap:.75rem; flex-wrap:wrap; margin-top:.5rem">

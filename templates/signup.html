@@ -18,6 +18,7 @@
 
     <form method="POST" action="/signup" class="sp-auth-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="next" value="{{ next_url or '' }}" />
 
       <div class="sp-auth-field">
         <label for="email" class="sp-label">Email</label>
@@ -26,7 +27,8 @@
 
       <div class="sp-auth-field">
         <label for="password" class="sp-label">Password</label>
-        <input type="password" name="password" id="password" class="sp-input sp-auth-input" placeholder="Create a secure password" required />
+        <input type="password" name="password" id="password" class="sp-input sp-auth-input" placeholder="Create a secure password" minlength="8" required />
+        <p style="font-size:.75rem; color:var(--text-3); margin:.35rem 0 0">Use at least 8 characters. Your account is stored in the ScorPred auth database, not just in your browser session.</p>
       </div>
 
       <button type="submit" class="btn btn-primary btn-full sp-auth-submit">Create account</button>
