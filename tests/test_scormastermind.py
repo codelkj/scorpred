@@ -95,6 +95,38 @@ def test_draw_requires_clear_margin_over_side_outcomes():
     assert ui["top_lean"]["prediction"] != "Draw"
 
 
+def test_recent_selector_can_override_to_ml(monkeypatch):
+    context = _context_with_rule_probs(62.0, 16.0, 22.0, data_quality="Strong")
+    context["ml_outputs"] = {
+        "prob_a": 0.20,
+        "prob_draw": 0.18,
+        "prob_b": 0.62,
+    }
+
+    monkeypatch.setattr(
+        sm,
+        "_load_selector_profile",
+        lambda: {
+            "default_source": "combined",
+            "overrides": [
+                {
+                    "segment": "model_disagreement",
+                    "preferred_source": "ml",
+                    "reason": "Recent backtests prefer ML when rule and ML disagree.",
+                }
+            ],
+        },
+    )
+
+    result = sm.predict_match(context)
+    ui = result["ui_prediction"]
+
+    assert ui["selector_source"] == "ml"
+    assert ui["selector_used_override"] is True
+    assert ui["best_pick"]["team"] == "B"
+    assert ui["best_pick"]["prediction"] == "Manchester United Win"
+
+
 def test_market_edge_can_rescue_pure_confidence_avoid():
     context = _context_with_rule_probs(44.0, 16.0, 40.0, data_quality="Strong")
     context["ml_outputs"] = {"prob_a": 0.51}

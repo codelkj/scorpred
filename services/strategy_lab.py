@@ -9,6 +9,7 @@ import generate_ml_report as report_generator
 import ml_service
 import ml_pipeline as mlp
 import model_tracker as mt
+import soccer_selector as selector
 from runtime_paths import clean_soccer_dataset_path, clean_soccer_model_path, ensemble_soccer_model_path, ml_report_path, walk_forward_report_path
 from train_model import FEATURE_COLUMNS
 
@@ -294,6 +295,129 @@ def _performance_comparison(metrics: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _date_range_display(values: list[str] | None) -> str:
+    if not values or len(values) < 2:
+        return "Date range unavailable"
+    start, end = str(values[0] or "").strip(), str(values[1] or "").strip()
+    if not start or not end:
+        return "Date range unavailable"
+    return f"{start} to {end}"
+
+
+def _best_model_summary(models: dict[str, Any]) -> tuple[str | None, float | None]:
+    best_name = None
+    best_accuracy = None
+    for name, payload in (models or {}).items():
+        accuracy = _as_percent((payload or {}).get("mean_accuracy"))
+        if accuracy is None:
+            continue
+        if best_accuracy is None or accuracy > best_accuracy:
+            best_name = name
+            best_accuracy = accuracy
+    return best_name, best_accuracy
+
+
+def _window_summary(window: dict[str, Any] | None, *, label: str) -> dict[str, Any]:
+    payload = window or {}
+    agg = payload.get("aggregate") or {}
+    if not agg:
+        return {"available": False, "label": label}
+
+    combined = agg.get("combined", {})
+    policy = agg.get("policy", {})
+    config = payload.get("config", {})
+    best_model_name, best_model_accuracy = _best_model_summary(agg.get("base_models", {}))
+
+    return {
+        "available": True,
+        "label": label,
+        "n_folds": agg.get("n_folds", 0),
+        "total_test_matches": agg.get("total_test_matches", 0),
+        "mean_combined_accuracy": _as_percent(combined.get("mean_combined_accuracy")),
+        "std_combined_accuracy": _as_percent(combined.get("std_combined_accuracy")),
+        "mean_rule_accuracy": _as_percent(combined.get("mean_rule_accuracy")),
+        "mean_ml_accuracy": _as_percent(combined.get("mean_ml_accuracy")),
+        "mean_avg_confidence_pct": combined.get("mean_avg_confidence_pct"),
+        "policy_hit_rate_pct": policy.get("aggregate_hit_rate_pct"),
+        "policy_coverage_pct": policy.get("aggregate_coverage_pct"),
+        "policy_total_placed": policy.get("total_placed", 0),
+        "trend": agg.get("trend", "N/A"),
+        "trend_delta": _as_percent(agg.get("trend_delta")),
+        "best_model": best_model_name,
+        "best_model_accuracy": best_model_accuracy,
+        "date_range": config.get("date_range") or [],
+        "date_range_display": _date_range_display(config.get("date_range") or []),
+        "total_rows": config.get("total_rows", 0),
+    }
+
+
+def _selector_display(payload: dict[str, Any] | None) -> dict[str, Any]:
+    profile = payload or {}
+    if not profile:
+        return {"available": False}
+
+    segment_rows: list[dict[str, Any]] = []
+    segments = profile.get("segments") or {}
+    for key in ["overall", *selector.SEGMENT_PRIORITY]:
+        metrics = segments.get(key)
+        if not metrics:
+            continue
+        best_source = str(metrics.get("best_source") or "")
+        if not best_source:
+            best_candidates = {
+                "combined": metrics.get("combined_accuracy"),
+                "ml": metrics.get("ml_accuracy"),
+                "rule": metrics.get("rule_accuracy"),
+            }
+            valid = {name: value for name, value in best_candidates.items() if isinstance(value, (int, float))}
+            if valid:
+                best_source = max(valid, key=valid.get)
+        segment_rows.append(
+            {
+                "key": key,
+                "label": "Overall" if key == "overall" else selector.SEGMENT_METADATA.get(key, {}).get("label", key.replace("_", " ").title()),
+                "description": "Whole recent evaluation window." if key == "overall" else selector.SEGMENT_METADATA.get(key, {}).get("description", ""),
+                "sample_size": metrics.get("count", 0),
+                "rule_accuracy": _as_percent(metrics.get("rule_accuracy")),
+                "ml_accuracy": _as_percent(metrics.get("ml_accuracy")),
+                "combined_accuracy": _as_percent(metrics.get("combined_accuracy")),
+                "best_source": best_source,
+                "best_source_label": selector.source_label(best_source),
+            }
+        )
+
+    override_rows: list[dict[str, Any]] = []
+    for row in profile.get("overrides") or []:
+        segment = str(row.get("segment") or "")
+        preferred_source = row.get("preferred_source")
+        override_rows.append(
+            {
+                "segment": segment,
+                "label": selector.SEGMENT_METADATA.get(segment, {}).get("label", segment.replace("_", " ").title()),
+                "preferred_source": preferred_source,
+                "preferred_source_label": selector.source_label(preferred_source),
+                "sample_size": row.get("sample_size", 0),
+                "preferred_accuracy": _as_percent(row.get("preferred_accuracy")),
+                "default_accuracy": _as_percent(row.get("default_accuracy")),
+                "gain_vs_default": _as_percent(row.get("gain_vs_default")),
+                "reason": row.get("reason") or selector.SEGMENT_METADATA.get(segment, {}).get("description", ""),
+            }
+        )
+
+    default_source = profile.get("default_source")
+    return {
+        "available": True,
+        "default_source": default_source,
+        "default_source_label": selector.source_label(default_source),
+        "default_accuracy": _as_percent(profile.get("default_accuracy")),
+        "segment_rows": segment_rows,
+        "override_rows": override_rows,
+        "summary": profile.get("summary") or "Selector profile available.",
+        "min_sample_size": profile.get("min_sample_size", 0),
+        "min_gain": _as_percent(profile.get("min_gain")),
+    }
+
+
 def walk_forward_summary() -> dict[str, Any]:
     """Load walk-forward backtest report and build a display-ready summary."""
     path = walk_forward_report_path()
@@ -305,39 +429,47 @@ def walk_forward_summary() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError, ValueError):
         return {"available": False}
 
-    agg = report.get("aggregate")
-    if not agg:
+    all_history_payload = (report.get("windows") or {}).get("all_history") or {
+        "aggregate": report.get("aggregate"),
+        "config": report.get("config"),
+        "folds": report.get("folds"),
+    }
+    recent_payload = (report.get("windows") or {}).get("last_3_years") or {}
+
+    all_history = _window_summary(all_history_payload, label="All History")
+    last_3_years = _window_summary(recent_payload, label="Last 3 Years")
+    headline = last_3_years if last_3_years.get("available") else all_history
+    if not headline.get("available"):
         return {"available": False}
 
-    combined = agg.get("combined", {})
-    policy = agg.get("policy", {})
-    models = agg.get("base_models", {})
-
-    # Best base model by mean accuracy
-    best_model_name = None
-    best_model_acc = 0.0
-    for name, m in models.items():
-        acc = m.get("mean_accuracy") or 0.0
-        if acc > best_model_acc:
-            best_model_acc = acc
-            best_model_name = name
+    selector_summary = _selector_display(
+        report.get("selector")
+        or recent_payload.get("selector")
+        or all_history_payload.get("selector")
+    )
 
     return {
         "available": True,
-        "n_folds": agg.get("n_folds", 0),
-        "total_test_matches": agg.get("total_test_matches", 0),
-        "mean_combined_accuracy": combined.get("mean_combined_accuracy"),
-        "std_combined_accuracy": combined.get("std_combined_accuracy"),
-        "mean_rule_accuracy": combined.get("mean_rule_accuracy"),
-        "mean_ml_accuracy": combined.get("mean_ml_accuracy"),
-        "mean_avg_confidence_pct": combined.get("mean_avg_confidence_pct"),
-        "policy_hit_rate_pct": policy.get("aggregate_hit_rate_pct"),
-        "policy_coverage_pct": policy.get("aggregate_coverage_pct"),
-        "policy_total_placed": policy.get("total_placed", 0),
-        "trend": agg.get("trend", "N/A"),
-        "trend_delta": agg.get("trend_delta", 0.0),
-        "best_model": best_model_name,
-        "best_model_accuracy": best_model_acc,
+        "n_folds": all_history.get("n_folds", 0),
+        "total_test_matches": all_history.get("total_test_matches", 0),
+        "mean_combined_accuracy": all_history.get("mean_combined_accuracy"),
+        "std_combined_accuracy": all_history.get("std_combined_accuracy"),
+        "mean_rule_accuracy": all_history.get("mean_rule_accuracy"),
+        "mean_ml_accuracy": all_history.get("mean_ml_accuracy"),
+        "mean_avg_confidence_pct": all_history.get("mean_avg_confidence_pct"),
+        "policy_hit_rate_pct": all_history.get("policy_hit_rate_pct"),
+        "policy_coverage_pct": all_history.get("policy_coverage_pct"),
+        "policy_total_placed": all_history.get("policy_total_placed", 0),
+        "trend": all_history.get("trend", "N/A"),
+        "trend_delta": all_history.get("trend_delta"),
+        "best_model": all_history.get("best_model"),
+        "best_model_accuracy": all_history.get("best_model_accuracy"),
+        "windows": {
+            "all_history": all_history,
+            "last_3_years": last_3_years,
+        },
+        "selector": selector_summary,
+        "headline_window": headline.get("label"),
         "generated_at": report.get("generated_at"),
     }
 
@@ -373,7 +505,7 @@ def empty_strategy_lab_context() -> dict[str, Any]:
         "ml_comparison": ml_summary,
         "performance_comparison": comparison,
         "recent_completed_predictions": [],
-        "walk_forward": {"available": False},
+        "walk_forward": {"available": False, "windows": {}, "selector": {"available": False}},
     }
 
 

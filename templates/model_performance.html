@@ -14,6 +14,10 @@
 {% set failure_rows = evaluation.get('failure_rows', []) if evaluation else [] %}
 {% set pass_rows = evaluation.get('pass_rows', []) if evaluation else [] %}
 {% set wf = walk_forward if walk_forward else {} %}
+{% set wf_windows = wf.get('windows', {}) if wf else {} %}
+{% set wf_all = wf_windows.get('all_history', {}) if wf_windows else {} %}
+{% set wf_recent = wf_windows.get('last_3_years', {}) if wf_windows else {} %}
+{% set wf_selector = wf.get('selector', {}) if wf else {} %}
 {% set mlc = ml_comparison if ml_comparison else {} %}
 {% set pc = performance_comparison if performance_comparison else {} %}
 
@@ -137,6 +141,68 @@
 </div>
 
 {# ═══ Tabs ════════════════════════════════════════════════════════════════ #}
+{% if wf.get('available') %}
+<div class="sp-split" style="margin:1rem 0" data-testid="backtest-window-section">
+  <div class="sp-panel" style="flex:1.35">
+    <span class="sp-kicker">Backtest Windows</span>
+    <h3 class="sp-section-title">All History vs Last 3 Years</h3>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.7rem; margin-top:.6rem">
+      {% for row in [wf_all, wf_recent] %}
+      {% if row and row.get('available') %}
+      <div class="sp-panel sp-panel--tight" style="margin-bottom:0">
+        <div style="display:flex; justify-content:space-between; gap:.5rem; align-items:flex-start">
+          <strong style="font-size:.9rem">{{ row.get('label') }}</strong>
+          <span class="sp-badge sp-badge--muted">{{ row.get('n_folds') }} folds</span>
+        </div>
+        <strong style="display:block; font-size:1.25rem; margin:.35rem 0; color:{% if row.get('mean_combined_accuracy') is not none and row.get('mean_combined_accuracy') >= 55 %}var(--c-strong){% elif row.get('mean_combined_accuracy') is not none and row.get('mean_combined_accuracy') < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+          {{ (row.get('mean_combined_accuracy')|round(1) ~ '%') if row.get('mean_combined_accuracy') is not none else '—' }}
+        </strong>
+        <div style="font-size:.76rem; color:var(--text-3); line-height:1.6">
+          <div>{{ row.get('total_test_matches') or 0 }} evaluated matches</div>
+          <div>{{ row.get('date_range_display') }}</div>
+          <div>Policy hit rate: {{ (row.get('policy_hit_rate_pct')|round(1) ~ '%') if row.get('policy_hit_rate_pct') is not none else '—' }}</div>
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="sp-panel">
+    <span class="sp-kicker">Selector Brain</span>
+    <h3 class="sp-section-title">Recent Runtime Default</h3>
+    {% if wf_selector.get('available') %}
+    <strong style="display:block; font-size:1.05rem; margin:.25rem 0">{{ wf_selector.get('default_source_label') }}</strong>
+    <p style="font-size:.8rem; color:var(--text-2); line-height:1.6">{{ wf_selector.get('summary') }}</p>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.6rem; margin-top:.6rem">
+      <div class="sp-panel sp-panel--tight" style="margin-bottom:0; text-align:center">
+        <span style="font-size:.72rem; color:var(--text-3)">Default Accuracy</span>
+        <strong style="display:block; font-size:1.1rem">{{ (wf_selector.get('default_accuracy')|round(1) ~ '%') if wf_selector.get('default_accuracy') is not none else '—' }}</strong>
+      </div>
+      <div class="sp-panel sp-panel--tight" style="margin-bottom:0; text-align:center">
+        <span style="font-size:.72rem; color:var(--text-3)">Overrides</span>
+        <strong style="display:block; font-size:1.1rem">{{ wf_selector.get('override_rows', [])|length }}</strong>
+      </div>
+    </div>
+    {% if wf_selector.get('override_rows') %}
+    <div class="sp-list" style="margin-top:.7rem">
+      {% for row in wf_selector.get('override_rows')[:3] %}
+      <div class="sp-stat-row">
+        <span>{{ row.get('label') }}</span>
+        <span><strong>{{ row.get('preferred_source_label') }}</strong>{% if row.get('gain_vs_default') is not none %} +{{ row.get('gain_vs_default')|round(1) }}pp{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="font-size:.78rem; color:var(--text-3); margin-top:.6rem">No segment-specific override cleared the minimum sample and gain thresholds, so the runtime stays on one stable default.</p>
+    {% endif %}
+    {% else %}
+    <p style="font-size:.82rem; color:var(--text-3)">Selector profile will appear after the next backtest report is generated.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div data-sp-tabs>
   <div class="sp-tabs">
     <button class="sp-tab active" data-tab="models">Models</button>
@@ -355,6 +421,24 @@
         {% endif %}
       </div>
     </div>
+
+    {% if completed_predictions %}
+    <div class="sp-panel">
+      <span class="sp-kicker">Graded Matches</span>
+      <h3 class="sp-section-title">Recent Completed Predictions</h3>
+      <div class="sp-list" style="margin-top:.5rem">
+        {% for row in completed_predictions[:6] %}
+        <a href="{{ url_for('prediction_result_detail', prediction_id=row.id) }}" style="display:flex; justify-content:space-between; align-items:center; gap:.75rem; padding:.5rem 0; border-bottom:1px solid var(--border); text-decoration:none; color:inherit">
+          <span>
+            <strong style="font-size:.82rem">{{ row.team_a }} vs {{ row.team_b }}</strong>
+            <span style="display:block; font-size:.74rem; color:var(--text-3)">{{ row.final_score_display or row.total_label or 'Completed' }}</span>
+          </span>
+          <span class="sp-badge sp-badge--{{ 'strong' if row.winner_hit else 'danger' }}">{{ row.overall_game_result or ('Win' if row.winner_hit else 'Loss') }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
     {# System Diagnostics #}
     <div class="sp-panel">

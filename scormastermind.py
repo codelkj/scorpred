@@ -20,10 +20,12 @@ import ml_service
 import nba_ml_service
 import odds_utils
 import prediction_policy as pp
-from runtime_paths import elo_state_path, ml_report_path
+import soccer_selector as selector
+from runtime_paths import elo_state_path, ml_report_path, walk_forward_report_path
 import scorpred_engine as se
 
 _ML_REPORT_PATH = ml_report_path()
+_WALK_FORWARD_REPORT_PATH = walk_forward_report_path()
 
 
 # ── Blend weights (shared via prediction_policy) ──────────────────────────────
@@ -35,6 +37,11 @@ _ML_REPORT_PATH = ml_report_path()
 # ── ELO state cache (loaded once from training output) ───────────────────────────
 class _EloCache:
     ratings: dict[str, float] | None = None
+    _mtime: float = 0.0
+
+
+class _SelectorCache:
+    profile: dict[str, Any] | None = None
     _mtime: float = 0.0
 
 
@@ -90,6 +97,31 @@ def _load_ml_report() -> dict[str, Any] | None:
         return json.loads(_ML_REPORT_PATH.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _load_selector_profile() -> dict[str, Any] | None:
+    try:
+        path = _WALK_FORWARD_REPORT_PATH
+        if not path.exists():
+            return None
+        mtime = path.stat().st_mtime
+        if _SelectorCache.profile is not None and mtime == _SelectorCache._mtime:
+            return _SelectorCache.profile
+        report = json.loads(path.read_text(encoding="utf-8"))
+        windows = report.get("windows") or {}
+        profile = (
+            report.get("selector")
+            or (windows.get("last_3_years") or {}).get("selector")
+            or (windows.get("all_history") or {}).get("selector")
+            or {}
+        )
+        if isinstance(profile, dict) and profile:
+            _SelectorCache.profile = profile
+            _SelectorCache._mtime = mtime
+            return profile
+    except Exception:
+        pass
+    return None
 
 
 def _results_to_points(rows: list[dict], sport: str) -> float:
@@ -564,6 +596,60 @@ def _blend_soccer_probabilities(
     return _normalize_probabilities(prob_a, prob_draw, prob_b)
 
 
+def _soccer_ml_probabilities(ml: dict[str, Any]) -> list[float] | None:
+    if not ml.get("available") or ml.get("prob_draw") is None:
+        return None
+    return [
+        _clamp(_safe_float(ml.get("prob_a"), 0.3333), 0.01, 0.99),
+        _clamp(_safe_float(ml.get("prob_draw"), 0.3333), 0.0, 0.98),
+        _clamp(_safe_float(ml.get("prob_b"), 0.3334), 0.01, 0.99),
+    ]
+
+
+def _select_soccer_probability_source(
+    *,
+    rule_probs: list[float],
+    ml: dict[str, Any],
+    edge_summary: dict[str, float],
+    data_quality: str,
+) -> tuple[tuple[float, float, float], dict[str, Any]]:
+    combined = _blend_soccer_probabilities(
+        rule_probs[0],
+        rule_probs[1],
+        rule_probs[2],
+        ml,
+        edge_summary,
+        data_quality,
+    )
+    ml_probs = _soccer_ml_probabilities(ml)
+    profile = _load_selector_profile()
+    flags = selector.build_segment_flags(rule_probs, ml_probs, list(combined))
+    selection = selector.choose_source(
+        profile,
+        flags=flags,
+        available_sources=("rule", "ml", "combined") if ml_probs else ("rule", "combined"),
+    )
+
+    if selection["source"] == "ml" and ml_probs:
+        chosen = tuple(ml_probs)
+    elif selection["source"] == "rule":
+        chosen = tuple(rule_probs)
+    else:
+        chosen = combined
+        selection["source"] = "combined"
+        selection["source_label"] = selector.source_label("combined")
+
+    return _normalize_probabilities(*chosen), {
+        "source": selection.get("source"),
+        "source_label": selection.get("source_label"),
+        "segment": selection.get("segment"),
+        "segment_label": selection.get("segment_label"),
+        "used_override": bool(selection.get("used_override")),
+        "reason": selection.get("reason"),
+        "profile_available": bool(profile),
+    }
+
+
 def _select_soccer_outcome(prob_a: float, prob_draw: float, prob_b: float, edge_summary: dict[str, float]) -> str:
     side_gap = abs(prob_a - prob_b)
     side_max = max(prob_a, prob_b)
@@ -669,6 +755,22 @@ def _prediction_text(team_key: str, team_a_name: str, team_b_name: str) -> str:
 def _ml_signal(context: dict[str, Any]) -> dict[str, Any]:
     ml_outputs = context.get("ml_outputs") or {}
     report = context.get("ml_report") or _load_ml_report() or {}
+
+    if {"prob_a", "prob_draw", "prob_b"}.issubset(ml_outputs.keys()):
+        prob_a = _clamp(_safe_float(ml_outputs.get("prob_a"), 0.3333), 0.01, 0.99)
+        prob_draw = _clamp(_safe_float(ml_outputs.get("prob_draw"), 0.3333), 0.0, 0.98)
+        prob_b = _clamp(_safe_float(ml_outputs.get("prob_b"), 0.3334), 0.01, 0.99)
+        total = max(prob_a + prob_draw + prob_b, 1e-9)
+        probabilities = [prob_a / total, prob_draw / total, prob_b / total]
+        return {
+            "available": True,
+            "prob_a": probabilities[0],
+            "prob_draw": probabilities[1],
+            "prob_b": probabilities[2],
+            "confidence": max(probabilities),
+            "source": "provided_ml_output",
+            "top_features": ml_outputs.get("top_features") or [],
+        }
 
     for key in ("prob_a", "home_win_prob", "winner_prob"):
         if key in ml_outputs:
@@ -844,13 +946,12 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
     if sport == "soccer":
         rule_non_draw = max(0.01, rule_prob_a_total + rule_prob_b_total)
         rule_prob_a_for_compare = _clamp(rule_prob_a_total / rule_non_draw, 0.01, 0.99)
-        prob_a, prob_draw, prob_b = _blend_soccer_probabilities(
-            rule_prob_a_total,
-            rule_prob_draw,
-            rule_prob_b_total,
-            ml,
-            edge_summary,
-            data_quality,
+        selector_choice = {}
+        (prob_a, prob_draw, prob_b), selector_choice = _select_soccer_probability_source(
+            rule_probs=[rule_prob_a_total, rule_prob_draw, rule_prob_b_total],
+            ml=ml,
+            edge_summary=edge_summary,
+            data_quality=data_quality,
         )
         selected_team = _select_soccer_outcome(prob_a, prob_draw, prob_b, edge_summary)
     else:
@@ -871,6 +972,15 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
         prob_b = 1.0 - prob_a
         prob_draw = 0.0
         selected_team = "A" if prob_a >= prob_b else "B"
+        selector_choice = {
+            "source": "combined" if ml.get("available") else "rule",
+            "source_label": "Combined" if ml.get("available") else "Rule",
+            "segment": None,
+            "segment_label": None,
+            "used_override": False,
+            "reason": "NBA still uses the existing production flow.",
+            "profile_available": False,
+        }
 
     has_forms = bool(context.get("form_a") and context.get("form_b"))
     stats = context.get("team_stats") or {}
@@ -906,6 +1016,7 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
             "probabilities": rule_probs,
             "confidence": (rule_prediction.get("best_pick") or {}).get("confidence", ""),
         },
+        "selector": selector_choice,
         "edge_summary": edge_summary,
         "top_features": ml.get("top_features") or [],
     }
@@ -970,6 +1081,8 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
     }
 
     best_pick = ui_prediction.get("best_pick") or {}
+    best_pick["model_source"] = selector_choice.get("source")
+    best_pick["model_source_label"] = selector_choice.get("source_label")
     if avoid_triggered:
         reason = avoid_reasons[0]
         best_pick["prediction"] = "Avoid"
@@ -985,6 +1098,14 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
         ui_prediction["play_type"] = "AVOID"
     else:
         best_pick["tracking_team"] = best_pick.get("team") or selected_team
+        if selector_choice.get("used_override") and selector_choice.get("reason"):
+            existing_reason = str(best_pick.get("reasoning") or "").strip()
+            selector_reason = selector_choice.get("reason")
+            best_pick["reasoning"] = (
+                f"{existing_reason} {selector_reason}".strip()
+                if existing_reason
+                else selector_reason
+            )
         ui_prediction["recommended_play"] = best_pick.get("prediction") or top_outcome.get("prediction")
         ui_prediction["avoid_reasons"] = []
         ui_prediction["top_lean"] = top_lean
@@ -992,6 +1113,12 @@ def predict_match(context: dict[str, Any]) -> dict[str, Any]:
 
     ui_prediction["confidence_pct"] = round(confidence_pct, 1)
     ui_prediction["ml_confidence_pct"] = round(ml_confidence_pct, 1)
+    ui_prediction["selector_source"] = selector_choice.get("source")
+    ui_prediction["selector_source_label"] = selector_choice.get("source_label")
+    ui_prediction["selector_segment"] = selector_choice.get("segment")
+    ui_prediction["selector_segment_label"] = selector_choice.get("segment_label")
+    ui_prediction["selector_reason"] = selector_choice.get("reason")
+    ui_prediction["selector_used_override"] = bool(selector_choice.get("used_override"))
     if _learned_notes:
         ui_prediction["learned_adjustment_notes"] = _learned_notes
 

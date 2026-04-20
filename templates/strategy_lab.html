@@ -36,6 +36,10 @@
 {% set mlc = ml_comparison if ml_comparison else {} %}
 {% set pc = performance_comparison if performance_comparison else {} %}
 {% set wf = walk_forward if walk_forward is defined and walk_forward else {} %}
+{% set wf_windows = wf.get('windows', {}) if wf else {} %}
+{% set wf_all = wf_windows.get('all_history', {}) if wf_windows else {} %}
+{% set wf_recent = wf_windows.get('last_3_years', {}) if wf_windows else {} %}
+{% set wf_selector = wf.get('selector', {}) if wf else {} %}
 
 {# ── Seeded-data notice ───────────────────────────────────────────────────── #}
 {% if exclude_seeded is defined and exclude_seeded %}
@@ -110,6 +114,58 @@
 </div>
 
 {# ═══ Tabs ════════════════════════════════════════════════════════════════ #}
+{% if wf.get('available') %}
+<div class="sp-split" style="margin:1rem 0" data-testid="strategy-backtest-window-section">
+  <div class="sp-panel" style="flex:1.35">
+    <span class="sp-kicker">Offline Windows</span>
+    <h3 class="sp-section-title">Train on all history, inspect the recent window separately</h3>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.7rem; margin-top:.6rem">
+      {% for row in [wf_all, wf_recent] %}
+      {% if row and row.get('available') %}
+      <div class="sp-panel sp-panel--tight" style="margin-bottom:0">
+        <div style="display:flex; justify-content:space-between; gap:.5rem; align-items:flex-start">
+          <strong style="font-size:.9rem">{{ row.get('label') }}</strong>
+          <span class="sp-badge sp-badge--muted">{{ row.get('n_folds') }} folds</span>
+        </div>
+        <strong style="display:block; font-size:1.2rem; margin:.35rem 0; color:{% if row.get('mean_combined_accuracy') is not none and row.get('mean_combined_accuracy') >= 55 %}var(--c-strong){% elif row.get('mean_combined_accuracy') is not none and row.get('mean_combined_accuracy') < 45 %}var(--c-danger){% else %}var(--text){% endif %}">
+          {{ (row.get('mean_combined_accuracy')|round(1) ~ '%') if row.get('mean_combined_accuracy') is not none else '—' }}
+        </strong>
+        <div style="font-size:.76rem; color:var(--text-3); line-height:1.6">
+          <div>{{ row.get('total_test_matches') or 0 }} evaluated matches</div>
+          <div>{{ row.get('date_range_display') }}</div>
+          <div>Best base model: {{ row.get('best_model') or '—' }}</div>
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="sp-panel">
+    <span class="sp-kicker">Runtime Selector</span>
+    <h3 class="sp-section-title">What the live app defaults to</h3>
+    {% if wf_selector.get('available') %}
+    <strong style="display:block; font-size:1.05rem; margin:.25rem 0">{{ wf_selector.get('default_source_label') }}</strong>
+    <p style="font-size:.8rem; color:var(--text-2); line-height:1.6">{{ wf_selector.get('summary') }}</p>
+    {% if wf_selector.get('override_rows') %}
+    <div class="sp-list" style="margin-top:.7rem">
+      {% for row in wf_selector.get('override_rows')[:4] %}
+      <div class="sp-stat-row">
+        <span>{{ row.get('label') }}</span>
+        <span><strong>{{ row.get('preferred_source_label') }}</strong>{% if row.get('gain_vs_default') is not none %} +{{ row.get('gain_vs_default')|round(1) }}pp{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="font-size:.78rem; color:var(--text-3); margin-top:.6rem">Recent evidence did not justify segment overrides, so the app keeps one stable default source.</p>
+    {% endif %}
+    {% else %}
+    <p style="font-size:.82rem; color:var(--text-3)">Runtime selector details will appear after the backtest report is refreshed.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div data-sp-tabs>
   <div class="sp-tabs">
     <button class="sp-tab active" data-tab="summary">Summary</button>

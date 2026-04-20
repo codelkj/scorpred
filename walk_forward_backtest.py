@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss
+from sklearn.utils.class_weight import compute_sample_weight
 
 from runtime_paths import historical_dataset_path
 from train_model import (
@@ -44,6 +45,7 @@ from ml_service import (
     _rule_probabilities,
 )
 import prediction_policy as pp
+import soccer_selector as selector
 from utils.parsing import safe_float
 
 try:
@@ -61,6 +63,31 @@ except ImportError:
 
 DEFAULT_REPORT_DIR = Path(__file__).resolve().parent / "data" / "backtests"
 DEFAULT_REPORT_PATH = DEFAULT_REPORT_DIR / "walk_forward_report.json"
+RECENT_WINDOW_YEARS = 3
+SELECTOR_MIN_SAMPLE = 60
+SELECTOR_MIN_GAIN = 0.01
+
+
+def _parse_iso_date(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _recent_rows(rows: list[dict[str, Any]], *, years: int = RECENT_WINDOW_YEARS) -> tuple[list[dict[str, Any]], list[str]]:
+    dated_rows = [(row, _parse_iso_date(row.get("date"))) for row in rows]
+    dated_rows = [(row, when) for row, when in dated_rows if when is not None]
+    if not dated_rows:
+        return [], []
+
+    latest = max(when for _row, when in dated_rows)
+    cutoff = latest - timedelta(days=365 * years)
+    recent = [row for row, when in dated_rows if when >= cutoff]
+    return recent, [cutoff.date().isoformat(), latest.date().isoformat()]
 
 # ── Fold generation ───────────────────────────────────────────────────────────
 
@@ -122,7 +149,7 @@ def _build_base_estimators(random_state: int = 42) -> list[tuple[str, Any]]:
     """Create the same base estimator specs used in train_model.py."""
     estimators: list[tuple[str, Any]] = [
         ("lr", LogisticRegression(
-            max_iter=1000, multi_class="multinomial", solver="lbfgs",
+            max_iter=1000, solver="lbfgs",
             C=1.0, random_state=random_state,
         )),
         ("rf", RandomForestClassifier(
@@ -151,7 +178,7 @@ def _build_stacking(estimators: list[tuple[str, Any]], random_state: int = 42) -
     return StackingClassifier(
         estimators=estimators,
         final_estimator=LogisticRegression(
-            max_iter=1000, multi_class="multinomial", solver="lbfgs",
+            max_iter=1000, solver="lbfgs",
             random_state=random_state,
         ),
         cv=5,
@@ -331,6 +358,60 @@ def _flat_stake_roi(
     }
 
 
+def _selector_bucket_summary(bucket: dict[str, Any]) -> dict[str, Any]:
+    count = int(bucket.get("count", 0) or 0)
+    hits = bucket.get("hits") or {}
+    return {
+        "count": count,
+        "rule_accuracy": round(float(hits.get("rule", 0)) / max(count, 1), 4) if count else None,
+        "ml_accuracy": round(float(hits.get("ml", 0)) / max(count, 1), 4) if count else None,
+        "combined_accuracy": round(float(hits.get("combined", 0)) / max(count, 1), 4) if count else None,
+        "hits": {
+            "rule": int(hits.get("rule", 0) or 0),
+            "ml": int(hits.get("ml", 0) or 0),
+            "combined": int(hits.get("combined", 0) or 0),
+        },
+    }
+
+
+def _selector_metrics(
+    y_true: list[int],
+    rule_preds: list[int],
+    ml_preds: list[int],
+    combined_preds: list[int],
+    rule_probs: list[list[float]],
+    ml_probs: list[list[float]],
+    combined_probs: list[list[float]],
+) -> dict[str, Any]:
+    buckets: dict[str, dict[str, Any]] = {
+        "overall": {"count": 0, "hits": {"rule": 0, "ml": 0, "combined": 0}},
+    }
+    for key in selector.SEGMENT_PRIORITY:
+        buckets[key] = {"count": 0, "hits": {"rule": 0, "ml": 0, "combined": 0}}
+
+    for idx, actual in enumerate(y_true):
+        bucket_names = ["overall"]
+        flags = selector.build_segment_flags(rule_probs[idx], ml_probs[idx], combined_probs[idx])
+        bucket_names.extend(selector.matched_segments(flags))
+        for key in bucket_names:
+            bucket = buckets[key]
+            bucket["count"] += 1
+            if int(rule_preds[idx]) == actual:
+                bucket["hits"]["rule"] += 1
+            if int(ml_preds[idx]) == actual:
+                bucket["hits"]["ml"] += 1
+            if int(combined_preds[idx]) == actual:
+                bucket["hits"]["combined"] += 1
+
+    return {
+        "segments": {
+            key: _selector_bucket_summary(value)
+            for key, value in buckets.items()
+            if int(value.get("count", 0) or 0) > 0
+        }
+    }
+
+
 def evaluate_fold(
     rows: list[dict[str, Any]],
     fold: dict[str, Any],
@@ -359,12 +440,14 @@ def evaluate_fold(
         "test_date_range": [test_dates[0], test_dates[-1]] if test_dates else [],
     }
 
+    sample_weight_train = compute_sample_weight("balanced", y_train)
+
     # ── A. Base models ────────────────────────────────────────────────────────
     estimators = _build_base_estimators(random_state)
     base_results: dict[str, dict[str, Any]] = {}
 
     for name, est in estimators:
-        est.fit(x_train, y_train)
+        est.fit(x_train, y_train, sample_weight=sample_weight_train)
         preds = est.predict(x_test).tolist()
         proba = est.predict_proba(x_test)
         acc = float(accuracy_score(y_test, preds))
@@ -379,9 +462,13 @@ def evaluate_fold(
     # ── Stacking ensemble (calibrated) ────────────────────────────────────────
     stack_estimators = _build_base_estimators(random_state)
     stacking = _build_stacking(stack_estimators, random_state)
-    stacking.fit(x_train, y_train)
-    calibrated = CalibratedClassifierCV(stacking, method="sigmoid", cv="prefit")
-    calibrated.fit(x_cal, y_cal)
+    stacking.fit(x_train, y_train, sample_weight=sample_weight_train)
+    try:
+        calibrated = CalibratedClassifierCV(stacking, method="sigmoid", cv="prefit")
+        calibrated.fit(x_cal, y_cal)
+    except Exception:
+        calibrated = CalibratedClassifierCV(stacking, method="sigmoid", cv=5)
+        calibrated.fit(x_cal, y_cal)
 
     ensemble_preds = calibrated.predict(x_test).tolist()
     ensemble_proba = calibrated.predict_proba(x_test)
@@ -430,6 +517,15 @@ def evaluate_fold(
     # ── D. Flat-stake ROI simulation ──────────────────────────────────────────
     roi_result = _flat_stake_roi(y_true=y_test, predictions=combined_preds,
                                  probabilities=combined_probs, policy=policy)
+    selector_result = _selector_metrics(
+        y_true=y_test,
+        rule_preds=rule_preds,
+        ml_preds=ensemble_preds,
+        combined_preds=combined_preds,
+        rule_probs=rule_probs,
+        ml_probs=ensemble_proba_list,
+        combined_probs=combined_probs,
+    )
 
     return {
         "fold_meta": fold_meta,
@@ -437,6 +533,7 @@ def evaluate_fold(
         "combined": combined_metrics,
         "policy": policy_result,
         "roi": roi_result,
+        "selector": selector_result,
         "test_class_distribution": _class_distribution(y_test),
     }
 
@@ -559,6 +656,183 @@ def _aggregate_folds(fold_results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _best_selector_source(metrics: dict[str, Any] | None) -> str:
+    payload = metrics or {}
+    candidates = []
+    for source in ("combined", "ml", "rule"):
+        accuracy = payload.get(f"{source}_accuracy")
+        if isinstance(accuracy, (int, float)):
+            candidates.append((float(accuracy), 1 if source == "combined" else 0, source))
+    if not candidates:
+        return "combined"
+    candidates.sort(reverse=True)
+    return candidates[0][2]
+
+
+def _aggregate_selector(fold_results: list[dict[str, Any]]) -> dict[str, Any]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for fold in fold_results:
+        segments = ((fold.get("selector") or {}).get("segments") or {})
+        for key, metrics in segments.items():
+            bucket = buckets.setdefault(
+                key,
+                {"count": 0, "hits": {"rule": 0, "ml": 0, "combined": 0}},
+            )
+            bucket["count"] += int(metrics.get("count", 0) or 0)
+            fold_hits = metrics.get("hits") or {}
+            for source in ("rule", "ml", "combined"):
+                bucket["hits"][source] += int(fold_hits.get(source, 0) or 0)
+
+    summaries = {
+        key: _selector_bucket_summary(bucket)
+        for key, bucket in buckets.items()
+        if int(bucket.get("count", 0) or 0) > 0
+    }
+    overall = summaries.get("overall") or {"count": 0}
+    default_source = _best_selector_source(overall)
+
+    overrides: list[dict[str, Any]] = []
+    for key in selector.SEGMENT_PRIORITY:
+        metrics = summaries.get(key)
+        if not metrics:
+            continue
+        sample_size = int(metrics.get("count", 0) or 0)
+        if sample_size < SELECTOR_MIN_SAMPLE:
+            continue
+        preferred_source = _best_selector_source(metrics)
+        default_accuracy = metrics.get(f"{default_source}_accuracy")
+        preferred_accuracy = metrics.get(f"{preferred_source}_accuracy")
+        if (
+            preferred_source == default_source
+            or not isinstance(default_accuracy, (int, float))
+            or not isinstance(preferred_accuracy, (int, float))
+        ):
+            continue
+        gain = float(preferred_accuracy) - float(default_accuracy)
+        if gain < SELECTOR_MIN_GAIN:
+            continue
+        overrides.append(
+            {
+                "segment": key,
+                "preferred_source": preferred_source,
+                "default_source": default_source,
+                "sample_size": sample_size,
+                "preferred_accuracy": round(float(preferred_accuracy), 4),
+                "default_accuracy": round(float(default_accuracy), 4),
+                "gain_vs_default": round(gain, 4),
+                "reason": selector.SEGMENT_METADATA.get(key, {}).get("description"),
+            }
+        )
+
+    overrides.sort(key=lambda row: (row["gain_vs_default"], row["sample_size"]), reverse=True)
+
+    return {
+        "default_source": default_source,
+        "default_accuracy": overall.get(f"{default_source}_accuracy"),
+        "segments": summaries,
+        "overrides": overrides,
+        "summary": (
+            f"Default to {selector.source_label(default_source)} using recent backtests, "
+            f"with {len(overrides)} segment override(s) when a different source is materially better."
+        ),
+        "min_sample_size": SELECTOR_MIN_SAMPLE,
+        "min_gain": SELECTOR_MIN_GAIN,
+    }
+
+
+def _run_walk_forward_window(
+    rows: list[dict[str, Any]],
+    *,
+    label: str,
+    n_folds: int,
+    min_train_pct: float,
+    test_pct: float,
+    cal_pct: float,
+    random_state: int,
+    policy: dict[str, float],
+) -> dict[str, Any]:
+    n_rows = len(rows)
+    if n_rows < 40:
+        return {
+            "available": False,
+            "label": label,
+            "message": f"Need at least 40 rows for walk-forward, got {n_rows}.",
+        }
+
+    folds = generate_folds(
+        n_rows,
+        n_folds=n_folds,
+        min_train_pct=min_train_pct,
+        test_pct=test_pct,
+        cal_pct=cal_pct,
+    )
+    if not folds:
+        return {
+            "available": False,
+            "label": label,
+            "message": (
+                f"Could not generate valid folds with {n_rows} rows "
+                f"(min_train_pct={min_train_pct}, test_pct={test_pct})."
+            ),
+        }
+
+    print(f"Generated {len(folds)} walk-forward folds for {label}")
+
+    fold_results: list[dict[str, Any]] = []
+    for fold_def in folds:
+        fold_num = fold_def["fold"]
+        print(f"\n-- {label}: Fold {fold_num}/{len(folds)} --")
+        print(f"  Train: rows 0-{fold_def['train_end']-1} ({fold_def['train_size']} rows)")
+        print(f"  Cal:   rows {fold_def['cal_start']}-{fold_def['cal_end']-1} ({fold_def['cal_size']} rows)")
+        print(f"  Test:  rows {fold_def['test_start']}-{fold_def['test_end']-1} ({fold_def['test_size']} rows)")
+
+        result = evaluate_fold(rows, fold_def, policy, random_state)
+        fold_results.append(result)
+
+        ens = result["base_models"].get("stacking_ensemble", {})
+        comb = result["combined"]
+        pol = result["policy"]
+        print(f"  Ensemble acc:  {ens.get('accuracy', 0)*100:.1f}%")
+        print(f"  Combined acc:  {comb['combined_accuracy']*100:.1f}%")
+        print(
+            f"  Policy placed: {pol['total_placed']}/{pol['total_evaluated']} "
+            f"({pol['coverage_pct']:.0f}% coverage, {pol['hit_rate_pct']:.0f}% hit rate)"
+        )
+
+    aggregate = _aggregate_folds(fold_results)
+    all_dates = [r.get("date", "") for r in rows if r.get("date")]
+
+    return {
+        "available": True,
+        "label": label,
+        "config": {
+            "n_folds": len(folds),
+            "min_train_pct": min_train_pct,
+            "test_pct": test_pct,
+            "cal_pct": cal_pct,
+            "random_state": random_state,
+            "total_rows": n_rows,
+            "date_range": [all_dates[0], all_dates[-1]] if all_dates else [],
+            "feature_count": len(FEATURE_COLUMNS),
+            "policy_used": policy,
+        },
+        "aggregate": aggregate,
+        "selector": _aggregate_selector(fold_results),
+        "folds": [
+            {
+                "fold_meta": fr["fold_meta"],
+                "base_models": fr["base_models"],
+                "combined": fr["combined"],
+                "policy": fr["policy"],
+                "roi": fr["roi"],
+                "selector": fr.get("selector"),
+                "test_class_distribution": fr["test_class_distribution"],
+            }
+            for fr in fold_results
+        ],
+    }
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 
@@ -585,20 +859,69 @@ def run_walk_forward(
     if n_rows < 40:
         raise ValueError(f"Need at least 40 rows for walk-forward, got {n_rows}")
 
-    folds = generate_folds(
-        n_rows, n_folds=n_folds, min_train_pct=min_train_pct,
-        test_pct=test_pct, cal_pct=cal_pct,
-    )
-    if not folds:
-        raise ValueError(
-            f"Could not generate any valid folds with {n_rows} rows "
-            f"(min_train_pct={min_train_pct}, test_pct={test_pct})."
-        )
-
-    print(f"Generated {len(folds)} walk-forward folds")
-
     policy = pp.sport_policy("soccer")
     print(f"Using policy: {policy}")
+
+    all_history = _run_walk_forward_window(
+        rows,
+        label="All History",
+        n_folds=n_folds,
+        min_train_pct=min_train_pct,
+        test_pct=test_pct,
+        cal_pct=cal_pct,
+        random_state=random_state,
+        policy=policy,
+    )
+    if not all_history.get("available"):
+        raise ValueError(all_history.get("message") or "Failed to build all-history walk-forward report.")
+
+    recent_rows, recent_date_range = _recent_rows(rows, years=RECENT_WINDOW_YEARS)
+    recent_window = _run_walk_forward_window(
+        recent_rows,
+        label=f"Last {RECENT_WINDOW_YEARS} Years",
+        n_folds=n_folds,
+        min_train_pct=min_train_pct,
+        test_pct=test_pct,
+        cal_pct=cal_pct,
+        random_state=random_state,
+        policy=policy,
+    )
+    if recent_window.get("available"):
+        recent_window.setdefault("config", {})
+        if recent_date_range:
+            recent_window["config"]["date_range"] = recent_date_range
+
+    all_dates = [r.get("date", "") for r in rows if r.get("date")]
+    selector_profile = recent_window.get("selector") if recent_window.get("available") else all_history.get("selector")
+
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "config": {
+            "n_folds": all_history.get("config", {}).get("n_folds", 0),
+            "min_train_pct": min_train_pct,
+            "test_pct": test_pct,
+            "cal_pct": cal_pct,
+            "random_state": random_state,
+            "total_rows": n_rows,
+            "date_range": [all_dates[0], all_dates[-1]] if all_dates else [],
+            "feature_count": len(FEATURE_COLUMNS),
+            "policy_used": policy,
+        },
+        "aggregate": all_history.get("aggregate", {}),
+        "folds": all_history.get("folds", []),
+        "windows": {
+            "all_history": all_history,
+            "last_3_years": recent_window,
+        },
+        "selector": selector_profile,
+        "selector_window": "last_3_years" if recent_window.get("available") else "all_history",
+    }
+
+    save_path = output_path or DEFAULT_REPORT_PATH
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    save_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"\nSaved walk-forward report -> {save_path}")
+    return report
 
     fold_results: list[dict[str, Any]] = []
     for fold_def in folds:

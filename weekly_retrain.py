@@ -198,12 +198,17 @@ def step_walk_forward_backtest(
             n_folds=n_folds,
             random_state=random_state,
         )
-        agg = report.get("aggregate", {})
+        windows = report.get("windows") or {}
+        recent = (windows.get("last_3_years") or {}) if isinstance(windows, dict) else {}
+        headline = recent if recent.get("available") else (windows.get("all_history") or {})
+        agg = headline.get("aggregate", {}) if isinstance(headline, dict) else {}
         comb = agg.get("combined", {})
         result["details"]["n_folds"] = agg.get("n_folds")
         result["details"]["total_test_matches"] = agg.get("total_test_matches")
-        result["details"]["combined_accuracy"] = comb.get("accuracy")
+        result["details"]["combined_accuracy"] = comb.get("mean_combined_accuracy")
         result["details"]["trend"] = agg.get("trend")
+        selector_profile = report.get("selector") or {}
+        result["details"]["selector_default"] = selector_profile.get("default_source")
         result["details"]["report_path"] = str(walk_forward_report_path())
     except Exception:
         result["status"] = "error"
