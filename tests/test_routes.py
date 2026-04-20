@@ -489,6 +489,27 @@ class TestPredictionRoute:
             rv = client.get("/prediction")
         assert rv.status_code == 200
 
+    def test_prediction_surfaces_input_reliability_when_live_feeds_are_partial(self, client):
+        with client.session_transaction() as sess:
+            sess["team_a_id"] = 33
+            sess["team_a_name"] = "Manchester United"
+            sess["team_a_logo"] = ""
+            sess["team_b_id"] = 40
+            sess["team_b_name"] = "Liverpool"
+            sess["team_b_logo"] = ""
+
+        fixtures = [_mock_fixture()]
+        with patch("api_client.get_h2h", return_value=fixtures), \
+             patch("api_client.get_team_fixtures", return_value=fixtures), \
+             patch("api_client.get_injuries", side_effect=Exception("injuries down")), \
+             patch("api_client.get_standings", side_effect=Exception("standings down")):
+            rv = client.get("/prediction")
+
+        assert rv.status_code == 200
+        assert b"Input Reliability" in rv.data
+        assert b"live context" in rv.data.lower()
+        assert b"Injuries" in rv.data
+
     def test_prediction_tracks_selected_fixture_date(self, client):
         with client.session_transaction() as sess:
             sess["team_a_id"] = 33

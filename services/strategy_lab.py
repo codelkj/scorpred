@@ -385,6 +385,176 @@ def _window_summary(window: dict[str, Any] | None, *, label: str) -> dict[str, A
     }
 
 
+def _strategy_source_label(source: str | None) -> str:
+    if source == "combined":
+        return "Combined Signal"
+    if source == "ml":
+        return "Stacking Ensemble"
+    if source == "rule":
+        return "Rule Engine"
+    return "Awaiting sample"
+
+
+def _window_accuracy_for_source(window: dict[str, Any] | None, source: str | None) -> float | None:
+    payload = window or {}
+    if not payload.get("available"):
+        return None
+    if source == "ml":
+        return payload.get("mean_ml_accuracy")
+    if source == "rule":
+        return payload.get("mean_rule_accuracy")
+    return payload.get("mean_combined_accuracy")
+
+
+def _comparison_accuracy_for_source(
+    performance_comparison: dict[str, Any],
+    ml_summary: dict[str, Any],
+    source: str | None,
+) -> float | None:
+    if source == "ml":
+        return ml_summary.get("ensemble_accuracy") or performance_comparison.get("ml_accuracy")
+    if source == "rule":
+        return performance_comparison.get("rule_accuracy")
+    return performance_comparison.get("combined_accuracy")
+
+
+def _build_strategy_recommendation(
+    metrics: dict[str, Any],
+    performance_comparison: dict[str, Any],
+    ml_summary: dict[str, Any],
+    walk_forward: dict[str, Any],
+) -> dict[str, Any]:
+    wf = walk_forward or {}
+    wf_windows = wf.get("windows") or {}
+    wf_recent = wf_windows.get("last_3_years") or {}
+    wf_all = wf_windows.get("all_history") or {}
+    wf_selector = wf.get("selector") or {}
+
+    source = selector.normalize_source(wf_selector.get("default_source"))
+    if source is None:
+        combined_accuracy = performance_comparison.get("combined_accuracy")
+        ml_accuracy = ml_summary.get("ensemble_accuracy") or performance_comparison.get("ml_accuracy")
+        rule_accuracy = performance_comparison.get("rule_accuracy")
+        candidates = [
+            (combined_accuracy, "combined"),
+            (ml_accuracy, "ml"),
+            (rule_accuracy, "rule"),
+        ]
+        valid = [(float(value), candidate_source) for value, candidate_source in candidates if isinstance(value, (int, float))]
+        source = max(valid)[1] if valid else "combined"
+
+    label = _strategy_source_label(source)
+    recent_accuracy = _window_accuracy_for_source(wf_recent, source)
+    all_history_accuracy = _window_accuracy_for_source(wf_all, source)
+    fallback_accuracy = _comparison_accuracy_for_source(performance_comparison, ml_summary, source)
+    if recent_accuracy is None:
+        recent_accuracy = fallback_accuracy
+    if all_history_accuracy is None:
+        all_history_accuracy = fallback_accuracy
+
+    live_accuracy = metrics.get("overall_accuracy") if source == "combined" else None
+    live_sample = int(metrics.get("finalized_predictions") or 0)
+
+    weighted_components: list[tuple[float, float]] = []
+    if isinstance(recent_accuracy, (int, float)):
+        weighted_components.append((float(recent_accuracy), 0.65))
+    if isinstance(all_history_accuracy, (int, float)):
+        weighted_components.append((float(all_history_accuracy), 0.25))
+    if isinstance(live_accuracy, (int, float)) and live_sample >= 10:
+        weighted_components.append((float(live_accuracy), 0.10))
+
+    weight_total = sum(weight for _, weight in weighted_components)
+    trust_score = round(
+        sum(value * weight for value, weight in weighted_components) / weight_total,
+        1,
+    ) if weight_total else None
+
+    drift = round(recent_accuracy - all_history_accuracy, 1) if isinstance(recent_accuracy, (int, float)) and isinstance(all_history_accuracy, (int, float)) else None
+
+    if trust_score is None:
+        trust_label = "Awaiting evidence"
+        action_label = "Warming Up"
+        tone = "muted"
+        summary = "The selector is online, but it still needs offline or live evidence before we can rank the runtime source confidently."
+    elif trust_score >= 56.0 and (drift is None or drift >= -1.5):
+        trust_label = "High trust"
+        action_label = "Use This Strategy"
+        tone = "positive"
+        summary = f"{label} is the strongest default right now because the recent window still supports it and the longer history is not showing meaningful drift."
+    elif trust_score >= 50.0 and (drift is None or drift >= -3.0):
+        trust_label = "Stable"
+        action_label = "Use This Strategy"
+        tone = "positive"
+        summary = f"{label} still rates as the safest runtime default, with the last 3 years carrying more weight than the older archive."
+    elif trust_score >= 46.0:
+        trust_label = "Guarded"
+        action_label = "Use Cautiously"
+        tone = "warning"
+        summary = f"{label} remains the default, but recent evidence is only modestly supportive, so confidence and data completeness should matter more than usual."
+    else:
+        trust_label = "Fragile"
+        action_label = "Monitor Closely"
+        tone = "critical"
+        summary = f"{label} is still the fallback default, but recent evidence is weak enough that it should be treated as a monitored baseline rather than a strong edge."
+
+    reason_lines: list[str] = []
+    if isinstance(recent_accuracy, (int, float)):
+        recent_sample = wf_recent.get("total_test_matches") or performance_comparison.get("evaluation_matches") or 0
+        reason_lines.append(
+            f"Last 3 years: {recent_accuracy:.1f}% across {recent_sample} evaluated matches."
+        )
+    if isinstance(all_history_accuracy, (int, float)):
+        all_sample = wf_all.get("total_test_matches") or performance_comparison.get("evaluation_matches") or 0
+        reason_lines.append(
+            f"All history: {all_history_accuracy:.1f}% across {all_sample} evaluated matches."
+        )
+    if drift is not None:
+        if drift >= 0.5:
+            reason_lines.append(f"Recent form is slightly stronger than the long-run view ({drift:+.1f} pts).")
+        elif drift <= -0.5:
+            reason_lines.append(f"Recent form is softer than the long-run view ({drift:+.1f} pts), so the selector is leaning on the newer window cautiously.")
+        else:
+            reason_lines.append("Recent and long-run windows are broadly aligned, which keeps the selector stable.")
+    if source == "combined" and isinstance(live_accuracy, (int, float)):
+        if live_sample >= 10:
+            reason_lines.append(
+                f"Live tracked combined-signal accuracy is {live_accuracy:.1f}% across {live_sample} graded picks."
+            )
+        else:
+            reason_lines.append(
+                f"Live tracked data is still warming up with {live_sample} graded pick(s), so offline evidence carries most of the trust weight."
+            )
+    elif metrics.get("finalized_predictions"):
+        reason_lines.append(
+            "Live tracked results still measure the production combined signal, so offline evidence is the cleaner guide for this alternate source."
+        )
+    if wf_selector.get("available") and wf_selector.get("override_rows"):
+        reason_lines.append(
+            f"The runtime selector also has {len(wf_selector.get('override_rows') or [])} recent-window override(s) for special segments."
+        )
+
+    return {
+        "source": source,
+        "label": label,
+        "trust_score": trust_score,
+        "trust_score_display": _display_accuracy(trust_score) if trust_score is not None else None,
+        "trust_label": trust_label,
+        "action_label": action_label,
+        "tone": tone,
+        "summary": summary,
+        "window_bias_note": (
+            "Last 3 years carry the most weight; all history is used as a stability check."
+            if wf_recent.get("available")
+            else "Using the best offline evidence available while live tracking builds up."
+        ),
+        "recent_accuracy": recent_accuracy,
+        "all_history_accuracy": all_history_accuracy,
+        "live_accuracy": live_accuracy,
+        "live_sample_size": live_sample,
+        "reason_lines": reason_lines[:4],
+    }
+
+
 def _selector_display(payload: dict[str, Any] | None) -> dict[str, Any]:
     profile = payload or {}
     if not profile:
@@ -513,6 +683,7 @@ def empty_strategy_lab_context() -> dict[str, Any]:
     metrics = dict(_EMPTY_METRICS)
     ml_summary = mlp.build_strategy_lab_summary(report={})
     comparison = _performance_comparison(metrics)
+    walk_forward = {"available": False, "windows": {}, "selector": {"available": False}}
     return {
         "metrics": metrics,
         # Explicit source-labelled accuracy fields (both None when no data yet).
@@ -539,7 +710,8 @@ def empty_strategy_lab_context() -> dict[str, Any]:
         "ml_comparison": ml_summary,
         "performance_comparison": comparison,
         "recent_completed_predictions": [],
-        "walk_forward": {"available": False, "windows": {}, "selector": {"available": False}},
+        "strategy_recommendation": _build_strategy_recommendation(metrics, comparison, ml_summary, walk_forward),
+        "walk_forward": walk_forward,
     }
 
 
@@ -640,6 +812,8 @@ def build_strategy_lab_context(
     _ensure_ml_report_exists(ml_module)
     comparison = _performance_comparison(metrics)
     ml_summary = ml_module.build_strategy_lab_summary()
+    walk_forward = walk_forward_summary()
+    strategy_recommendation = _build_strategy_recommendation(metrics, comparison, ml_summary, walk_forward)
 
     # offline_accuracy: best available holdout figure (combined signal > ensemble > None)
     offline_accuracy: float | None = (
@@ -682,7 +856,8 @@ def build_strategy_lab_context(
         "ml_comparison": ml_summary,
         "ml_rule_insights": _ml_vs_rule_insights(metrics, confidence_rows, ml_summary, comparison),
         "performance_comparison": comparison,
+        "strategy_recommendation": strategy_recommendation,
         "recent_completed_predictions": completed_predictions,
         "avoid_impact_predictions": avoid_impact_predictions,
-        "walk_forward": walk_forward_summary(),
+        "walk_forward": walk_forward,
     }

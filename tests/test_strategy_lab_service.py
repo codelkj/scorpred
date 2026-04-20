@@ -113,3 +113,93 @@ def test_walk_forward_summary_supports_windowed_reports(tmp_path, monkeypatch):
     assert summary["selector"]["available"] is True
     assert summary["selector"]["default_source_label"] == "Combined"
     assert summary["selector"]["override_rows"][0]["preferred_source_label"] == "Ensemble ML"
+
+
+def test_build_strategy_lab_context_prefers_recent_weighted_strategy(monkeypatch):
+    class TrackerStub:
+        @staticmethod
+        def get_summary_metrics():
+            return {
+                "total_predictions": 28,
+                "finalized_predictions": 20,
+                "wins": 11,
+                "losses": 9,
+                "overall_accuracy": 55.0,
+                "by_confidence": {
+                    "High": {"accuracy": 62.5, "count": 8, "wins": 5, "losses": 3},
+                },
+                "by_sport": {
+                    "soccer": {"accuracy": 58.3, "count": 12, "wins": 7, "losses": 5},
+                },
+                "recent_predictions": [],
+            }
+
+        @staticmethod
+        def get_completed_predictions(limit=6):
+            return [{"winner_hit": True}] * limit
+
+    class MlStub:
+        DEFAULT_REPORT_PATH = "mock-report.json"
+
+        @staticmethod
+        def build_strategy_lab_summary():
+            return {
+                "available": True,
+                "ensemble_accuracy": 54.6,
+                "best_model_label": "Stacking Ensemble",
+                "summary": "Stacking ensemble is currently the best saved ML model.",
+            }
+
+    monkeypatch.setattr(strategy_lab, "_ensure_ml_report_exists", lambda _ml_module: True)
+    monkeypatch.setattr(
+        strategy_lab,
+        "_performance_comparison",
+        lambda _metrics: {
+            "available": True,
+            "rule_accuracy": 51.2,
+            "ml_accuracy": 54.6,
+            "combined_accuracy": 55.0,
+            "evaluation_matches": 240,
+        },
+    )
+    monkeypatch.setattr(
+        strategy_lab,
+        "walk_forward_summary",
+        lambda: {
+            "available": True,
+            "windows": {
+                "all_history": {
+                    "available": True,
+                    "mean_combined_accuracy": 54.1,
+                    "mean_ml_accuracy": 53.1,
+                    "mean_rule_accuracy": 50.9,
+                    "total_test_matches": 240,
+                },
+                "last_3_years": {
+                    "available": True,
+                    "mean_combined_accuracy": 55.6,
+                    "mean_ml_accuracy": 54.3,
+                    "mean_rule_accuracy": 50.4,
+                    "total_test_matches": 180,
+                },
+            },
+            "selector": {
+                "available": True,
+                "default_source": "combined",
+                "default_source_label": "Combined",
+                "override_rows": [],
+            },
+        },
+    )
+
+    context = strategy_lab.build_strategy_lab_context(
+        tracker_module=TrackerStub(),
+        ml_module=MlStub(),
+    )
+
+    recommendation = context["strategy_recommendation"]
+    assert recommendation["source"] == "combined"
+    assert recommendation["label"] == "Combined Signal"
+    assert recommendation["action_label"] == "Use This Strategy"
+    assert recommendation["window_bias_note"].startswith("Last 3 years")
+    assert recommendation["trust_score"] >= 55.0

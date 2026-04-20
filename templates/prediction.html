@@ -8,12 +8,14 @@
 {% set confidence = best_pick.get('confidence', 'Low') %}
 {% set play_type = scorpred.get('play_type', 'LEAN') %}
 {% set conf_pct = scorpred.get('confidence_pct', 0)|round(1) %}
+{% set completeness = scorpred.get('data_completeness', {}) %}
 {% set win_probabilities = scorpred.get('win_probabilities', {}) %}
 {% set prob_a = '%.1f'|format((win_probabilities.get('a', 0))|float) %}
 {% set prob_draw = '%.1f'|format((win_probabilities.get('draw', 0))|float) %}
 {% set prob_b = '%.1f'|format((win_probabilities.get('b', 0))|float) %}
 {% set risk_label = 'Elevated' %}
 {% set risk_class = 'sp-badge--danger' %}
+{% set completeness_class = 'sp-badge--muted' %}
 {% set score_gap = scorpred.get('score_gap', 0) %}
 {% if confidence == 'High' and score_gap >= 1.5 %}
   {% set risk_label = 'Controlled' %}
@@ -21,6 +23,13 @@
 {% elif confidence == 'Medium' or score_gap >= 1.0 %}
   {% set risk_label = 'Watch' %}
   {% set risk_class = 'sp-badge--caution' %}
+{% endif %}
+{% if completeness.get('tier') == 'full' %}
+  {% set completeness_class = 'sp-badge--strong' %}
+{% elif completeness.get('tier') == 'partial' %}
+  {% set completeness_class = 'sp-badge--caution' %}
+{% elif completeness.get('tier') == 'limited' %}
+  {% set completeness_class = 'sp-badge--danger' %}
 {% endif %}
 
 {# ═══ Decision Hero ═══════════════════════════════════════════════════════ #}
@@ -47,6 +56,9 @@
         <span class="sp-badge conf-{{ confidence | lower }}">{{ confidence }} · {{ conf_pct }}%</span>
         <span class="sp-badge {{ risk_class }}">Risk: {{ risk_label }}</span>
         <span class="sp-badge sp-badge--muted">{{ quality }} Data</span>
+        {% if completeness %}
+        <span class="sp-badge {{ completeness_class }}">{{ completeness.get('label') }}</span>
+        {% endif %}
       </div>
     </div>
 
@@ -82,6 +94,40 @@
 </div>
 
 {# ═══ Tabs ════════════════════════════════════════════════════════════════ #}
+{% if completeness %}
+<div class="sp-panel" style="margin-bottom:1.25rem">
+  <div style="display:flex; justify-content:space-between; gap:.75rem; align-items:flex-start; flex-wrap:wrap">
+    <div>
+      <span class="sp-kicker">Input Reliability</span>
+      <h2 class="sp-section-title" style="margin:.25rem 0 .35rem">{{ completeness.get('label') }}</h2>
+      <p style="color:var(--text-2); margin:0; max-width:58ch">{{ completeness.get('summary') }}</p>
+    </div>
+    <span class="sp-badge {{ completeness_class }}">{{ completeness.get('coverage_pct') }}% coverage</span>
+  </div>
+  {% if completeness.get('sections') %}
+  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.6rem; margin-top:.8rem">
+    {% for section in completeness.get('sections') %}
+    {% set section_class = 'sp-badge--muted' %}
+    {% if section.get('status') == 'available' %}
+      {% set section_class = 'sp-badge--strong' %}
+    {% elif section.get('status') == 'limited' %}
+      {% set section_class = 'sp-badge--caution' %}
+    {% elif section.get('status') == 'unavailable' %}
+      {% set section_class = 'sp-badge--danger' %}
+    {% endif %}
+    <div class="sp-panel sp-panel--tight" style="margin-bottom:0">
+      <div style="display:flex; justify-content:space-between; gap:.5rem; align-items:flex-start">
+        <strong style="font-size:.9rem">{{ section.get('label') }}</strong>
+        <span class="sp-badge {{ section_class }}">{{ section.get('status')|capitalize }}</span>
+      </div>
+      <p style="color:var(--text-3); font-size:.8rem; line-height:1.5; margin:.45rem 0 0">{{ section.get('detail') }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 <div data-sp-tabs>
   <div class="sp-tabs">
     <button class="sp-tab active" data-tab="summary">Summary</button>
@@ -206,6 +252,9 @@
         <li>Form, H2H, and squad context well-aligned — cleaner signal.</li>
         {% elif quality == 'Limited' %}
         <li>Limited data — treat this lean with extra caution.</li>
+        {% endif %}
+        {% if completeness %}
+        <li>{{ completeness.get('summary') }}</li>
         {% endif %}
         {% if scorpred.learned_adjustment_notes %}
           {% for note in scorpred.learned_adjustment_notes %}

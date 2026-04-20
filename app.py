@@ -2028,6 +2028,207 @@ def _run_parallel(tasks: dict[str, tuple[Callable[[], Any], Any, str]]) -> dict[
     return results
 
 
+def _run_parallel_with_status(
+    tasks: dict[str, tuple[Callable[[], Any], Any, str]],
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Run independent I/O tasks concurrently and preserve per-task error status."""
+    if not tasks:
+        return {}, {}
+
+    max_workers = min(8, len(tasks))
+    results: dict[str, Any] = {key: default for key, (_, default, _) in tasks.items()}
+    statuses: dict[str, dict[str, Any]] = {
+        key: {"ok": True, "error": False, "message": None}
+        for key in tasks
+    }
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(func): (key, default, error_label)
+            for key, (func, default, error_label) in tasks.items()
+        }
+        for future, (key, default, error_label) in futures.items():
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                results[key] = default
+                statuses[key] = {"ok": False, "error": True, "message": str(exc)}
+                if error_label:
+                    app.logger.error("%s: %s", error_label, exc)
+
+    return results, statuses
+
+
+def _build_prediction_data_completeness(
+    *,
+    form_a: list[dict[str, Any]],
+    form_b: list[dict[str, Any]],
+    h2h: list[dict[str, Any]],
+    injuries_a: list[dict[str, Any]],
+    injuries_b: list[dict[str, Any]],
+    standings_for_opp: list[dict[str, Any]],
+    task_status: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Summarize which live inputs were available for the current prediction."""
+    task_status = task_status or {}
+    section_scores = {
+        "available": 1.0,
+        "limited": 0.55,
+        "unavailable": 0.0,
+    }
+    sections: list[dict[str, Any]] = []
+
+    def _task_failed(key: str) -> bool:
+        return bool((task_status.get(key) or {}).get("error"))
+
+    def _push(key: str, label: str, status: str, detail: str, *, weight: float = 1.0) -> None:
+        sections.append(
+            {
+                "key": key,
+                "label": label,
+                "status": status,
+                "detail": detail,
+                "weight": weight,
+                "score": section_scores.get(status, 0.0),
+            }
+        )
+
+    form_count = int(bool(form_a)) + int(bool(form_b))
+    if _task_failed("fixtures_a") or _task_failed("fixtures_b"):
+        _push(
+            "recent_form",
+            "Recent form",
+            "unavailable",
+            "Recent fixture history could not be loaded for one or both teams.",
+            weight=2.0,
+        )
+    elif form_count == 2:
+        _push(
+            "recent_form",
+            "Recent form",
+            "available",
+            f"Both teams have usable recent-form samples ({len(form_a)} vs {len(form_b)} matches).",
+            weight=2.0,
+        )
+    elif form_count == 1:
+        _push(
+            "recent_form",
+            "Recent form",
+            "limited",
+            "Only one side has a complete recent-form sample, so the form edge is less reliable.",
+            weight=2.0,
+        )
+    else:
+        _push(
+            "recent_form",
+            "Recent form",
+            "limited",
+            "Recent form is thin for both teams, so the model leaned harder on neutral fallbacks.",
+            weight=2.0,
+        )
+
+    if _task_failed("h2h"):
+        _push(
+            "head_to_head",
+            "Head-to-head",
+            "unavailable",
+            "Head-to-head history could not be loaded for this matchup.",
+        )
+    elif h2h:
+        _push(
+            "head_to_head",
+            "Head-to-head",
+            "available",
+            f"{min(len(h2h), 20)} recent head-to-head match(es) were available.",
+        )
+    else:
+        _push(
+            "head_to_head",
+            "Head-to-head",
+            "limited",
+            "No recent head-to-head sample was available, so that part of the read stayed neutral.",
+        )
+
+    if _task_failed("injuries_a_raw") or _task_failed("injuries_b_raw"):
+        _push(
+            "injuries",
+            "Injuries",
+            "unavailable",
+            "The injury feed was unavailable for one or both teams during this prediction.",
+        )
+    elif injuries_a or injuries_b:
+        _push(
+            "injuries",
+            "Injuries",
+            "available",
+            f"{len(injuries_a) + len(injuries_b)} notable injury item(s) were available to the engine.",
+        )
+    else:
+        _push(
+            "injuries",
+            "Injuries",
+            "available",
+            "The injury feed responded and no notable absences were flagged.",
+        )
+
+    if _task_failed("standings_for_opp"):
+        _push(
+            "standings",
+            "Standings",
+            "unavailable",
+            "League standings were unavailable, so opponent-strength adjustments were reduced.",
+        )
+    elif standings_for_opp:
+        _push(
+            "standings",
+            "Standings",
+            "available",
+            f"League-table context loaded for {len(standings_for_opp)} club rows.",
+        )
+    else:
+        _push(
+            "standings",
+            "Standings",
+            "limited",
+            "Standings context was empty, so opponent-strength adjustments stayed lighter than normal.",
+        )
+
+    total_weight = sum(section["weight"] for section in sections) or 1.0
+    earned_weight = sum(section["weight"] * section["score"] for section in sections)
+    coverage_pct = round((earned_weight / total_weight) * 100.0)
+    unavailable_count = sum(1 for section in sections if section["status"] == "unavailable")
+    limited_count = sum(1 for section in sections if section["status"] == "limited")
+
+    if coverage_pct >= 85 and unavailable_count == 0:
+        tier = "full"
+        label = "Full live context"
+        tone = "strong"
+        summary = "All core live inputs loaded cleanly, so the prediction is working with the full pre-match context."
+    elif coverage_pct >= 60:
+        tier = "partial"
+        label = "Partial live context"
+        tone = "caution"
+        summary = "Most live inputs loaded, but one or more context feeds were thin or missing, so treat the pick with a little more caution."
+    else:
+        tier = "limited"
+        label = "Limited live context"
+        tone = "danger"
+        summary = "Several live inputs were missing, so the engine had to lean more heavily on fallback assumptions than usual."
+
+    return {
+        "tier": tier,
+        "label": label,
+        "tone": tone,
+        "coverage_pct": coverage_pct,
+        "summary": summary,
+        "available_count": sum(1 for section in sections if section["status"] == "available"),
+        "limited_count": limited_count,
+        "unavailable_count": unavailable_count,
+        "missing_labels": [section["label"] for section in sections if section["status"] != "available"],
+        "sections": sections,
+    }
+
+
 def _fallback_chat_reply(message: str) -> str:
     team_a, team_b = _require_teams()
     return assistant_services.fallback_chat_reply(message, team_a=team_a, team_b=team_b)
@@ -3240,7 +3441,7 @@ def prediction():
     selected_fixture = _selected_fixture()
 
     id_a, id_b = team_a["id"], team_b["id"]
-    results = _run_parallel(
+    results, task_status = _run_parallel_with_status(
         {
             "h2h": (
                 lambda: ac.get_h2h(id_a, id_b, last=20),
@@ -3337,6 +3538,16 @@ def prediction():
         }
     )
     prediction = mastermind.get("ui_prediction") or {}
+    prediction["data_completeness"] = _build_prediction_data_completeness(
+        form_a=form_a,
+        form_b=form_b,
+        h2h=h2h,
+        injuries_a=injuries_a,
+        injuries_b=injuries_b,
+        standings_for_opp=standings_for_opp,
+        task_status=task_status,
+    )
+    mastermind["ui_prediction"] = prediction
     league_id = _set_active_league(_active_league_id())
 
     try:

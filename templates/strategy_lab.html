@@ -14,8 +14,9 @@
 
 {% block content %}
 {# ── Template variables ────────────────────────────────────────────────────── #}
-{% set best_strategy = backtest_summary.best_sport.label if backtest_summary.best_sport else (ml_comparison.best_model_label if ml_comparison.available else 'Awaiting sample') %}
-{% set best_accuracy = backtest_summary.best_sport.accuracy if backtest_summary.best_sport else metrics.overall_accuracy %}
+{% set strategy_rec = strategy_recommendation if strategy_recommendation else {} %}
+{% set best_strategy = strategy_rec.get('label') or (backtest_summary.best_sport.label if backtest_summary.best_sport else (ml_comparison.best_model_label if ml_comparison.available else 'Awaiting sample')) %}
+{% set best_accuracy = strategy_rec.get('trust_score') if strategy_rec.get('trust_score') is not none else (backtest_summary.best_sport.accuracy if backtest_summary.best_sport else metrics.overall_accuracy) %}
 {% set edge_display = ml_comparison.accuracy_gap_display if ml_comparison.available else 'Awaiting ML report' %}
 {% set confidence_rows = confidence_breakdown or [] %}
 {% set row_high = confidence_rows | selectattr('key', 'equalto', 'High') | list %}
@@ -40,6 +41,14 @@
 {% set wf_all = wf_windows.get('all_history', {}) if wf_windows else {} %}
 {% set wf_recent = wf_windows.get('last_3_years', {}) if wf_windows else {} %}
 {% set wf_selector = wf.get('selector', {}) if wf else {} %}
+{% set strategy_badge = 'sp-badge--muted' %}
+{% if strategy_rec.get('tone') == 'positive' %}
+  {% set strategy_badge = 'sp-badge--strong' %}
+{% elif strategy_rec.get('tone') == 'warning' %}
+  {% set strategy_badge = 'sp-badge--caution' %}
+{% elif strategy_rec.get('tone') == 'critical' %}
+  {% set strategy_badge = 'sp-badge--danger' %}
+{% endif %}
 
 {# ── Seeded-data notice ───────────────────────────────────────────────────── #}
 {% if exclude_seeded is defined and exclude_seeded %}
@@ -59,10 +68,28 @@
 <section class="sp-hero">
   <span class="sp-kicker">Strategy Intelligence Engine</span>
   <h1 style="font-size:1.4rem; font-weight:800; margin:.2rem 0 .3rem">{{ best_strategy }}</h1>
-  <p style="color:var(--text-2); font-size:.85rem; margin-bottom:.75rem">Current best strategy based on tracked outcomes, model accuracy, and confidence behavior.</p>
+  <p style="color:var(--text-2); font-size:.85rem; margin-bottom:.75rem">{{ strategy_rec.get('summary') or 'Current best strategy based on tracked outcomes, model accuracy, and confidence behavior.' }}</p>
   <div style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap">
-    <span class="sp-badge sp-badge--strong">Use This Strategy</span>
+    <span class="sp-badge {{ strategy_badge }}">{{ strategy_rec.get('action_label') or 'Use This Strategy' }}</span>
+    {% if strategy_rec.get('trust_label') %}
+    <span class="sp-badge sp-badge--muted">{{ strategy_rec.get('trust_label') }}</span>
+    {% endif %}
+    {% if strategy_rec.get('trust_score_display') %}
+    <span class="sp-badge sp-badge--muted">Trust {{ strategy_rec.get('trust_score_display') }}</span>
+    {% endif %}
   </div>
+  {% if strategy_rec.get('window_bias_note') %}
+  <p style="color:var(--text-3); font-size:.78rem; margin:.65rem 0 0">{{ strategy_rec.get('window_bias_note') }}</p>
+  {% endif %}
+  {% if strategy_rec.get('reason_lines') %}
+  <div class="sp-list" style="margin-top:.7rem">
+    {% for line in strategy_rec.get('reason_lines')[:3] %}
+    <div class="sp-stat-row">
+      <span>{{ line }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 </section>
 
 {# ═══ KPI Strip ══════════════════════════════════════════════════════════ #}
