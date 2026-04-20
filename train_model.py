@@ -477,14 +477,12 @@ def train_model(
             max_iter=1000,
             solver="lbfgs",
             C=1.0,
-            class_weight="balanced",
             random_state=random_state,
         )),
         ("rf", RandomForestClassifier(
             n_estimators=300,
             max_depth=8,
             min_samples_leaf=3,
-            class_weight="balanced",
             random_state=random_state,
         )),
     ]
@@ -511,7 +509,6 @@ def train_model(
             learning_rate=0.1,
             subsample=0.8,
             colsample_bytree=0.8,
-            class_weight="balanced",
             random_state=random_state,
             verbose=-1,
         )))
@@ -520,17 +517,14 @@ def train_model(
 
     print(f"\nBase models: {[name for name, _ in estimators]}")
 
-    # ── Compute per-sample class weights for XGBoost (no class_weight kwarg) ──
+    # ── Compute one balanced sample weighting scheme for every estimator ───────
     from sklearn.utils.class_weight import compute_sample_weight
     _sample_weight_train = compute_sample_weight("balanced", y_train)
 
     # ── Train individual base models and report accuracy ──────────────────────
     base_models: dict[str, Any] = {}
     for name, est in estimators:
-        if name == "xgb":
-            est.fit(x_train, y_train, sample_weight=_sample_weight_train)
-        else:
-            est.fit(x_train, y_train)
+        est.fit(x_train, y_train, sample_weight=_sample_weight_train)
         preds = est.predict(x_test)
         acc = float(accuracy_score(y_test, preds))
         base_models[name] = {"model": est, "accuracy": acc}
@@ -543,12 +537,12 @@ def train_model(
         if name == "lr":
             stack_estimators.append(("lr", LogisticRegression(
                 max_iter=1000, solver="lbfgs",
-                C=1.0, class_weight="balanced", random_state=random_state,
+                C=1.0, random_state=random_state,
             )))
         elif name == "rf":
             stack_estimators.append(("rf", RandomForestClassifier(
                 n_estimators=300, max_depth=8, min_samples_leaf=3,
-                class_weight="balanced", random_state=random_state,
+                random_state=random_state,
             )))
         elif name == "xgb" and _HAS_XGBOOST:
             stack_estimators.append(("xgb", XGBClassifier(
@@ -561,14 +555,14 @@ def train_model(
             stack_estimators.append(("lgbm", LGBMClassifier(
                 n_estimators=200, max_depth=6, learning_rate=0.1,
                 subsample=0.8, colsample_bytree=0.8,
-                class_weight="balanced", random_state=random_state, verbose=-1,
+                random_state=random_state, verbose=-1,
             )))
 
     stacking_model = StackingClassifier(
         estimators=stack_estimators,
         final_estimator=LogisticRegression(
             max_iter=1000, solver="lbfgs",
-            class_weight="balanced", random_state=random_state,
+            random_state=random_state,
         ),
         cv=5,
         stack_method="predict_proba",
@@ -576,7 +570,7 @@ def train_model(
     )
 
     print("\nTraining stacking ensemble ...")
-    stacking_model.fit(x_train, y_train)
+    stacking_model.fit(x_train, y_train, sample_weight=_sample_weight_train)
 
     # ── Brier score before calibration ────────────────────────────────────────
     n_classes = len(CLASS_LABELS)

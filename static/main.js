@@ -252,17 +252,13 @@ if (chatForm && chatInput) {
     try {
       const response = await fetch('/chat', {
         method: 'POST',
-<<<<<<< HEAD
         headers: csrfHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
-        body: new URLSearchParams({ message, csrf_token: getCsrfToken() }).toString()
-=======
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           message,
+          csrf_token: getCsrfToken(),
           page_path: window.location.pathname,
           page_title: document.title
         }).toString()
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
       });
       const data = await response.json();
       appendChatMessage('assistant', data.reply || data.error || 'No reply available.');
@@ -295,11 +291,7 @@ if (chatClear) {
       console.error(error);
     }
     if (chatMessages) {
-<<<<<<< HEAD
       chatMessages.innerHTML = '<div class="sp-chat-message assistant">Ask about predictions, props, injuries, or where to find a page.</div>';
-=======
-      chatMessages.innerHTML = '<div class="chat-message assistant">Ask about predictions, confidence, result detail grading, parlays, or what to check next in ScorPred.</div>';
->>>>>>> 62bd5ec8721b3dac5055a532ac430cfd8dbf4561
     }
     renderChatSuggestions(defaultChatSuggestions);
   });

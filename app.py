@@ -83,7 +83,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 configure_security(app, _secret_key)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///scorpred.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SECURE"] = _is_production
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 db.init_app(app)
@@ -3973,8 +3973,8 @@ def football_leagues_api():
     )
 
 
-@app.route("/health")
-def health():
+@app.route("/status")
+def status():
     return jsonify(
         {
             "ok": True,
