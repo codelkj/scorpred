@@ -11,6 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import walk_forward_backtest as wf
 from walk_forward_backtest import (
     DEFAULT_REPORT_PATH,
     generate_folds,
@@ -208,3 +209,11 @@ class TestLoadReport:
         p = tmp_path / "bad.json"
         p.write_text("not json at all", encoding="utf-8")
         assert load_walk_forward_report(p) is None
+
+    def test_default_path_uses_runtime_helper(self, tmp_path, monkeypatch):
+        p = tmp_path / "runtime_report.json"
+        data = {"selector": {"default_source": "ml"}}
+        p.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(wf, "walk_forward_report_path", lambda: p)
+        result = load_walk_forward_report()
+        assert result == data

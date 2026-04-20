@@ -31,7 +31,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss
 from sklearn.utils.class_weight import compute_sample_weight
 
-from runtime_paths import historical_dataset_path
+from runtime_paths import historical_dataset_path, walk_forward_report_path
 from train_model import (
     CLASS_LABELS,
     FEATURE_COLUMNS,
@@ -61,8 +61,7 @@ except ImportError:
     _HAS_LIGHTGBM = False
 
 
-DEFAULT_REPORT_DIR = Path(__file__).resolve().parent / "data" / "backtests"
-DEFAULT_REPORT_PATH = DEFAULT_REPORT_DIR / "walk_forward_report.json"
+DEFAULT_REPORT_PATH = walk_forward_report_path()
 RECENT_WINDOW_YEARS = 3
 SELECTOR_MIN_SAMPLE = 60
 SELECTOR_MIN_GAIN = 0.01
@@ -88,6 +87,10 @@ def _recent_rows(rows: list[dict[str, Any]], *, years: int = RECENT_WINDOW_YEARS
     cutoff = latest - timedelta(days=365 * years)
     recent = [row for row, when in dated_rows if when >= cutoff]
     return recent, [cutoff.date().isoformat(), latest.date().isoformat()]
+
+
+def _resolve_report_path(output_path: Path | None = None) -> Path:
+    return Path(output_path) if output_path else walk_forward_report_path()
 
 # ── Fold generation ───────────────────────────────────────────────────────────
 
@@ -917,7 +920,7 @@ def run_walk_forward(
         "selector_window": "last_3_years" if recent_window.get("available") else "all_history",
     }
 
-    save_path = output_path or DEFAULT_REPORT_PATH
+    save_path = _resolve_report_path(output_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
     save_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"\nSaved walk-forward report -> {save_path}")
@@ -985,7 +988,7 @@ def run_walk_forward(
 
 def load_walk_forward_report(path: Path | None = None) -> dict[str, Any] | None:
     """Load a saved walk-forward report if it exists."""
-    target = path or DEFAULT_REPORT_PATH
+    target = _resolve_report_path(path)
     if not target.exists():
         return None
     try:
