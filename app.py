@@ -2534,20 +2534,33 @@ def soccer():
     _logger.debug("Route /soccer hit")
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
-    teams = ac.get_teams(league_id, SEASON)
-    try:
-        fixtures, fixtures_error, fixtures_source, _ = _load_upcoming_fixtures(
-            next_n=20,
-            max_deep_predictions=0,
-            league=league_id,
-            include_injuries=False,
-            include_standings=False,
-        )
-    except Exception as exc:
-        app.logger.warning("Upcoming fixtures fetch failed: %s", exc)
-        fixtures = []
-        fixtures_error = "No upcoming fixtures available."
-        fixtures_source = _football_data_source()
+    results = _run_parallel(
+        {
+            "teams": (
+                lambda: ac.get_teams(league_id, SEASON),
+                [],
+                "Soccer teams fetch failed",
+            ),
+            "fixtures": (
+                lambda: _load_upcoming_fixtures(
+                    next_n=12,
+                    max_deep_predictions=0,
+                    league=league_id,
+                    include_injuries=False,
+                    include_standings=False,
+                ),
+                ([], "No upcoming fixtures available.", _football_data_source(), ""),
+                "Upcoming fixtures fetch failed",
+            ),
+        }
+    )
+    teams = results.get("teams") or []
+    fixtures, fixtures_error, fixtures_source, _ = results.get("fixtures") or (
+        [],
+        "No upcoming fixtures available.",
+        _football_data_source(),
+        "",
+    )
     return render_template(
         "soccer.html",
         teams=teams,
@@ -2578,7 +2591,7 @@ def fixtures():
     data_source = _football_data_source()
 
     fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(
-        next_n=20,
+        next_n=12,
         max_deep_predictions=0,
         league=league_id,
         include_injuries=False,
@@ -3628,8 +3641,8 @@ def today_soccer_predictions():
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
     fixtures_with_pred, grouped_fixtures, load_error, data_source = _load_grouped_upcoming_fixtures_all_leagues(
-        next_n_per_league=12,
-        max_deep_predictions=4,
+        next_n_per_league=6,
+        max_deep_predictions=1,
         include_injuries=False,
         include_standings=False,
     )
@@ -3688,8 +3701,8 @@ def top_picks_today():
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
     soccer_predictions, grouped_soccer_fixtures, load_error, _ = _load_grouped_upcoming_fixtures_all_leagues(
-        next_n_per_league=12,
-        max_deep_predictions=4,
+        next_n_per_league=6,
+        max_deep_predictions=1,
         include_injuries=False,
         include_standings=False,
     )
