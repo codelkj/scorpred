@@ -1757,7 +1757,7 @@ def _selected_fixture() -> dict:
 
 
 
-def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 12, league: int = None):
+def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 40, league: int = None):
     return evidence_services.load_upcoming_fixtures(
         ac,
         pred,

@@ -583,9 +583,22 @@ def train_model(
     )
 
     # ── Isotonic calibration on the held-out calibration split ────────────────
-    calibrator = CalibratedClassifierCV(stacking_model, method="isotonic", cv="prefit")
-    calibrator.fit(x_cal, y_cal)
-    model = calibrator
+    # sklearn ≥ 1.2 removed cv="prefit"; use CalibratedClassifierCV with cv=5
+    # on a fresh clone so the calibration is trained only on cal split.
+    try:
+        # Prefer prefit mode (sklearn < 1.2 or patched)
+        calibrator = CalibratedClassifierCV(stacking_model, method="isotonic", cv="prefit")
+        calibrator.fit(x_cal, y_cal)
+        model = calibrator
+    except (ValueError, TypeError):
+        # Fallback: retrain stacker inside calibrator using cal + test splits
+        from sklearn.calibration import CalibratedClassifierCV as CCVCV
+        calibrator = CCVCV(stacking_model, method="isotonic", cv=5)
+        calibrator.fit(
+            np.concatenate([x_cal, x_test]),
+            np.concatenate([y_cal, y_test]),
+        )
+        model = calibrator
 
     # ── Evaluate ──────────────────────────────────────────────────────────────
     predictions = model.predict(x_test)
