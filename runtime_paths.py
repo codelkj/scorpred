@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from shutil import copy2
 
 
 _REPO_ROOT = Path(__file__).resolve().parent
@@ -104,6 +105,33 @@ def policy_adjustments_path() -> Path:
     return data_dir() / "analysis" / "policy_adjustments.json"
 
 
+def _copy_tree_if_missing(source: Path, target: Path) -> None:
+    if not source.exists():
+        return
+    for item in source.rglob("*"):
+        relative = item.relative_to(source)
+        destination = target / relative
+        if item.is_dir():
+            destination.mkdir(parents=True, exist_ok=True)
+            continue
+        if destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        copy2(item, destination)
+
+
+def seed_runtime_artifacts() -> None:
+    runtime_root = data_root()
+    if runtime_root == repo_root():
+        return
+    bundled_paths = (
+        (repo_root() / "data", runtime_root / "data"),
+        (repo_root() / "cache" / "ml", runtime_root / "cache" / "ml"),
+    )
+    for source, target in bundled_paths:
+        _copy_tree_if_missing(source, target)
+
+
 def ensure_runtime_dirs() -> None:
     data_root().mkdir(parents=True, exist_ok=True)
     data_dir().mkdir(parents=True, exist_ok=True)
@@ -121,3 +149,4 @@ def ensure_runtime_dirs() -> None:
         data_dir() / "logs",
     ):
         folder.mkdir(parents=True, exist_ok=True)
+    seed_runtime_artifacts()
