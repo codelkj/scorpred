@@ -496,12 +496,10 @@ def train_model(
             learning_rate=0.1,
             subsample=0.8,
             colsample_bytree=0.8,
-            use_label_encoder=False,
             eval_metric="mlogloss",
             random_state=random_state,
             verbosity=0,
-            # balance classes in multi-class XGBoost
-            # (XGBClassifier does not accept class_weight; use sample_weight at fit time instead)
+            # sample_weight passed at fit() time below for class balancing
         )))
     else:
         print("  [warn] xgboost not installed – skipping XGBoost base model")
@@ -556,9 +554,8 @@ def train_model(
             stack_estimators.append(("xgb", XGBClassifier(
                 n_estimators=200, max_depth=6, learning_rate=0.1,
                 subsample=0.8, colsample_bytree=0.8,
-                use_label_encoder=False, eval_metric="mlogloss",
+                eval_metric="mlogloss",
                 random_state=random_state, verbosity=0,
-                # sample_weight passed via fit_params below
             )))
         elif name == "lgbm" and _HAS_LIGHTGBM:
             stack_estimators.append(("lgbm", LGBMClassifier(
