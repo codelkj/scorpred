@@ -65,6 +65,9 @@
       </div>
     </div>
 
+    <div class="sp-prob-stack">
+      <div class="sp-prob-stack__bar" style="flex:{{ item.prob_home }}; background:var(--c-strong)" title="{{ '%.1f'|format(item.prob_home) }}%">
+        <span style="font-size:.65rem; padding:0 .3rem">{{ "%.0f"|format(item.prob_home) }}%</span>
       </div>
       <div class="sp-prob-stack__bar" style="flex:{{ item.prob_draw }}; background:var(--c-caution)" title="{{ '%.1f'|format(item.prob_draw) }}%">
         <span style="font-size:.65rem; padding:0 .3rem">{{ "%.0f"|format(item.prob_draw) }}%</span>
@@ -76,7 +79,7 @@
 
     <div style="display:flex; justify-content:space-between; align-items:center">
       <div><span style="font-size:.72rem; color:var(--text-3)">Pick</span><br><strong style="color:var(--c-strong)">{{ item.predicted_winner }}</strong></div>
-      <span style="font-size:.75rem; color:var(--text-3)">Gap {{ "%.1f"|format(item.score_gap) }}/10</span>
+      {% if item.score_gap %}<span style="font-size:.75rem; color:var(--text-3)">Gap {{ "%.1f"|format(item.score_gap) }}/10</span>{% endif %}
     </div>
     {% if item.reasoning %}<p style="font-size:.78rem; color:var(--text-2); margin-top:.4rem; border-top:1px solid var(--border); padding-top:.4rem">{{ item.reasoning }}</p>{% endif %}
   </article>

@@ -34,36 +34,59 @@
   </div>
 
 
-  {% if upcoming_fixtures %}
-    {% for f in upcoming_fixtures %}
-      <div class="sp-fixture__vs">vs</div>
-      <div class="sp-fixture__team right">
-        <span>{{ f.teams.away.name if f.teams and f.teams.away else 'TBD' }}</span>
-        <img src="{{ f.teams.away.logo if f.teams and f.teams.away else '' }}" class="team-logo-sm" alt="{{ f.teams.away.name if f.teams and f.teams.away else 'TBD' }}" />
-      </div>
-      {# ...existing fixture card rendering here... #}
-
-      {# Injury section fallback #}
-      {% if f.injuries is defined and f.injuries is none %}
-        <div class="sp-alert sp-alert--warn" style="margin-top:.5rem">Injury data unavailable.</div>
-      {% endif %}
-
-    {% endfor %}
-  {% else %}
-    <div class="sp-empty">No upcoming fixtures available right now.</div>
+  {% if fixtures_error and not upcoming_fixtures %}
+  <div class="sp-notice sp-notice--warn">{{ fixtures_error }}</div>
   {% endif %}
 
-  {% if fixtures_error %}
-  <div class="sp-alert sp-alert--warn">{{ fixtures_error }}</div>
-  {% endif %}
-
-
   {% if upcoming_fixtures %}
+  <div style="display:flex; flex-direction:column; gap:.5rem; margin-top:.75rem">
     {% for f in upcoming_fixtures %}
-      {# ...existing fixture card rendering here... #}
+    {% set home = f.teams.home if f.teams and f.teams.home else {} %}
+    {% set away = f.teams.away if f.teams and f.teams.away else {} %}
+    {% set fdate = f.fixture.date[:10] if f.fixture and f.fixture.date else '' %}
+    {% set ftime = f.fixture.date[11:16] if f.fixture and f.fixture.date and f.fixture.date|length > 10 else '' %}
+    <form method="POST" action="/select" style="display:contents">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="league_id"    value="{{ (f.league.id if f.league and f.league.id else current_league_id) }}" />
+      <input type="hidden" name="team_a"        value="{{ home.id or '' }}" />
+      <input type="hidden" name="team_b"        value="{{ away.id or '' }}" />
+      <input type="hidden" name="team_a_name"   value="{{ home.name or '' }}" />
+      <input type="hidden" name="team_a_logo"   value="{{ home.logo or '' }}" />
+      <input type="hidden" name="team_b_name"   value="{{ away.name or '' }}" />
+      <input type="hidden" name="team_b_logo"   value="{{ away.logo or '' }}" />
+      <input type="hidden" name="fixture_id"    value="{{ f.fixture.id if f.fixture else '' }}" />
+      <input type="hidden" name="fixture_date"  value="{{ f.fixture.date if f.fixture else '' }}" />
+      <input type="hidden" name="league_name"   value="{{ f.league.name if f.league else '' }}" />
+      <input type="hidden" name="round"         value="{{ f.league.round if f.league else '' }}" />
+      <input type="hidden" name="venue_name"    value="{{ f.fixture.venue.name if f.fixture and f.fixture.venue else '' }}" />
+      <input type="hidden" name="data_source"   value="{{ fixtures_source }}" />
+      <button type="submit" class="sp-fixture-row" style="width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left">
+        <div class="sp-panel sp-panel--tight" style="display:flex; align-items:center; gap:.75rem; padding:.6rem .75rem">
+          <div style="flex:1; display:flex; align-items:center; gap:.4rem; justify-content:flex-end">
+            {% if home.logo %}<img src="{{ home.logo }}" alt="" style="width:24px;height:24px;object-fit:contain" />{% endif %}
+            <strong style="font-size:.88rem">{{ home.name or 'TBD' }}</strong>
+          </div>
+          <div style="text-align:center; min-width:80px">
+            <div style="font-size:.68rem; color:var(--text-3); margin-bottom:.1rem">
+              {% if fdate %}{{ fdate }}{% if ftime %} &middot; {{ ftime }}{% endif %}{% endif %}
+            </div>
+            <span style="font-size:.78rem; color:var(--text-3); font-weight:600">vs</span>
+            {% if f.league %}
+            <div style="font-size:.62rem; color:var(--text-3); margin-top:.1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80px">{{ f.league.name }}</div>
+            {% endif %}
+          </div>
+          <div style="flex:1; display:flex; align-items:center; gap:.4rem">
+            <strong style="font-size:.88rem">{{ away.name or 'TBD' }}</strong>
+            {% if away.logo %}<img src="{{ away.logo }}" alt="" style="width:24px;height:24px;object-fit:contain" />{% endif %}
+          </div>
+          <span style="font-size:.72rem; color:var(--text-3); padding-left:.5rem; white-space:nowrap">Analyse →</span>
+        </div>
+      </button>
+    </form>
     {% endfor %}
+  </div>
   {% else %}
-    <div class="sp-empty">No upcoming fixtures available right now.</div>
+    <div class="sp-notice" style="text-align:center; padding:1.5rem; color:var(--text-3)">No upcoming fixtures available right now.</div>
   {% endif %}
 
   {# Custom matchup picker (advanced) #}

@@ -1757,7 +1757,7 @@ def _selected_fixture() -> dict:
 
 
 
-def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 12, league: int = None):
+def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 40, league: int = None):
     return evidence_services.load_upcoming_fixtures(
         ac,
         pred,
@@ -3276,7 +3276,7 @@ def prediction():
             team_a=team_a,
             team_b=team_b,
             prediction=mastermind,
-            scorpred=mastermind,
+            scorpred=mastermind.get("ui_prediction") or {},
             selected_fixture=selected_fixture,
             **_league_context(league_id),
         ),
@@ -3575,6 +3575,7 @@ def today_soccer_predictions():
                 "prob_draw": probs.get("draw", 0),
                 "prob_away": probs.get("b", 50),
                 "reasoning": best_pick.get("reasoning", ""),
+                "score_gap": prediction.get("score_gap"),
                 "has_data": bool(prediction.get("form_a") and prediction.get("form_b")),
             }
         except Exception as e:
