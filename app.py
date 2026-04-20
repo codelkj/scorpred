@@ -1345,13 +1345,17 @@ def _active_league_id() -> int:
     if requested is not None and str(requested).strip() != "":
         return _coerce_league_id(requested)
 
-    return _coerce_league_id(session.get(LEAGUE_SESSION_KEY), DEFAULT_LEAGUE_ID)
+    stored = session.get(LEAGUE_SESSION_KEY)
+    if stored is None:
+        stored = session.get("football_league_id")
+    return _coerce_league_id(stored, DEFAULT_LEAGUE_ID)
 
 
 def _set_active_league(league_id: int) -> int:
     normalized = _coerce_league_id(league_id)
     previous = _coerce_league_id(session.get(LEAGUE_SESSION_KEY), DEFAULT_LEAGUE_ID)
     session[LEAGUE_SESSION_KEY] = normalized
+    session["football_league_id"] = normalized
     if previous != normalized:
         _clear_selected_matchup()
     return normalized
@@ -1758,7 +1762,14 @@ def _selected_fixture() -> dict:
 
 
 
-def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 40, league: int = None):
+def _load_upcoming_fixtures(
+    next_n: int = 20,
+    max_deep_predictions: int = 6,
+    league: int = None,
+    *,
+    include_injuries: bool = True,
+    include_standings: bool = True,
+):
     return evidence_services.load_upcoming_fixtures(
         ac,
         pred,
@@ -1769,6 +1780,8 @@ def _load_upcoming_fixtures(next_n: int = 20, max_deep_predictions: int = 40, le
         football_data_source=_football_data_source,
         next_n=next_n,
         max_deep_predictions=max_deep_predictions,
+        include_injuries=include_injuries,
+        include_standings=include_standings,
     )
     fixtures_with_pred = []
     data_source = _football_data_source()
@@ -1881,7 +1894,13 @@ def _prediction_confidence_rank(item: dict) -> tuple[int, float]:
     return (conf_map.get(conf, 3), -prob_gap)
 
 
-def _load_grouped_upcoming_fixtures_all_leagues(next_n_per_league: int = 8):
+def _load_grouped_upcoming_fixtures_all_leagues(
+    next_n_per_league: int = 8,
+    *,
+    max_deep_predictions: int = 4,
+    include_injuries: bool = False,
+    include_standings: bool = False,
+):
     grouped_fixtures: list[dict] = []
     all_fixtures: list[dict] = []
     load_errors: list[str] = []
@@ -1890,7 +1909,14 @@ def _load_grouped_upcoming_fixtures_all_leagues(next_n_per_league: int = 8):
     # Fetch all leagues concurrently to avoid sequential 15s-per-league stalls
     with ThreadPoolExecutor(max_workers=min(6, len(SUPPORTED_LEAGUE_IDS))) as executor:
         future_to_league = {
-            executor.submit(_load_upcoming_fixtures, next_n=next_n_per_league, league=lid): lid
+            executor.submit(
+                _load_upcoming_fixtures,
+                next_n=next_n_per_league,
+                max_deep_predictions=max_deep_predictions,
+                league=lid,
+                include_injuries=include_injuries,
+                include_standings=include_standings,
+            ): lid
             for lid in SUPPORTED_LEAGUE_IDS
         }
         league_results: dict[int, tuple] = {}
@@ -2473,16 +2499,24 @@ def soccer():
     league_id = _set_active_league(_active_league_id())
     teams = ac.get_teams(league_id, SEASON)
     try:
-        fixtures = ac.get_upcoming_fixtures(league_id, SEASON)
+        fixtures, fixtures_error, fixtures_source, _ = _load_upcoming_fixtures(
+            next_n=20,
+            max_deep_predictions=0,
+            league=league_id,
+            include_injuries=False,
+            include_standings=False,
+        )
     except Exception as exc:
         app.logger.warning("Upcoming fixtures fetch failed: %s", exc)
         fixtures = []
+        fixtures_error = "No upcoming fixtures available."
+        fixtures_source = _football_data_source()
     return render_template(
         "soccer.html",
         teams=teams,
         upcoming_fixtures=fixtures,
-        fixtures_error=None if fixtures else "No upcoming fixtures available.",
-        fixtures_source=_football_data_source(),
+        fixtures_error=fixtures_error if fixtures_error or not fixtures else None,
+        fixtures_source=fixtures_source,
         selection_notice=(request.args.get("selection_error") or "").strip() or None,
         selected_fixture=_selected_fixture(),
         **_league_context(league_id),
@@ -2506,7 +2540,13 @@ def fixtures():
     load_error = None
     data_source = _football_data_source()
 
-    fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(next_n=20, league=league_id)
+    fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(
+        next_n=20,
+        max_deep_predictions=0,
+        league=league_id,
+        include_injuries=False,
+        include_standings=False,
+    )
 
     return render_template(
         "fixtures.html",
@@ -3354,7 +3394,6 @@ def props():
             squad_a=squad_a,
             squad_b=squad_b,
             sport="soccer",
-            supported_leagues=_football_supported_leagues(),
             default_league_id=LEAGUE,
             football_markets=ac.get_market_catalog(),
             football_position_default_markets=ac.POSITION_DEFAULT_MARKETS,
@@ -3552,7 +3591,10 @@ def today_soccer_predictions():
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
     fixtures_with_pred, grouped_fixtures, load_error, data_source = _load_grouped_upcoming_fixtures_all_leagues(
-        next_n_per_league=12
+        next_n_per_league=12,
+        max_deep_predictions=4,
+        include_injuries=False,
+        include_standings=False,
     )
 
     def _build_prediction_item(fixture: dict) -> dict | None:
@@ -3609,7 +3651,10 @@ def top_picks_today():
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
     soccer_predictions, grouped_soccer_fixtures, load_error, _ = _load_grouped_upcoming_fixtures_all_leagues(
-        next_n_per_league=12
+        next_n_per_league=12,
+        max_deep_predictions=4,
+        include_injuries=False,
+        include_standings=False,
     )
     soccer_picks = []
     for fixture in soccer_predictions:
@@ -3835,7 +3880,7 @@ def pass_analysis():
 
 @app.route("/prediction-result/<prediction_id>")
 def prediction_result_detail(prediction_id: str):
-    record = mt.get_prediction(prediction_id) or {}
+    record = mt.get_prediction_by_id(prediction_id) or {}
     if not record:
         return _critical_error("Prediction not found.", 404)
 

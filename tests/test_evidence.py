@@ -153,6 +153,36 @@ def test_load_upcoming_fixtures_uses_short_ttl_cache():
     assert api.calls["get_standings"] == 1
 
 
+def test_load_upcoming_fixtures_can_skip_injuries_and_standings_for_lightweight_views():
+    evidence._UPCOMING_FIXTURE_CACHE.clear()
+    evidence._TEAM_FORM_CACHE.clear()
+    evidence._H2H_CACHE.clear()
+    evidence._INJURY_CACHE.clear()
+
+    api = _DummyApi()
+
+    fixtures, _, _, _ = evidence.load_upcoming_fixtures(
+        api,
+        _DummyPredictor(),
+        _DummyEngine(),
+        league=39,
+        season=2026,
+        logger=_DummyLogger(),
+        football_data_source=lambda: "configured",
+        next_n=6,
+        max_deep_predictions=2,
+        include_injuries=False,
+        include_standings=False,
+    )
+
+    assert fixtures
+    assert api.calls["get_upcoming_fixtures"] == 1
+    assert api.calls["get_h2h"] == 1
+    assert api.calls["get_team_fixtures"] == 2
+    assert api.calls["get_injuries"] == 0
+    assert api.calls["get_standings"] == 0
+
+
 def test_load_upcoming_fixtures_bypasses_cache_on_force_refresh():
     evidence._UPCOMING_FIXTURE_CACHE.clear()
     api = _DummyApi()

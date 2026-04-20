@@ -39,13 +39,14 @@
   {% endif %}
 
   {% if upcoming_fixtures %}
-  <div style="display:flex; flex-direction:column; gap:.5rem; margin-top:.75rem">
+  <div class="sp-fixture-list">
     {% for f in upcoming_fixtures %}
     {% set home = f.teams.home if f.teams and f.teams.home else {} %}
     {% set away = f.teams.away if f.teams and f.teams.away else {} %}
     {% set fdate = f.fixture.date[:10] if f.fixture and f.fixture.date else '' %}
     {% set ftime = f.fixture.date[11:16] if f.fixture and f.fixture.date and f.fixture.date|length > 10 else '' %}
-    <form method="POST" action="/select" style="display:contents">
+    {% set venue = f.fixture.venue.name if f.fixture and f.fixture.venue and f.fixture.venue.name else '' %}
+    <form method="POST" action="/select" class="sp-fixture-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <input type="hidden" name="league_id"    value="{{ (f.league.id if f.league and f.league.id else current_league_id) }}" />
       <input type="hidden" name="team_a"        value="{{ home.id or '' }}" />
@@ -60,27 +61,42 @@
       <input type="hidden" name="round"         value="{{ f.league.round if f.league else '' }}" />
       <input type="hidden" name="venue_name"    value="{{ f.fixture.venue.name if f.fixture and f.fixture.venue else '' }}" />
       <input type="hidden" name="data_source"   value="{{ fixtures_source }}" />
-      <button type="submit" class="sp-fixture-row" style="width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left">
-        <div class="sp-panel sp-panel--tight" style="display:flex; align-items:center; gap:.75rem; padding:.6rem .75rem">
-          <div style="flex:1; display:flex; align-items:center; gap:.4rem; justify-content:flex-end">
-            {% if home.logo %}<img src="{{ home.logo }}" alt="" style="width:24px;height:24px;object-fit:contain" />{% endif %}
-            <strong style="font-size:.88rem">{{ home.name or 'TBD' }}</strong>
-          </div>
-          <div style="text-align:center; min-width:80px">
-            <div style="font-size:.68rem; color:var(--text-3); margin-bottom:.1rem">
-              {% if fdate %}{{ fdate }}{% if ftime %} &middot; {{ ftime }}{% endif %}{% endif %}
-            </div>
-            <span style="font-size:.78rem; color:var(--text-3); font-weight:600">vs</span>
-            {% if f.league %}
-            <div style="font-size:.62rem; color:var(--text-3); margin-top:.1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80px">{{ f.league.name }}</div>
+      <button type="submit" class="sp-fixture-row">
+        <article class="sp-fixture sp-fixture-card">
+          <div class="sp-fixture__meta sp-fixture-card__meta">
+            <span>{% if fdate %}{{ fdate }}{% if ftime %} &middot; {{ ftime }}{% endif %}{% else %}Kickoff TBD{% endif %}</span>
+            {% if f.league and f.league.name %}
+            <span>{{ f.league.name }}</span>
+            {% endif %}
+            {% if venue %}
+            <span>{{ venue }}</span>
             {% endif %}
           </div>
-          <div style="flex:1; display:flex; align-items:center; gap:.4rem">
-            <strong style="font-size:.88rem">{{ away.name or 'TBD' }}</strong>
-            {% if away.logo %}<img src="{{ away.logo }}" alt="" style="width:24px;height:24px;object-fit:contain" />{% endif %}
+          <div class="sp-fixture__teams sp-fixture-card__teams">
+            <div class="sp-fixture__team right sp-fixture-card__team">
+              <div class="sp-fixture-card__team-copy">
+                <span class="sp-fixture-card__team-name">{{ home.name or 'TBD' }}</span>
+              </div>
+              {% if home.logo %}<img src="{{ home.logo }}" alt="" class="team-logo-sm" />{% endif %}
+            </div>
+            <div class="sp-fixture-card__center">
+              <span class="sp-fixture__vs">vs</span>
+              {% if f.league and f.league.round %}
+              <span class="sp-fixture-card__round">{{ f.league.round }}</span>
+              {% endif %}
+            </div>
+            <div class="sp-fixture__team sp-fixture-card__team">
+              {% if away.logo %}<img src="{{ away.logo }}" alt="" class="team-logo-sm" />{% endif %}
+              <div class="sp-fixture-card__team-copy">
+                <span class="sp-fixture-card__team-name">{{ away.name or 'TBD' }}</span>
+              </div>
+            </div>
           </div>
-          <span style="font-size:.72rem; color:var(--text-3); padding-left:.5rem; white-space:nowrap">Analyse →</span>
-        </div>
+          <div class="sp-fixture__footer sp-fixture-card__footer">
+            <span class="sp-fixture-card__footnote">Tap for the full matchup breakdown, ML read, and form context.</span>
+            <span class="sp-fixture-card__cta">Analyse Match -></span>
+          </div>
+        </article>
       </button>
     </form>
     {% endfor %}

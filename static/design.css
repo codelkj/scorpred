@@ -818,6 +818,92 @@ h3 { font-size: 1.05rem; }
 .sp-fixture__status--lean        { background: rgba(var(--c-active-rgb),.10); color: var(--c-active); }
 .sp-fixture__status--no-edge     { background: rgba(var(--c-caution-rgb),.08); color: var(--c-caution); }
 .sp-fixture__status--avoid       { background: rgba(var(--c-danger-rgb),.08); color: var(--c-danger); }
+.sp-fixture-list {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  margin-top: .9rem;
+}
+.sp-fixture-form { margin: 0; }
+.sp-fixture-row {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+.sp-fixture-row:focus-visible {
+  outline: 2px solid rgba(var(--c-active-rgb), .8);
+  outline-offset: 4px;
+  border-radius: calc(var(--radius-lg) + 4px);
+}
+.sp-fixture-card {
+  margin-bottom: 0;
+  color: var(--text);
+}
+.sp-fixture-row:hover .sp-fixture-card,
+.sp-fixture-row:focus-visible .sp-fixture-card {
+  border-color: rgba(var(--c-active-rgb), .55);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
+}
+.sp-fixture-card__meta span::after {
+  content: "•";
+  margin-left: .5rem;
+  color: var(--text-3);
+}
+.sp-fixture-card__meta span:last-child::after { content: none; }
+.sp-fixture-card__teams {
+  align-items: center;
+  gap: 1.25rem;
+}
+.sp-fixture-card__team {
+  min-width: 0;
+}
+.sp-fixture-card__team-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sp-fixture-card__team-name {
+  display: block;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+  word-break: break-word;
+}
+.sp-fixture-card__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .25rem;
+  min-width: 8rem;
+  text-align: center;
+}
+.sp-fixture-card__round {
+  color: var(--text-3);
+  font-size: .72rem;
+  line-height: 1.35;
+}
+.sp-fixture-card__footer {
+  align-items: center;
+}
+.sp-fixture-card__footnote {
+  color: var(--text-2);
+  font-size: .8rem;
+}
+.sp-fixture-card__cta {
+  color: var(--c-active);
+  font-size: .82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 /* Team logos */
 .team-logo-sm { width: 24px; height: 24px; object-fit: contain; border-radius: 4px; }
@@ -1545,6 +1631,22 @@ h3 { font-size: 1.05rem; }
   [data-sp-tabs] > .sp-tab-panel { width: 100%; min-width: 0; }
   .sp-fixture__teams { flex-wrap: wrap; }
   .sp-fixture__team.right { flex-direction: row; }
+  .sp-fixture-card__teams {
+    gap: .85rem;
+  }
+  .sp-fixture-card__center {
+    order: -1;
+    width: 100%;
+    min-width: 0;
+    padding-bottom: .15rem;
+  }
+  .sp-fixture-card__footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .sp-fixture-card__cta {
+    white-space: normal;
+  }
   .sp-actions-grid { grid-template-columns: 1fr; }
   .sp-model-grid { grid-template-columns: 1fr; }
   .sp-kpi-strip { grid-template-columns: 1fr 1fr; }

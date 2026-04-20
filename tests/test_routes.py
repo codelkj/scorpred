@@ -281,6 +281,14 @@ class TestFixturesRoute:
             rv = client.get("/soccer")
         assert rv.status_code == 200
 
+    def test_soccer_route_renders_fixture_cards_with_theme_safe_markup(self, client):
+        with patch("api_client.get_teams", return_value=_mock_teams()), \
+             patch("app._load_upcoming_fixtures", return_value=([_mock_fixture()], None, "configured", "")):
+            rv = client.get("/soccer")
+        assert rv.status_code == 200
+        assert b"sp-fixture-card__team-name" in rv.data
+        assert b"Analyse Match" in rv.data
+
 
 class TestTodayPredictionsRoute:
     def test_today_predictions_handles_missing_score_gap(self, client):
@@ -305,11 +313,12 @@ class TestTodayPredictionsRoute:
             }
         ]
 
-        with patch("app._load_upcoming_fixtures", return_value=(payload, None, "configured", "")):
+        grouped = [{"league_name": "Premier League", "fixtures": payload, "predictions": payload}]
+        with patch("app._load_grouped_upcoming_fixtures_all_leagues", return_value=(payload, grouped, None, "configured")):
             rv = client.get("/today-soccer-predictions")
 
         assert rv.status_code == 200
-        assert b"Upcoming Soccer Predictions" in rv.data
+        assert b"Soccer Predictions" in rv.data
 
     def test_today_predictions_show_multiple_league_sections(self, client):
         premier_fixture = {
@@ -1925,9 +1934,9 @@ class TestConnectedFlows:
 
             select_resp = client.post("/select", data={"team_a": "33", "team_b": "40"})
             assert select_resp.status_code in (302, 303)
-            assert "/matchup" in select_resp.headers.get("Location", "")
+            assert "/prediction" in select_resp.headers.get("Location", "")
 
-            assert client.get("/matchup").status_code == 200
+            assert client.get("/prediction").status_code == 200
             assert client.get("/prediction").status_code == 200
             assert client.get("/players").status_code == 200
             assert client.get("/props").status_code == 200

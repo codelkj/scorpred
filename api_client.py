@@ -134,6 +134,8 @@ def _make_cache_key(endpoint: str, params: dict | None) -> str:
 # ── 403 session suppression — never retry a forbidden endpoint this process ──
 # Cleared on process restart. Prevents hammering a key-gated endpoint.
 _FORBIDDEN_ENDPOINTS: set[str] = set()
+_RATE_LIMITED_ENDPOINTS: dict[str, float] = {}
+_RATE_LIMIT_COOLDOWN_SECONDS = float(os.getenv("API_FOOTBALL_RATE_LIMIT_COOLDOWN_SECONDS", "900"))
 
 # ── Token bucket — cap burst API calls per request context ───────────────────
 _MAX_CALLS_PER_REQUEST = 12
@@ -230,6 +232,19 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
         if stale_entry:
             return {"data": stale_entry["data"], "status": "success", "stale": True}
         return {"error": "Live data unavailable for this endpoint.", "status": "fail", "restricted": True}
+    cooldown_until = _RATE_LIMITED_ENDPOINTS.get(endpoint_base)
+    if cooldown_until:
+        remaining = cooldown_until - time.time()
+        if remaining > 0:
+            _logger.debug("Skipping rate-limited endpoint %s (cooldown %.1fs)", endpoint, remaining)
+            if stale_entry:
+                return {"data": stale_entry["data"], "status": "success", "stale": True, "rate_limited": True}
+            return {
+                "error": "Live data temporarily unavailable. Please try again shortly.",
+                "status": "fail",
+                "rate_limited": True,
+            }
+        _RATE_LIMITED_ENDPOINTS.pop(endpoint_base, None)
 
     # Token bucket: cap burst API calls per request
     call_count = _increment_request_call_count()
@@ -269,12 +284,17 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 )
             _logger.debug("%s status=%s", url, resp.status_code)
             if resp.status_code == 429:
+                _RATE_LIMITED_ENDPOINTS[endpoint_base] = time.time() + _RATE_LIMIT_COOLDOWN_SECONDS
                 _logger.warning("Rate limit (429) for %s", endpoint)
                 if stale_entry:
                     _logger.info("Serving stale cache for %s after 429", endpoint)
-                    result = {"data": stale_entry["data"], "status": "success", "stale": True}
+                    result = {"data": stale_entry["data"], "status": "success", "stale": True, "rate_limited": True}
                 else:
-                    result = {"error": "Live data temporarily unavailable. Please try again shortly.", "status": "fail"}
+                    result = {
+                        "error": "Live data temporarily unavailable. Please try again shortly.",
+                        "status": "fail",
+                        "rate_limited": True,
+                    }
                 break
             if resp.status_code == 403:
                 _FORBIDDEN_ENDPOINTS.add(endpoint_base)
@@ -350,6 +370,8 @@ def clear_cache() -> None:
                 path.unlink()
             except OSError:
                 pass
+    _FORBIDDEN_ENDPOINTS.clear()
+    _RATE_LIMITED_ENDPOINTS.clear()
 
 
 # -- ESPN fallback helpers ---------------------------------------------------

@@ -290,6 +290,8 @@ def load_upcoming_fixtures(
     football_data_source: Callable[[], str] | None = None,
     next_n: int = 20,
     max_deep_predictions: int = 6,
+    include_injuries: bool = True,
+    include_standings: bool = True,
     competition: str | None = None,
     days: int | None = None,
     **legacy_kwargs,
@@ -324,7 +326,17 @@ def load_upcoming_fixtures(
 
     source_hint = (football_data_source() if callable(football_data_source) else "configured") or "configured"
     force_refresh = bool(getattr(api_client, "FORCE_REFRESH", False))
-    cache_key = (league, season, int(next_n), int(max_deep_predictions), competition or "", int(days or 0), source_hint)
+    cache_key = (
+        league,
+        season,
+        int(next_n),
+        int(max_deep_predictions),
+        int(bool(include_injuries)),
+        int(bool(include_standings)),
+        competition or "",
+        int(days or 0),
+        source_hint,
+    )
 
     if not force_refresh:
         cached = _cache_get(_UPCOMING_FIXTURE_CACHE, cache_key, now)
@@ -394,8 +406,11 @@ def load_upcoming_fixtures(
         _cache_set(_UPCOMING_FIXTURE_CACHE, cache_key, result, now, _UPCOMING_FIXTURE_CACHE_TTL_SECONDS)
         return result
 
-    standings = _cached_standings(api_client, league=league, season=season, now=now, logger=logger)
-    opp_strengths = build_opp_strengths(engine, standings)
+    standings = []
+    opp_strengths = {}
+    if include_standings:
+        standings = _cached_standings(api_client, league=league, season=season, now=now, logger=logger)
+        opp_strengths = build_opp_strengths(engine, standings)
 
     normalized: list[dict] = []
     for fixture in upcoming_raw:
@@ -434,16 +449,25 @@ def load_upcoming_fixtures(
 
     # Prefetch all API data for deep fixtures in parallel
     def _fetch_fixture_data(home_id, away_id):
-        """Fetch all 5 data points for one fixture concurrently."""
+        """Fetch the requested evidence payloads for one fixture concurrently."""
         results = {}
         tasks = {
             "form_home": lambda: _cached_team_form(api_client, predictor, team_id=home_id, league=league, season=season, now=now, logger=logger),
             "form_away": lambda: _cached_team_form(api_client, predictor, team_id=away_id, league=league, season=season, now=now, logger=logger),
             "h2h":       lambda: _cached_h2h(api_client, predictor, home_id=home_id, away_id=away_id, season=season, now=now, logger=logger),
-            "inj_home":  lambda: _cached_injuries(api_client, team_id=home_id, league=league, season=season, now=now, logger=logger),
-            "inj_away":  lambda: _cached_injuries(api_client, team_id=away_id, league=league, season=season, now=now, logger=logger),
         }
-        with ThreadPoolExecutor(max_workers=5) as pool:
+        if include_injuries:
+            tasks.update(
+                {
+                    "inj_home": lambda: _cached_injuries(
+                        api_client, team_id=home_id, league=league, season=season, now=now, logger=logger
+                    ),
+                    "inj_away": lambda: _cached_injuries(
+                        api_client, team_id=away_id, league=league, season=season, now=now, logger=logger
+                    ),
+                }
+            )
+        with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
             futs = {pool.submit(fn): key for key, fn in tasks.items()}
             for fut in as_completed(futs):
                 key = futs[fut]
@@ -490,8 +514,8 @@ def load_upcoming_fixtures(
             form_away, fixtures_away = data.get("form_away") or ([], [])
             h2h_result = data.get("h2h") or ([], [], [])
             _, h2h_home, h2h_away = h2h_result
-            injuries_home = data.get("inj_home") or []
-            injuries_away = data.get("inj_away") or []
+            injuries_home = (data.get("inj_home") or []) if include_injuries else []
+            injuries_away = (data.get("inj_away") or []) if include_injuries else []
 
             fallback_reason = None
             if not form_home or not form_away:
