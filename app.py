@@ -29,7 +29,7 @@ import model_tracker as mt
 import user_auth
 import odds_fetcher
 import result_updater as ru
-from runtime_paths import ensure_runtime_dirs
+from runtime_paths import data_root, ensure_runtime_dirs, ml_report_path, walk_forward_report_path
 from security import check_chat_rate_limit, configure_security, sanitize_error
 from services import analysis_assistant as assistant_services
 from db_models import db
@@ -64,6 +64,7 @@ ensure_runtime_dirs()
 
 import logging as _logging
 _logger = _logging.getLogger(__name__)
+_RELEASE_TAG = "2026-04-20-d53ddbe"
 
 # ── Production startup guard ───────────────────────────────────────────────────
 _secret_key = os.environ.get("SECRET_KEY", "").strip()
@@ -3980,7 +3981,11 @@ def health():
         {
             "ok": True,
             "app": "ScorPred",
+            "release": _RELEASE_TAG,
             "data_source": _football_data_source(),
+            "runtime_root": str(data_root()),
+            "walk_forward_report_exists": walk_forward_report_path().exists(),
+            "ml_report_exists": ml_report_path().exists(),
             "timestamp": _now_stamp(),
         }
     )
