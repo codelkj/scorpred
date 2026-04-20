@@ -3973,8 +3973,9 @@ def football_leagues_api():
     )
 
 
+@app.route("/health")
 @app.route("/status")
-def status():
+def health():
     return jsonify(
         {
             "ok": True,
