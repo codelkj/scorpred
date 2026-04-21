@@ -1,62 +1,37 @@
-import { useState, useEffect, type ReactNode } from 'react';
-import {
-  Hexagon, BarChart3, FlaskConical, Settings, User,
-  TrendingUp, LayoutDashboard, Trophy, Activity, Dumbbell,
-} from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Activity, CheckCircle2, Dumbbell, Hexagon, Home, Search, Trophy } from 'lucide-react';
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   DashboardTheme — Global app shell.
-   Uses .app-layout / .content-area / .main-content from index.css.
-   Sidebar is fixed-width; content area scrolls independently.
-   ───────────────────────────────────────────────────────────────────────────── */
+interface NavItem {
+  label: string;
+  icon: ReactNode;
+}
 
-interface NavItem { label: string; icon: ReactNode }
-
-const SECTIONS: { heading: string; items: NavItem[] }[] = [
-  {
-    heading: 'Analysis',
-    items: [
-      { label: 'Dashboard',      icon: <LayoutDashboard className="w-4 h-4" /> },
-      { label: 'Soccer',         icon: <TrendingUp className="w-4 h-4" /> },
-      { label: 'NBA',            icon: <Dumbbell className="w-4 h-4" /> },
-      { label: 'Match Analysis', icon: <Activity className="w-4 h-4" /> },
-    ],
-  },
-  {
-    heading: 'Tools',
-    items: [
-      { label: 'Strategy Lab',   icon: <FlaskConical className="w-4 h-4" /> },
-      { label: 'Performance',    icon: <BarChart3 className="w-4 h-4" /> },
-      { label: 'Props Engine',   icon: <Trophy className="w-4 h-4" /> },
-    ],
-  },
-  {
-    heading: 'Account',
-    items: [
-      { label: 'Settings',       icon: <Settings className="w-4 h-4" /> },
-    ],
-  },
+const NAV_ITEMS: NavItem[] = [
+  { label: 'Home', icon: <Home className="h-4 w-4" /> },
+  { label: 'Soccer', icon: <Trophy className="h-4 w-4" /> },
+  { label: 'NBA', icon: <Dumbbell className="h-4 w-4" /> },
+  { label: 'Match Analysis', icon: <Search className="h-4 w-4" /> },
+  { label: 'Results', icon: <CheckCircle2 className="h-4 w-4" /> },
 ];
 
-/* ── Live clock ─────────────────────────────────────────────────────────── */
 function LiveClock() {
   const [time, setTime] = useState(() => new Date());
+
   useEffect(() => {
     const id = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
-  const p = (n: number) => String(n).padStart(2, '0');
+
   return (
-    <span className="text-[10px] tracking-widest text-neutral-600 font-mono border border-white/[0.06] px-2.5 py-1">
-      {p(time.getMonth() + 1)}-{p(time.getDate())} {p(time.getHours())}:{p(time.getMinutes())}:{p(time.getSeconds())}
+    <span className="rounded-full border border-white/[0.08] px-3 py-1 text-[11px] text-slate-400">
+      {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
     </span>
   );
 }
 
-/* ── DashboardLayout ─────────────────────────────────────────────────────── */
 export default function DashboardLayout({
   children,
-  activeItem = 'Dashboard',
+  activeItem = 'Home',
   onNavigate,
 }: {
   children: ReactNode;
@@ -65,90 +40,77 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="app-layout">
-
-      {/* ── Sidebar ───────────────────────────────────────────────────── */}
-      <aside className="sidebar hidden md:flex flex-col border-r border-white/[0.06] bg-[#0f172a]">
-        {/* Logo */}
-        <div className="flex items-center gap-2 px-5 py-5 border-b border-white/[0.06] shrink-0">
-          <Hexagon className="w-5 h-5 text-[#00ff87]" strokeWidth={1.5} />
-          <span className="text-sm tracking-[0.2em] uppercase font-oswald">
-            SCOR<span className="text-[#00ff87]">PRED</span>
-          </span>
+      <aside className="sidebar hidden flex-col border-r border-white/[0.07] bg-[#0c1424] md:flex">
+        <div className="border-b border-white/[0.07] px-5 py-6">
+          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/25 bg-emerald-400/10">
+            <Hexagon className="h-5 w-5 text-emerald-300" strokeWidth={1.6} />
+          </div>
+          <p className="font-oswald text-xl uppercase tracking-[0.18em] text-white">ScorPred</p>
+          <p className="mt-1 text-xs text-slate-500">Decision Intelligence</p>
         </div>
 
-        {/* Nav sections */}
-        <nav className="flex-1 py-4 space-y-6 overflow-y-auto">
-          {SECTIONS.map((sec) => (
-            <div key={sec.heading} className="px-4">
-              <p className="text-[10px] tracking-[0.2em] text-neutral-600 uppercase font-mono mb-2 px-2">
-                {sec.heading}
-              </p>
-              <ul className="space-y-0.5">
-                {sec.items.map((item) => {
-                  const active = item.label === activeItem;
-                  return (
-                    <li key={item.label}>
-                      <button
-                        onClick={() => onNavigate?.(item.label)}
-                        className={`w-full flex items-center gap-3 px-3 py-2 text-xs tracking-wider transition-colors text-left ${
-                          active
-                            ? 'text-[#00ff87] border-l-2 border-[#00ff87] bg-[#00ff87]/5'
-                            : 'text-neutral-500 hover:text-white hover:bg-white/5'
-                        }`}
-                      >
-                        {item.icon}
-                        {item.label}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+        <nav className="flex-1 space-y-2 px-4 py-6">
+          {NAV_ITEMS.map((item) => {
+            const active = item.label === activeItem;
+            return (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => onNavigate?.(item.label)}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${
+                  active
+                    ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200 shadow-[0_0_24px_rgba(20,184,166,0.08)]'
+                    : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-200'
+                }`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </nav>
 
-        {/* Footer */}
-        <div className="border-t border-white/[0.06] p-4 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[#00ff87]/10 flex items-center justify-center">
-              <User className="w-4 h-4 text-[#00ff87]" />
-            </div>
-            <div>
-              <p className="text-xs text-neutral-300">Analyst</p>
-              <p className="text-[10px] text-neutral-600 font-mono">v2.4.0</p>
-            </div>
-          </div>
+        <div className="border-t border-white/[0.07] p-5">
+          <p className="text-xs leading-5 text-slate-500">
+            Clear actions, confidence, and trust signals for every slate.
+          </p>
         </div>
       </aside>
 
-      {/* ── Content column ────────────────────────────────────────────── */}
       <div className="content-area">
-
-        {/* Top bar */}
-        <header className="shrink-0 sticky top-0 z-20 flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-[#0f172a]/90 backdrop-blur-sm">
-          <h2 className="text-sm tracking-[0.15em] uppercase text-neutral-300 font-oswald">
-            {activeItem}
-          </h2>
-          <div className="flex items-center gap-4">
-            <LiveClock />
-            <span className="text-[10px] tracking-widest text-neutral-600 uppercase font-mono hidden sm:inline">
-              Models: 4 active
+        <header className="topbar">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-emerald-300">ScorPred</p>
+            <h1 className="font-oswald text-lg uppercase tracking-[0.08em] text-white">{activeItem}</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden items-center gap-2 rounded-full border border-white/[0.08] px-3 py-1 text-[11px] text-slate-400 sm:flex">
+              <Activity className="h-3.5 w-3.5 text-emerald-300" />
+              Data-aware
             </span>
-            <div className="w-2 h-2 bg-[#00ff87] animate-pulse" />
+            <LiveClock />
           </div>
         </header>
 
-        {/* Scrollable main */}
-        <div className="main-content">
-          {children}
+        <div className="mobile-nav md:hidden">
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => onNavigate?.(item.label)}
+              className={item.label === activeItem ? 'text-emerald-200' : 'text-slate-500'}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
 
+        <main className="main-content">{children}</main>
       </div>
     </div>
   );
 }
 
-/* ── DashboardCard (reusable panel) ──────────────────────────────────────── */
 export function DashboardCard({
   title,
   children,
@@ -159,11 +121,9 @@ export function DashboardCard({
   className?: string;
 }) {
   return (
-    <div className={`card ${className}`}>
-      {title && (
-        <p className="section-label">{title}</p>
-      )}
+    <section className={`card ${className}`}>
+      {title && <p className="section-label">{title}</p>}
       {children}
-    </div>
+    </section>
   );
 }

@@ -1,128 +1,58 @@
 {% extends "base.html" %}
+{% import "components/decision.html" as ui with context %}
 
-{% block title %}Upcoming NBA Predictions | ScorPred{% endblock %}
+{% block title %}ScorPred | Today's NBA Plan{% endblock %}
+{% block topbar_title %}Today's NBA Plan{% endblock %}
 
 {% block content %}
-<section class="sp-hero sp-nba">
-  <span class="sp-kicker">ScorPred Platform</span>
-  <h1 style="font-size:1.4rem; font-weight:800; margin:.2rem 0 .3rem">Upcoming NBA Predictions</h1>
-  <p style="color:var(--text-2); font-size:.85rem">
-    {% if total_games > 0 %}
-      {{ total_predictions }} of {{ total_games }} games predicted &mdash; sorted by confidence
-    {% else %}
-      No NBA games found in the next 36 hours
-    {% endif %}
-  </p>
-  <div style="display:flex; gap:.5rem; margin-top:.5rem">
-    <a href="{{ url_for('nba.index') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">NBA Hub</a>
-
-  </div>
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">NBA decision plan</span>
+  <h1>Today's NBA slate, sorted by actionable edge.</h1>
+  <p>The strongest opportunities appear first. Limited-trust or thin matchups stay as skips.</p>
 </section>
 
-{% if load_error %}
-<div class="sp-notice sp-notice--warn">
-  {{ load_error }}
-  <a href="{{ url_for('nba.today_predictions') }}?refresh=1" style="color:var(--c-active)">Refresh</a>
-</div>
-{% endif %}
+{{ ui.plan_strip(today_plan) }}
+{{ ui.top_opportunities(top_opportunities) }}
 
-{% if predictions | length > 0 %}
-{% set high_conf = predictions | selectattr('confidence', 'equalto', 'High') | list %}
-{% set med_conf  = predictions | selectattr('confidence', 'equalto', 'Medium') | list %}
-{% set low_conf  = predictions | selectattr('confidence', 'equalto', 'Low') | list %}
-{% set limited_conf = predictions | selectattr('confidence', 'equalto', 'Limited Data') | list %}
-
-<div class="sp-kpi-strip" style="margin-bottom:1rem">
-  <div class="sp-kpi"><span class="sp-badge sp-badge--strong">High</span><strong>{{ high_conf | length }}</strong></div>
-  <div class="sp-kpi"><span class="sp-badge sp-badge--caution">Medium</span><strong>{{ med_conf | length }}</strong></div>
-  <div class="sp-kpi"><span class="sp-badge sp-badge--muted">Low</span><strong>{{ low_conf | length }}</strong></div>
-  {% if limited_conf | length > 0 %}
-  <div class="sp-kpi"><span class="sp-badge sp-badge--muted">Limited</span><strong>{{ limited_conf | length }}</strong></div>
-  {% endif %}
-  <div class="sp-kpi"><span style="color:var(--text-3); font-size:.75rem">Total</span><strong>{{ predictions | length }}</strong></div>
-</div>
-
-<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:.75rem">
-  {% for item in predictions %}
-  <a href="{{ url_for('nba.select_game', team_a=item.home_team.id, team_b=item.away_team.id) }}" style="text-decoration:none; color:inherit">
-    <article class="sp-panel sp-panel--tight" style="border-left:3px solid {% if item.confidence == 'High' %}var(--c-strong){% elif item.confidence == 'Medium' %}var(--c-caution){% else %}var(--border){% endif %}">
-
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.4rem">
-        <span style="font-size:.72rem; color:var(--text-3)">
-          {% if item.game_date %}{{ item.game_date }}{% if item.game_time %} · {{ item.game_time }} UTC{% endif %}{% else %}TBD{% endif %}
-          · NBA
-        </span>
-        <span class="sp-badge sp-badge--{{ 'strong' if item.confidence == 'High' else ('caution' if item.confidence == 'Medium' else 'muted') }}">{{ item.confidence }}</span>
-      </div>
-
-      <div style="display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem">
-        <div style="display:flex; align-items:center; gap:.3rem; flex:1">
-          {% if item.home_team.logo %}<img src="{{ item.home_team.logo }}" style="width:22px;height:22px;object-fit:contain" alt="" />{% endif %}
-          <strong style="font-size:.88rem">{{ item.home_team.nickname or item.home_team.name }}</strong>
-        </div>
-        <span style="color:var(--text-3); font-size:.78rem">vs</span>
-        <div style="display:flex; align-items:center; gap:.3rem; flex:1; justify-content:flex-end">
-          <strong style="font-size:.88rem">{{ item.away_team.nickname or item.away_team.name }}</strong>
-          {% if item.away_team.logo %}<img src="{{ item.away_team.logo }}" style="width:22px;height:22px;object-fit:contain" alt="" />{% endif %}
-        </div>
-      </div>
-
-      <div class="sp-prob-stack" style="margin-bottom:.5rem">
-        <div class="sp-prob-stack__bar" style="flex:{{ item.prob_home }}; background:var(--c-strong); color:#000; font-size:.7rem; padding:.15rem .3rem; border-radius:4px 0 0 4px">{{ item.prob_home }}%</div>
-        <div class="sp-prob-stack__bar" style="flex:{{ item.prob_away }}; background:var(--c-active); color:#000; font-size:.7rem; padding:.15rem .3rem; border-radius:0 4px 4px 0">{{ item.prob_away }}%</div>
-      </div>
-
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.3rem">
-        <span style="font-size:.75rem; color:var(--text-3)">Pick</span>
-        <strong style="font-size:.9rem; color:var(--c-strong)">{{ item.predicted_winner }}</strong>
-      </div>
-
-      {% if item.reasoning %}
-      <p style="font-size:.78rem; color:var(--text-2); margin:.3rem 0 0">{{ item.reasoning }}</p>
-      {% endif %}
-
-      <div style="display:flex; justify-content:space-between; margin-top:.5rem; font-size:.7rem; color:var(--text-3)">
-        <span>ScorPred Engine</span>
-        <span>Click for analysis &rarr;</span>
-      </div>
-    </article>
-  </a>
-  {% endfor %}
-</div>
-
-{% else %}
-<div class="sp-panel" style="text-align:center; padding:2rem">
-  <h3 style="margin:0 0 .3rem">No upcoming NBA games</h3>
-  <p style="color:var(--text-2); font-size:.85rem; margin-bottom:.75rem">No NBA games were found in the next 36 hours. Check back soon.</p>
-  <a href="{{ url_for('nba.index') }}" class="sp-badge sp-badge--active" style="text-decoration:none">View All Games</a>
-</div>
-{% endif %}
-
-{% if yesterday_results | length > 0 %}
-<div class="sp-panel" style="margin-top:1rem">
-  <h2 class="sp-section-title">Yesterday's NBA Results</h2>
-  <div style="display:grid; gap:.5rem; margin-top:.5rem">
-    {% for p in yesterday_results %}
-    <div class="sp-panel sp-panel--tight" style="border-left:3px solid {% if p.is_correct %}var(--c-strong){% else %}var(--c-danger){% endif %}; margin-bottom:0">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.2rem">
-        <strong style="font-size:.88rem">{{ p.team_a }} vs {{ p.team_b }}</strong>
-        <span class="sp-badge sp-badge--{{ 'strong' if p.is_correct else 'danger' }}">{% if p.is_correct %}Correct{% else %}Incorrect{% endif %}</span>
-      </div>
-      <div style="font-size:.8rem; color:var(--text-2)">
-        Predicted: <strong>{{ p.predicted_winner }}</strong>
-        · Actual: <strong>{{ p.actual_result or '—' }}</strong>
-        · <span class="sp-badge sp-badge--{{ (p.confidence or 'low') | lower }}" style="font-size:.65rem">{{ p.confidence }}</span>
-      </div>
-      <span style="font-size:.72rem; color:var(--text-3)">{{ p.date }} · NBA</span>
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Full Slate</h2>
+      <p>{{ total_games }} games checked, {{ total_predictions }} decision cards available.</p>
     </div>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('nba.index') }}">NBA Home</a>
+  </div>
+
+  {% if full_slate %}
+    <div class="sp-card-grid">
+      {% for card in full_slate %}
+        {{ ui.decision_card(card) }}
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('No NBA opportunities today', load_error or 'The slate is empty or most games are thin-edge.') }}
+  {% endif %}
+</section>
+
+{% if yesterday_results %}
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Recent Graded NBA Picks</h2>
+      <p>Latest accountability snapshot from tracked games.</p>
+    </div>
+    <a class="btn btn-secondary btn-sm" href="/results">All Results</a>
+  </div>
+  <div class="sp-results-grid">
+    {% for p in yesterday_results[:6] %}
+      <article class="sp-result-card">
+        <small>{{ p.date }} · NBA</small>
+        <strong>{{ p.team_a }} vs {{ p.team_b }}</strong>
+        <span>{{ p.final_score_display or 'Final pending' }}</span>
+        <span class="sp-status sp-status--{{ 'correct' if p.is_correct else 'incorrect' }}">{{ 'Correct' if p.is_correct else 'Incorrect' }}</span>
+      </article>
     {% endfor %}
   </div>
-</div>
+</section>
 {% endif %}
-
-<nav style="display:flex; gap:.5rem; margin-top:1rem; flex-wrap:wrap">
-  <a href="{{ url_for('nba.index') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">NBA Home</a>
-  <a href="{{ url_for('today_soccer_predictions') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Today Soccer</a>
-
-</nav>
 {% endblock %}

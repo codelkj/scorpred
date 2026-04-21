@@ -1,281 +1,60 @@
 {% extends "base.html" %}
-{% block title %}Soccer Analysis | ScorPred{% endblock %}
+{% import "components/decision.html" as ui with context %}
+
+{% block title %}ScorPred | Soccer{% endblock %}
+{% block topbar_title %}Soccer{% endblock %}
+{% block topbar_actions %}
+  <form class="sp-filter-row" method="get" action="/soccer">
+    <select class="sp-filter-control" name="league" onchange="this.form.submit()" aria-label="Competition">
+      {% for league in supported_leagues %}
+        <option value="{{ league.id }}" {% if current_league_id == league.id %}selected{% endif %}>{{ league.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+{% endblock %}
 
 {% block content %}
-
-{# ── Hero ──────────────────────────────────────────────────────────────── #}
-<section class="sp-hero">
-  <span class="sp-kicker">Soccer Workspace</span>
-  <h1>Fixture Analysis</h1>
-  <p class="sp-hero__copy">Select a fixture for full ScorPred analysis, or build a custom matchup.</p>
-  <div class="sp-hero__actions">
-    <a href="/fixtures" class="btn btn-secondary btn-sm">View Fixtures</a>
-    <a href="/worldcup" class="btn btn-secondary btn-sm">World Cup Predictor</a>
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">{{ current_league.name if current_league else 'Soccer' }}</span>
+  <h1>Today's soccer plan, built around action and trust.</h1>
+  <p>Scan the strongest opportunities first, then review the full slate when you want more context.</p>
+  <div class="sp-page-actions">
+    <a class="btn btn-primary" href="/today-soccer-predictions">Today's Predictions</a>
+    <a class="btn btn-secondary" href="/results">Results</a>
   </div>
 </section>
 
 {% if selection_notice %}
-<div class="sp-notice sp-notice--warn">
-  <span class="sp-notice__icon">!</span>
-  <div class="sp-notice__body">{{ selection_notice }}</div>
-</div>
+  <div class="sp-flash sp-flash--warn">{{ selection_notice }}</div>
 {% endif %}
 
-{# ── Upcoming Fixtures ─────────────────────────────────────────────────── #}
+{{ ui.plan_strip(today_plan) }}
+{{ ui.top_opportunities(top_opportunities) }}
+
 <section class="sp-section">
-  <div class="sp-section-head">
+  <div class="sp-section__header">
     <div>
-      <h2 class="sp-section-title">Upcoming Fixtures</h2>
-      <p class="sp-section-desc">Select a scheduled fixture to start the analysis flow.</p>
+      <h2>Full Slate</h2>
+      <p>Every available fixture uses the same action-first card.</p>
     </div>
-    <span class="source-badge {{ 'source-espn' if fixtures_source == 'espn' else 'source-api' }}">
-      {{ 'ESPN' if fixtures_source == 'espn' else 'API' }}
-    </span>
+    <a class="btn btn-secondary btn-sm" href="/fixtures">Fixture View</a>
   </div>
 
-
-  {% if fixtures_error and not upcoming_fixtures %}
-  <div class="sp-notice sp-notice--warn">{{ fixtures_error }}</div>
-  {% endif %}
-
-  {% if upcoming_fixtures %}
-  <div class="sp-fixture-list">
-    {% for f in upcoming_fixtures %}
-    {% set home = f.teams.home if f.teams and f.teams.home else {} %}
-    {% set away = f.teams.away if f.teams and f.teams.away else {} %}
-    {% set fdate = f.fixture.date[:10] if f.fixture and f.fixture.date else '' %}
-    {% set ftime = f.fixture.date[11:16] if f.fixture and f.fixture.date and f.fixture.date|length > 10 else '' %}
-    {% set venue = f.fixture.venue.name if f.fixture and f.fixture.venue and f.fixture.venue.name else '' %}
-    <form method="POST" action="/select" class="sp-fixture-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <input type="hidden" name="league_id"    value="{{ (f.league.id if f.league and f.league.id else current_league_id) }}" />
-      <input type="hidden" name="team_a"        value="{{ home.id or '' }}" />
-      <input type="hidden" name="team_b"        value="{{ away.id or '' }}" />
-      <input type="hidden" name="team_a_name"   value="{{ home.name or '' }}" />
-      <input type="hidden" name="team_a_logo"   value="{{ home.logo or '' }}" />
-      <input type="hidden" name="team_b_name"   value="{{ away.name or '' }}" />
-      <input type="hidden" name="team_b_logo"   value="{{ away.logo or '' }}" />
-      <input type="hidden" name="fixture_id"    value="{{ f.fixture.id if f.fixture else '' }}" />
-      <input type="hidden" name="fixture_date"  value="{{ f.fixture.date if f.fixture else '' }}" />
-      <input type="hidden" name="league_name"   value="{{ f.league.name if f.league else '' }}" />
-      <input type="hidden" name="round"         value="{{ f.league.round if f.league else '' }}" />
-      <input type="hidden" name="venue_name"    value="{{ f.fixture.venue.name if f.fixture and f.fixture.venue else '' }}" />
-      <input type="hidden" name="data_source"   value="{{ fixtures_source }}" />
-      <button type="submit" class="sp-fixture-row">
-        <article class="sp-fixture sp-fixture-card">
-          <div class="sp-fixture__meta sp-fixture-card__meta">
-            <span>{% if fdate %}{{ fdate }}{% if ftime %} &middot; {{ ftime }}{% endif %}{% else %}Kickoff TBD{% endif %}</span>
-            {% if f.league and f.league.name %}
-            <span>{{ f.league.name }}</span>
-            {% endif %}
-            {% if venue %}
-            <span>{{ venue }}</span>
-            {% endif %}
-          </div>
-          <div class="sp-fixture__teams sp-fixture-card__teams">
-            <div class="sp-fixture__team right sp-fixture-card__team">
-              <div class="sp-fixture-card__team-copy">
-                <span class="sp-fixture-card__team-name">{{ home.name or 'TBD' }}</span>
-              </div>
-              {% if home.logo %}<img src="{{ home.logo }}" alt="" class="team-logo-sm" />{% endif %}
-            </div>
-            <div class="sp-fixture-card__center">
-              <span class="sp-fixture__vs">vs</span>
-              {% if f.league and f.league.round %}
-              <span class="sp-fixture-card__round">{{ f.league.round }}</span>
-              {% endif %}
-            </div>
-            <div class="sp-fixture__team sp-fixture-card__team">
-              {% if away.logo %}<img src="{{ away.logo }}" alt="" class="team-logo-sm" />{% endif %}
-              <div class="sp-fixture-card__team-copy">
-                <span class="sp-fixture-card__team-name">{{ away.name or 'TBD' }}</span>
-              </div>
-            </div>
-          </div>
-          <div class="sp-fixture__footer sp-fixture-card__footer">
-            <span class="sp-fixture-card__footnote">Tap for the full matchup breakdown, ML read, and form context.</span>
-            <span class="sp-fixture-card__cta">Analyse Match -></span>
-          </div>
-        </article>
-      </button>
-    </form>
-    {% endfor %}
-  </div>
+  {% if full_slate %}
+    <div class="sp-card-grid">
+      {% for card in full_slate %}
+        {{ ui.decision_card(card) }}
+      {% endfor %}
+    </div>
   {% else %}
-    <div class="sp-notice" style="text-align:center; padding:1.5rem; color:var(--text-3)">No upcoming fixtures available right now.</div>
+    {{ ui.empty_state('Limited data available', fixtures_error or 'No reliable soccer slate is available right now.') }}
   {% endif %}
-
-  {# Custom matchup picker (advanced) #}
-  <details class="sp-detail">
-    <summary>
-      <div>
-        <span class="sp-kicker">Advanced</span>
-        <span>Build a custom matchup</span>
-      </div>
-      <span class="sp-detail__chevron">▸</span>
-    </summary>
-    <div class="sp-detail__body">
-      {% if not teams %}
-        <div class="sp-alert sp-alert--warn">{{ load_error or "Could not load teams." }}</div>
-      {% else %}
-        <form method="POST" action="/select" id="teamForm">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-          <div class="sp-pickers">
-            <div class="sp-picker-group" id="wrapA">
-              <div class="sp-select-trigger" id="triggerA">
-                <img class="team-logo-sm" id="logoA" src="" alt="" style="display:none" />
-                <span id="labelA">Choose Team A</span>
-                <span class="caret">▾</span>
-              </div>
-              <div class="sp-select-dropdown" id="dropA">
-                <input class="sp-select-search" type="text" placeholder="Search team…" id="searchA" autocomplete="off" />
-                <div id="optionsA">
-                  {% for t in teams | sort(attribute='team.name') %}
-                  <div class="sp-select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
-                    <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm" />
-                    <span>{{ t.team.name }}</span>
-                  </div>
-                  {% endfor %}
-                </div>
-              </div>
-              <input type="hidden" name="team_a" id="team_a" required />
-            </div>
-            <div class="sp-team-form-preview" id="teamFormA">Last 5 form: --</div>
-            <div class="sp-picker-group" id="wrapB">
-              <div class="sp-select-trigger" id="triggerB">
-                <img class="team-logo-sm" id="logoB" src="" alt="" style="display:none" />
-                <span id="labelB">Choose Team B</span>
-                <span class="caret">▾</span>
-              </div>
-              <div class="sp-select-dropdown" id="dropB">
-                <input class="sp-select-search" type="text" placeholder="Search team…" id="searchB" autocomplete="off" />
-                <div id="optionsB">
-                  {% for t in teams | sort(attribute='team.name') %}
-                  <div class="sp-select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
-                    <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm" />
-                    <span>{{ t.team.name }}</span>
-                  </div>
-                  {% endfor %}
-                </div>
-              </div>
-              <input type="hidden" name="team_b" id="team_b" required />
-            </div>
-            <div class="sp-team-form-preview" id="teamFormB">Last 5 form: --</div>
-          </div>
-          <div id="sameTeamError" class="sp-alert sp-alert--error" style="display:none">
-            Please select two different teams.
-          </div>
-          <button type="submit" class="btn btn-primary btn-lg btn-full" id="analyseBtn" disabled>
-            Analyze Matchup
-          </button>
-        </form>
-      {% endif %}
-    </div>
-  </details>
-
-{# ── Shortcuts ─────────────────────────────────────────────────────────── #}
-<section class="sp-section">
-  <h2 class="sp-section-title" style="margin-bottom:.75rem">Shortcuts</h2>
-  <div class="sp-route-grid">
-    <a href="/fixtures" class="sp-route-card">
-      <span class="sp-route-card__icon">FX</span>
-      <div class="sp-route-card__title">Fixtures</div>
-      <div class="sp-route-card__desc">Browse the current slate with predicted winners.</div>
-      <span class="sp-route-card__cta">Open →</span>
-    </a>
-    <a href="/worldcup" class="sp-route-card">
-      <span class="sp-route-card__icon">WC</span>
-      <div class="sp-route-card__title">World Cup</div>
-      <div class="sp-route-card__desc">International matchup predictor with tournament context.</div>
-      <span class="sp-route-card__cta">Open →</span>
-    </a>
-    <a href="/strategy-lab" class="sp-route-card">
-      <span class="sp-route-card__icon">SL</span>
-      <div class="sp-route-card__title">Strategy Lab</div>
-      <div class="sp-route-card__desc">Compare tracked accuracy, confidence tiers, and the ML read.</div>
-      <span class="sp-route-card__cta">Open →</span>
-    </a>
-  </div>
 </section>
 
-{% endblock %}
-
-{% block scripts %}
-<script>
-  const ACTIVE_LEAGUE_ID = {{ current_league_id }};
-
-  async function loadTeamForm(teamId, targetId) {
-    const target = document.getElementById(targetId);
-    if (!teamId || !target) return;
-    target.textContent = 'Last 5 form: loading...';
-    try {
-      const response = await fetch(`/api/football/team-form?team_id=${encodeURIComponent(teamId)}`);
-      const data = await response.json();
-      target.textContent = `Last 5 form: ${data.form_string || 'No recent data'}`;
-    } catch (error) {
-      target.textContent = 'Last 5 form: unavailable';
-    }
-  }
-
-  function initCustomSelect(wrapperId, triggerId, dropId, searchId, optionsId, hiddenId, logoId, labelId) {
-    const wrap = document.getElementById(wrapperId);
-    const trigger = document.getElementById(triggerId);
-    const drop = document.getElementById(dropId);
-    const searchEl = document.getElementById(searchId);
-    const optsCont = document.getElementById(optionsId);
-    const hidden = document.getElementById(hiddenId);
-    const logo = document.getElementById(logoId);
-    const label = document.getElementById(labelId);
-    const allOpts = () => optsCont.querySelectorAll('.sp-select-option');
-
-    trigger.addEventListener('click', () => {
-      drop.classList.toggle('open');
-      if (drop.classList.contains('open')) searchEl.focus();
-    });
-
-    searchEl.addEventListener('input', () => {
-      const q = searchEl.value.toLowerCase();
-      allOpts().forEach((o) => {
-        o.style.display = o.dataset.name.toLowerCase().includes(q) ? '' : 'none';
-      });
-    });
-
-    allOpts().forEach((opt) => {
-      opt.addEventListener('click', () => {
-        hidden.value = opt.dataset.value;
-        label.textContent = opt.dataset.name;
-        logo.src = opt.dataset.logo;
-        logo.style.display = 'inline';
-        drop.classList.remove('open');
-        if (hiddenId === 'team_a') loadTeamForm(opt.dataset.value, 'teamFormA');
-        if (hiddenId === 'team_b') loadTeamForm(opt.dataset.value, 'teamFormB');
-        validateForm();
-      });
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!wrap.contains(e.target)) drop.classList.remove('open');
-    });
-  }
-
-  initCustomSelect('wrapA', 'triggerA', 'dropA', 'searchA', 'optionsA', 'team_a', 'logoA', 'labelA');
-  initCustomSelect('wrapB', 'triggerB', 'dropB', 'searchB', 'optionsB', 'team_b', 'logoB', 'labelB');
-
-  function validateForm() {
-    const a = document.getElementById('team_a').value;
-    const b = document.getElementById('team_b').value;
-    const btn = document.getElementById('analyseBtn');
-    const err = document.getElementById('sameTeamError');
-    if (a && b && a === b) {
-      err.style.display = 'block';
-      btn.disabled = true;
-    } else if (a && b) {
-      err.style.display = 'none';
-      btn.disabled = false;
-    } else {
-      err.style.display = 'none';
-      btn.disabled = true;
-    }
-  }
-</script>
+<section class="sp-section">
+  <div class="sp-quick-grid">
+    {{ ui.quick_link(match_analysis_href, 'Match Analysis', 'Open the focused breakdown for a selected fixture') }}
+    {{ ui.quick_link('/results', 'Results', 'Check graded picks and recent form') }}
+  </div>
+</section>
 {% endblock %}

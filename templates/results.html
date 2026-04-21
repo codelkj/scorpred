@@ -1,55 +1,152 @@
 {% extends "base.html" %}
-{% block title %}Results | ScorPred{% endblock %}
+{% import "components/decision.html" as ui with context %}
+
+{% block title %}ScorPred | Results{% endblock %}
+{% block topbar_title %}Results{% endblock %}
+{% block topbar_actions %}
+  <form class="sp-filter-row" method="get" action="/results">
+    <select class="sp-filter-control" name="league" aria-label="League">
+      <option value="all" {% if league_filter == 'all' %}selected{% endif %}>All leagues</option>
+      {% for league in league_options %}
+        <option value="{{ league }}" {% if league_filter == league %}selected{% endif %}>{{ league }}</option>
+      {% endfor %}
+    </select>
+    <select class="sp-filter-control" name="action" aria-label="Action">
+      <option value="all" {% if action_filter == 'all' %}selected{% endif %}>All actions</option>
+      <option value="bet" {% if action_filter == 'bet' %}selected{% endif %}>BET</option>
+      <option value="consider" {% if action_filter == 'consider' %}selected{% endif %}>CONSIDER</option>
+      <option value="skip" {% if action_filter == 'skip' %}selected{% endif %}>SKIP</option>
+    </select>
+    <select class="sp-filter-control" name="range" aria-label="Range">
+      <option value="all" {% if range_filter == 'all' %}selected{% endif %}>All time</option>
+      <option value="20" {% if range_filter == '20' %}selected{% endif %}>Last 20</option>
+      <option value="10" {% if range_filter == '10' %}selected{% endif %}>Last 10</option>
+    </select>
+    <button class="btn btn-secondary btn-sm" type="submit">Apply</button>
+  </form>
+{% endblock %}
+
 {% block content %}
-<div class="results-page">
-  <h1 class="sp-title">Results</h1>
-  <div class="results-summary">
-    <div class="summary-card">
-      <span class="summary-label">Total Bets</span>
-      <span class="summary-value">{{ summary.total_bets }}</span>
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">Accountability</span>
+  <h1>Results that make every decision easy to verify.</h1>
+  <p>Track the action ScorPred recommended, the side, the final score, and whether the pick was correct.</p>
+</section>
+
+<section class="sp-section">
+  <div class="sp-card-grid">
+    <article class="sp-info-card"><small>Total graded picks</small><strong>{{ summary.total_graded }}</strong></article>
+    <article class="sp-info-card"><small>Win rate</small><strong>{{ summary.win_rate }}%</strong></article>
+    <article class="sp-info-card"><small>Correct picks</small><strong>{{ summary.correct }}</strong></article>
+    <article class="sp-info-card"><small>Incorrect picks</small><strong>{{ summary.incorrect }}</strong></article>
+    <article class="sp-info-card"><small>Pushes</small><strong>{{ summary.pushes }}</strong></article>
+    <article class="sp-info-card"><small>Skips</small><strong>{{ summary.skips }}</strong></article>
+  </div>
+</section>
+
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Recent Form</h2>
+      <p>Last {{ summary.last_10_count }} graded decisions. Current streak: {{ summary.current_streak }}.</p>
     </div>
-    <div class="summary-card">
-      <span class="summary-label">Win %</span>
-      <span class="summary-value">{{ summary.win_pct }}%</span>
+    <span class="sp-data-badge sp-data-badge--strong">Best league: {{ breakdowns.best_competition }}</span>
+  </div>
+  {% if summary.recent_form %}
+    <div class="sp-form-strip">
+      {% for status in summary.recent_form %}
+        <span class="sp-form-dot sp-form-dot--{{ status }}">{{ status[0]|upper }}</span>
+      {% endfor %}
     </div>
-    <div class="summary-card">
-      <span class="summary-label">Profit/Loss</span>
-      <span class="summary-value">{{ summary.profit_loss }}</span>
-    </div>
-    <div class="summary-card">
-      <span class="summary-label">Reliability</span>
-      <span class="summary-value reliability-badge reliability-{{ summary.reliability|lower }}">{{ summary.reliability }}</span>
+  {% else %}
+    {{ ui.empty_state('No graded results yet', 'Once predictions settle, recent form appears here.') }}
+  {% endif %}
+</section>
+
+<section class="sp-section">
+  <div class="sp-breakdown-grid">
+    <article class="sp-breakdown-card">
+      <small>BET win rate</small>
+      {% set bet = breakdowns.actions | selectattr('name', 'equalto', 'BET') | list | first %}
+      <strong>{{ bet.win_rate if bet else 0 }}%</strong>
+      <span>{{ bet.count if bet else 0 }} decisions</span>
+    </article>
+    <article class="sp-breakdown-card">
+      <small>CONSIDER win rate</small>
+      {% set consider = breakdowns.actions | selectattr('name', 'equalto', 'CONSIDER') | list | first %}
+      <strong>{{ consider.win_rate if consider else 0 }}%</strong>
+      <span>{{ consider.count if consider else 0 }} decisions</span>
+    </article>
+    <article class="sp-breakdown-card">
+      <small>SKIP usage</small>
+      {% set skip = breakdowns.actions | selectattr('name', 'equalto', 'SKIP') | list | first %}
+      <strong>{{ skip.usage if skip else 0 }}</strong>
+      <span>thin-edge matches avoided</span>
+    </article>
+  </div>
+</section>
+
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Graded Picks</h2>
+      <p>Transparent row-by-row history.</p>
     </div>
   </div>
-  <div class="results-table-wrapper">
-    <table class="results-table">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Matchup</th>
-          <th>Pick</th>
-          <th>Action</th>
-          <th>Confidence</th>
-          <th>Result</th>
-          <th>Reasoning</th>
-          <th>Reliability</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in results %}
-        <tr>
-          <td>{{ r.date }}</td>
-          <td>{{ r.matchup }}</td>
-          <td>{{ r.pick }}</td>
-          <td><span class="action-badge action-{{ r.action|lower }}">{{ r.action }}</span></td>
-          <td>{{ r.confidence }}%</td>
-          <td><span class="result-badge result-{{ r.result|lower }}">{{ r.result }}</span></td>
-          <td>{{ r.reasoning }}</td>
-          <td><span class="reliability-badge reliability-{{ r.reliability|lower }}">{{ r.reliability }}</span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+
+  {% if results %}
+    <div class="sp-results-table-wrap">
+      <table class="sp-results-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Competition</th>
+            <th>Match</th>
+            <th>Final</th>
+            <th>Action</th>
+            <th>Side</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in results %}
+          <tr>
+            <td>{{ row.date }}</td>
+            <td>{{ row.competition }}</td>
+            <td>{{ row.matchup }}</td>
+            <td>{{ row.final_score }}</td>
+            <td><span class="sp-plan-pill sp-plan-pill--{{ row.action_class }}">{{ row.action }}</span></td>
+            <td>{{ row.predicted_side }}</td>
+            <td><span class="sp-status sp-status--{{ row.result }}">{{ row.result_label }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {{ ui.empty_state('No results match these filters', 'Try a broader league, action, or time range.') }}
+  {% endif %}
+</section>
+
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Performance by Competition</h2>
+      <p>Where the decision system has been strongest.</p>
+    </div>
   </div>
-</div>
+  {% if breakdowns.competitions %}
+    <div class="sp-breakdown-grid">
+      {% for item in breakdowns.competitions[:6] %}
+        <article class="sp-breakdown-card">
+          <strong>{{ item.name }}</strong>
+          <span>{{ item.win_rate }}% win rate</span>
+          <small>{{ item.count }} graded picks</small>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('No competition breakdown yet', 'Competition-level trust improves as more picks are graded.') }}
+  {% endif %}
+</section>
 {% endblock %}

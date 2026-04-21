@@ -1,0 +1,104 @@
+{% macro data_badge(badge) -%}
+  {% set state = (badge.state if badge else 'limited') %}
+  {% set label = (badge.label if badge else 'Limited Data') %}
+  <span class="sp-data-badge sp-data-badge--{{ state }}">{{ label }}</span>
+{%- endmacro %}
+
+{% macro confidence_bar(card) -%}
+  <div class="sp-confidence" aria-label="Confidence {{ card.confidence_pct }}%">
+    <div class="sp-confidence__meta">
+      <span>Confidence</span>
+      <strong>{{ card.confidence_pct }}%</strong>
+    </div>
+    <div class="sp-confidence__track">
+      <span class="sp-confidence__fill sp-confidence__fill--{{ card.action_class }}" data-width="{{ card.confidence_pct }}"></span>
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro decision_card(card, variant='standard') -%}
+  <article class="sp-decision-card sp-decision-card--{{ card.action_class }} {% if variant == 'featured' %}sp-decision-card--featured{% endif %}">
+    <div class="sp-decision-card__top">
+      <div>
+        <div class="sp-action-label sp-action-label--{{ card.action_class }}">{{ card.action }}</div>
+        <h3 class="sp-pick-side">{{ card.pick }}</h3>
+      </div>
+      {{ data_badge(card.data_badge) }}
+    </div>
+
+    <div class="sp-matchline">
+      <span>{{ card.matchup }}</span>
+      {% if card.competition %}<small>{{ card.competition }}</small>{% endif %}
+    </div>
+
+    {{ confidence_bar(card) }}
+
+    <p class="sp-decision-card__reason">{{ card.reason }}</p>
+    {% if card.support_text %}
+      <p class="sp-decision-card__support">{{ card.support_text }}</p>
+    {% endif %}
+
+    {% if card.cta_url %}
+      {% if card.cta_method == 'post' %}
+        <form class="sp-card-cta" method="post" action="{{ card.cta_url }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          {% for key, value in card.cta_payload.items() %}
+            <input type="hidden" name="{{ key }}" value="{{ value }}" />
+          {% endfor %}
+          <button type="submit" class="btn btn-primary btn-sm">{{ card.cta_label or 'Analyze Match' }}</button>
+        </form>
+      {% else %}
+        <a class="btn btn-primary btn-sm sp-card-cta" href="{{ card.cta_url }}">{{ card.cta_label or 'View Matchup' }}</a>
+      {% endif %}
+    {% endif %}
+  </article>
+{%- endmacro %}
+
+{% macro plan_strip(summary, title='Today\'s Plan') -%}
+  <section class="sp-plan-strip">
+    <div>
+      <span class="sp-kicker">{{ title }}</span>
+      <p>Clear actions for the current slate.</p>
+    </div>
+    <div class="sp-plan-strip__items">
+      <span class="sp-plan-pill sp-plan-pill--bet"><strong>{{ summary.BET or 0 }}</strong> BET</span>
+      <span class="sp-plan-pill sp-plan-pill--consider"><strong>{{ summary.CONSIDER or 0 }}</strong> CONSIDER</span>
+      <span class="sp-plan-pill sp-plan-pill--skip"><strong>{{ summary.SKIP or 0 }}</strong> SKIP</span>
+    </div>
+  </section>
+{%- endmacro %}
+
+{% macro top_opportunities(cards) -%}
+  <section class="sp-section sp-section--opportunities">
+    <div class="sp-section__header">
+      <div>
+        <h2>Top Opportunities Today</h2>
+        <p>Only the strongest data-backed opportunities.</p>
+      </div>
+    </div>
+    {% if cards %}
+      <div class="sp-opportunity-grid">
+        {% for card in cards %}
+          {{ decision_card(card, 'featured') }}
+        {% endfor %}
+      </div>
+    {% else %}
+      {{ empty_state('No strong opportunities today', 'Most matches are low-edge today. ScorPred is comfortable telling you to wait.') }}
+    {% endif %}
+  </section>
+{%- endmacro %}
+
+{% macro empty_state(title, body='') -%}
+  <div class="sp-empty-state">
+    <div class="sp-empty-state__mark">SP</div>
+    <h3>{{ title }}</h3>
+    {% if body %}<p>{{ body }}</p>{% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro quick_link(href, title, body) -%}
+  <a href="{{ href }}" class="sp-quick-link">
+    <span>{{ title }}</span>
+    <small>{{ body }}</small>
+  </a>
+{%- endmacro %}

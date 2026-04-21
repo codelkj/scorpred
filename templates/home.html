@@ -1,137 +1,63 @@
 {% extends "base.html" %}
-{% block title %}ScorPred - Sports Decision Intelligence{% endblock %}
+{% import "components/decision.html" as ui with context %}
+
+{% block title %}ScorPred | Decision Intelligence{% endblock %}
+{% block topbar_title %}Home{% endblock %}
 
 {% block content %}
-{% set home_match_analysis_href = '/prediction' if session.get('team_a_id') else '/nba/prediction' if session.get('nba_team_a_id') else '/soccer' %}
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">Decision intelligence for matchday</span>
+  <h1>Clear actions, honest confidence, and trust signals before you act.</h1>
+  <p>ScorPred turns the slate into a simple plan: bet the clearest edges, consider the watchlist, and skip the noise.</p>
+  <div class="sp-page-actions">
+    <a class="btn btn-primary" href="/soccer">Open Soccer</a>
+    <a class="btn btn-secondary" href="/results">View Results</a>
+  </div>
+</section>
 
-  <section class="sp-home-hero">
-    <span class="sp-kicker">ScorPred</span>
-    <h1 class="sp-display">Sports Decision<br>Intelligence Platform</h1>
-    <p class="sp-home-hero__copy">
-      Decision-first sports intelligence. Every pick comes with a clear action (BET, CONSIDER, SKIP), confidence %, reasoning, and a reliability badge—no technical dashboard required.
-    </p>
-    <div class="sp-home-hero__actions">
-      <a href="{{ home_match_analysis_href }}" class="btn btn-primary btn-lg">Analyze Match</a>
-      <a href="/results" class="btn btn-secondary btn-lg">Results</a>
-    </div>
-    <div class="sp-home-hero__badges">
-      <span class="sp-badge sp-badge--strong">BET/CONSIDER/SKIP</span>
-      <span class="sp-badge sp-badge--active">Confidence %</span>
-      <span class="sp-badge sp-badge--muted">Reliability badge</span>
-    </div>
-  </section>
+{{ ui.plan_strip(today_plan) }}
+{{ ui.top_opportunities(top_picks) }}
 
-  <div class="sp-actions-grid">
-    <a href="{{ home_match_analysis_href }}" class="sp-action-card sp-action-card--primary">
-      <span class="sp-action-card__icon">Match</span>
-      <div class="sp-action-card__body">
-        <div class="sp-action-card__title">Analyze Match</div>
-        <div class="sp-action-card__desc">Open the decision view for your selected matchup.</div>
-      </div>
-      <span class="sp-action-card__arrow">-></span>
-    </a>
-    <a href="/today-soccer-predictions" class="sp-action-card">
-      <span class="sp-action-card__icon">Today</span>
-      <div class="sp-action-card__body">
-        <div class="sp-action-card__title">Today's Games</div>
-        <div class="sp-action-card__desc">See current soccer calls with confidence and caution levels.</div>
-      </div>
-      <span class="sp-action-card__arrow">-></span>
-    </a>
-    <a href="/results" class="sp-action-card">
-      <span class="sp-action-card__icon">Results</span>
-      <div class="sp-action-card__body">
-        <div class="sp-action-card__title">Results</div>
-        <div class="sp-action-card__desc">See all completed picks, win %, and reliability in one place.</div>
-      </div>
-      <span class="sp-action-card__arrow">-></span>
-    </a>
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Recent Results</h2>
+      <p>Accountability for the latest graded decisions.</p>
+    </div>
+    <a class="btn btn-secondary btn-sm" href="/results">Open Results</a>
   </div>
 
-
-
-  {% if top_picks %}
-  <section class="sp-panel">
-    <div class="sp-panel-head">
-      <div class="sp-panel-head__left">
-        <span class="sp-kicker">Live Intelligence</span>
-        <h2 class="sp-panel-title">Today's Top Picks</h2>
-      </div>
-    </div>
-    <div class="sp-picks">
-      {% for pick in top_picks %}
-      <div class="sp-pick">
-        <div>
-          <div class="sp-pick__matchup">{{ pick.matchup }}</div>
-          <div class="sp-pick__meta">{{ pick.sport }}{% if pick.game_date %} · {{ pick.game_date }}{% endif %}</div>
-        </div>
-        <div class="sp-pick__tags">
-          {% if pick.play_type == 'BET' %}
-          <span class="sp-badge sp-badge--strong">Strong Lean</span>
-          {% elif pick.play_type == 'AVOID' %}
-          <span class="sp-badge sp-badge--danger">Avoid</span>
-          {% else %}
-          <span class="sp-badge sp-badge--muted">{{ pick.play_type }}</span>
-          {% endif %}
-          <span class="sp-badge sp-badge--muted">{{ pick.recommendation }}</span>
-          <span class="sp-badge conf-{{ pick.confidence | lower }}">{{ pick.confidence_display }}</span>
-        </div>
-      </div>
+  {% if recent_results %}
+    <div class="sp-results-grid">
+      {% for row in recent_results %}
+        <article class="sp-result-card">
+          <small>{{ row.date }} · {{ row.competition }}</small>
+          <strong>{{ row.matchup }}</strong>
+          <span>{{ row.final_score }}</span>
+          <div class="sp-page-actions">
+            <span class="sp-status sp-status--{{ row.result }}">{{ row.result_label }}</span>
+            <span class="sp-plan-pill sp-plan-pill--{{ row.action_class }}">{{ row.action }}</span>
+          </div>
+        </article>
       {% endfor %}
     </div>
-  </section>
+  {% else %}
+    {{ ui.empty_state('No graded results yet', 'Once picks are finalized, this section becomes the trust trail.') }}
   {% endif %}
+</section>
 
-  <section class="sp-panel">
-    <div class="sp-panel-head">
-      <div class="sp-panel-head__left">
-        <span class="sp-kicker">Recent Form</span>
-        <h2 class="sp-panel-title">Performance Preview</h2>
-      </div>
-      <a href="/model-performance" class="btn btn-secondary btn-sm">Full Report -></a>
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Quick Actions</h2>
+      <p>Jump into the workflows that matter.</p>
     </div>
-    <div class="sp-perf-pips">
-      {% for result in performance_preview %}
-      <span class="sp-perf-pip sp-perf-pip--{{ result | lower }}">{{ result }}</span>
-      {% endfor %}
-      {% if not performance_preview %}
-      <span class="sp-perf-pip sp-perf-pip--p">Awaiting graded outcomes</span>
-      {% endif %}
-    </div>
-    <p class="sp-muted" style="font-size:.82rem; margin-top:.5rem">
-      {% if performance_preview %}
-      Recent form across {{ performance_preview | length }} finalized predictions.
-      {% else %}
-      Results appear here once graded.
-      {% endif %}
-    </p>
-  </section>
-
-  <div class="sp-why-grid">
-    <article class="sp-why-card">
-      <div class="sp-why-card__icon">Why</div>
-      <h3 class="sp-why-card__title">Explainable Predictions</h3>
-      <p class="sp-why-card__desc">Every recommendation should answer why the system leans that way, not just show a raw number.</p>
-    </article>
-    <article class="sp-why-card">
-      <div class="sp-why-card__icon">Trust</div>
-      <h3 class="sp-why-card__title">Honest Performance</h3>
-      <p class="sp-why-card__desc">Walk-forward testing, live tracking, and sample sizes are separated so they do not contradict each other.</p>
-    </article>
-    <article class="sp-why-card">
-      <div class="sp-why-card__icon">Use</div>
-      <h3 class="sp-why-card__title">Decision Support</h3>
-      <p class="sp-why-card__desc">ScorPred is built to help you judge match quality, not to pretend uncertainty does not exist.</p>
-    </article>
   </div>
-
-  <section class="sp-cta">
-    <h2>Ready to make a decision?</h2>
-    <p class="sp-cta__copy">Pick a matchup and get a clean decision card in seconds.</p>
-    <div class="sp-cta__actions">
-      <a href="{{ home_match_analysis_href }}" class="btn btn-primary btn-lg">Analyze Match</a>
-      <a href="/soccer" class="btn btn-secondary">Soccer</a>
-      <a href="/nba/" class="btn btn-secondary">NBA</a>
-    </div>
-  </section>
+  <div class="sp-quick-grid">
+    {{ ui.quick_link('/soccer', 'Soccer', 'Today\'s plan and full slate') }}
+    {{ ui.quick_link('/nba/', 'NBA', 'Daily card with the same decision system') }}
+    {{ ui.quick_link(match_analysis_href, 'Match Analysis', 'Focused breakdown for a selected matchup') }}
+    {{ ui.quick_link('/results', 'Results', 'Win rate, streaks, and graded picks') }}
+  </div>
+</section>
 {% endblock %}

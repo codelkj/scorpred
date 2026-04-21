@@ -76,7 +76,7 @@ if (typeof gsap !== 'undefined') {
   gsap.registerPlugin(ScrollTrigger);
 
   /* ── Card entrance animations ─────────────────────────────────────────────── */
-  const cardSelectors = '.glow-card, .sp-panel, .sp-fixture, .sp-kpi, .sp-model-card, .sp-action-card, .sp-why-card';
+  const cardSelectors = '.glow-card, .sp-panel, .sp-fixture, .sp-kpi, .sp-model-card, .sp-action-card, .sp-why-card, .sp-decision-card, .sp-empty-state, .sp-info-card, .sp-result-card';
   gsap.utils.toArray(cardSelectors).forEach((card, i) => {
     gsap.fromTo(card,
       { opacity: 0, y: 24 },
@@ -145,6 +145,24 @@ const barObserver = new IntersectionObserver((entries) => {
 
 document.querySelectorAll('.prob-bar').forEach(bar => {
   barObserver.observe(bar);
+});
+
+const decisionBarObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.querySelectorAll('.sp-confidence__fill').forEach(fill => {
+        const width = fill.dataset.width || '0';
+        requestAnimationFrame(() => {
+          fill.style.width = `${width}%`;
+        });
+      });
+      decisionBarObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.15 });
+
+document.querySelectorAll('.sp-confidence').forEach(bar => {
+  decisionBarObserver.observe(bar);
 });
 
 /* Also animate existing win-fill bars (prediction page) */

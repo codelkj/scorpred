@@ -1,213 +1,65 @@
 {% extends "base.html" %}
-{% block title %}Prediction Result Detail | ScorPred{% endblock %}
+{% import "components/decision.html" as ui with context %}
+
+{% block title %}ScorPred | Result Detail{% endblock %}
+{% block topbar_title %}Result Detail{% endblock %}
 
 {% block content %}
-<div class="page-header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
-  <div>
-    <h1>Prediction <span class="accent">Result Detail</span></h1>
-    <p class="page-sub">Prediction vs reality with supporting match evidence.</p>
-  </div>
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">{{ record.league_name or record.sport|upper }}</span>
+  <h1>{{ record.team_a }} vs {{ record.team_b }}</h1>
+  <p>A transparent recap of the ScorPred action, the side, and what happened after the match finished.</p>
+</section>
 
-</div>
-
-<div class="card glow-card comparison-banner" style="padding:1.1rem 1.2rem; margin-bottom:1.25rem;">
-  <div class="section-title-sm" style="margin-bottom:.65rem;">Prediction vs Reality</div>
-  <div class="kv-row"><span style="color:#8b949e;">Winner Pick</span><span>{{ comparison.winner_pick }}</span></div>
-  {% if comparison.totals_pick %}
-  <div class="kv-row"><span style="color:#8b949e;">Totals Pick</span><span>{{ comparison.totals_pick }}</span></div>
-  {% endif %}
-  <div class="kv-row"><span style="color:#8b949e;">Reality</span><span>{{ comparison.reality_text }}</span></div>
-  <div class="kv-row"><span style="color:#8b949e;">Winner Leg</span><span style="color:{% if comparison.winner_leg == 'Hit' %}#00ff87{% elif comparison.winner_leg == 'Miss' %}#ef4444{% else %}#f59e0b{% endif %}; font-weight:600;">{{ comparison.winner_leg }}</span></div>
-  {% if comparison.totals_pick %}
-  <div class="kv-row"><span style="color:#8b949e;">Totals Leg</span><span style="color:{% if comparison.totals_leg == 'Hit' %}#00ff87{% elif comparison.totals_leg == 'Miss' %}#ef4444{% else %}#f59e0b{% endif %}; font-weight:600;">{{ comparison.totals_leg }}</span></div>
-  {% endif %}
-  <div class="kv-row"><span style="color:#8b949e;">Overall Result</span><span style="color:{% if comparison.overall_result == 'Win' %}#00ff87{% else %}#ef4444{% endif %}; font-weight:700;">{{ comparison.overall_result }}</span></div>
-  <div class="kv-row"><span style="color:#8b949e;">Confidence</span><span>{{ comparison.confidence }}</span></div>
-  {% if comparison.upset_label %}
-  <div style="margin-top:.7rem;">
-    <span class="detail-pill">{{ comparison.upset_label }}{% if comparison.actual_outcome_probability is not none %} · Actual outcome probability was {{ comparison.actual_outcome_probability }}%{% endif %}</span>
+<section class="sp-section">
+  <div class="sp-card-grid">
+    <article class="sp-info-card">
+      <small>Date</small>
+      <strong>{{ prediction_date_display }}</strong>
+    </article>
+    <article class="sp-info-card">
+      <small>Final score</small>
+      <strong>{{ record.final_score_display or 'Pending' }}</strong>
+    </article>
+    <article class="sp-info-card">
+      <small>ScorPred side</small>
+      <strong>{{ predicted_pick_display }}</strong>
+    </article>
+    <article class="sp-info-card">
+      <small>Result</small>
+      <strong>{{ record.overall_game_result or ('Correct' if record.winner_hit else 'Incorrect') }}</strong>
+    </article>
+    <article class="sp-info-card">
+      <small>Reality</small>
+      <strong>{{ comparison.reality_text }}</strong>
+    </article>
   </div>
-  {% endif %}
-  {% if comparison.predicted_outcome_probability is not none %}
-  <div style="margin-top:.65rem;">
-    <span class="detail-pill">Model probability for this pick: {{ comparison.predicted_outcome_probability }}%</span>
-  </div>
-  {% endif %}
-</div>
+</section>
 
-<div class="detail-grid" style="margin-bottom:1.25rem;">
-  <div class="card glow-card" style="padding:1.1rem; margin-bottom:0;">
-    <div class="section-title-sm" style="margin-bottom:.55rem;">Original Prediction</div>
-    <div class="kv-row"><span style="color:#8b949e;">Teams</span><span>{{ record.team_a }} vs {{ record.team_b }}</span></div>
-    <div class="kv-row"><span style="color:#8b949e;">Sport</span><span>{{ 'Soccer' if record.sport == 'soccer' else 'NBA' }}</span></div>
-    {% if record.sport == 'soccer' and record.league_name %}
-    <div class="kv-row"><span style="color:#8b949e;">League</span><span>{{ record.league_name }}</span></div>
+<section class="sp-section">
+  <div class="sp-info-card">
+    <h2>Why It Mattered</h2>
+    {% if evidence.evidence_layer_label %}
+      <p class="sp-muted">{{ evidence.evidence_layer_label }}</p>
     {% endif %}
-    <div class="kv-row"><span style="color:#8b949e;">Prediction Date</span><span>{{ prediction_date_display }}</span></div>
-    <div class="kv-row"><span style="color:#8b949e;">Predicted Winner</span><span>{{ predicted_pick_display }}</span></div>
-    {% if record.totals_pick_display %}
-    <div class="kv-row"><span style="color:#8b949e;">Totals Leg</span><span>{{ record.totals_pick_display }}</span></div>
-    {% endif %}
-    <div class="kv-row"><span style="color:#8b949e;">Confidence</span><span>{{ record.confidence or 'Unknown' }}</span></div>
-    {% if record.prediction_notes %}
-    <div style="margin-top:.65rem; font-size:.84rem; color:#c9d1d9;">{{ record.prediction_notes }}</div>
-    {% endif %}
-  </div>
-
-  <div class="card glow-card" style="padding:1.1rem; margin-bottom:0;">
-    <div class="section-title-sm" style="margin-bottom:.55rem;">Actual Match Outcome</div>
-    <div class="kv-row"><span style="color:#8b949e;">Final Score</span><span>{{ record.final_score_display }}</span></div>
-    <div class="kv-row"><span style="color:#8b949e;">Actual Winner</span><span>{{ record.actual_winner or 'Unknown' }}</span></div>
-    <div class="kv-row"><span style="color:#8b949e;">Winner Leg</span><span style="color:{% if record.winner_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ 'Hit' if record.winner_hit else 'Miss' }}</span></div>
-    {% if record.totals_pick_display %}
-    <div class="kv-row"><span style="color:#8b949e;">Totals Leg</span><span style="color:{% if record.ou_hit %}#00ff87{% else %}#ef4444{% endif %};">{{ 'Hit' if record.ou_hit else 'Miss' }}</span></div>
-    <div class="kv-row"><span style="color:#8b949e;">Actual Total</span><span>{{ record.total_scored }} · {{ record.actual_total_side }}</span></div>
-    {% endif %}
-    <div class="kv-row"><span style="color:#8b949e;">Overall Tracked Result</span><span style="color:{% if record.game_win %}#00ff87{% else %}#ef4444{% endif %};">{{ record.overall_game_result }}</span></div>
-    {% if record.ou_display %}
-    <div class="kv-row"><span style="color:#8b949e;">Tracked Legs</span><span>{{ record.winner_display }} · {{ record.ou_display }}</span></div>
-    {% endif %}
-    <div class="kv-row"><span style="color:#8b949e;">Status</span><span>{{ record.status|title }}</span></div>
-    <div class="kv-row"><span style="color:#8b949e;">Updated</span><span>{{ updated_at_display }}</span></div>
-  </div>
-</div>
-
-<div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
-  <div class="section-title-sm" style="margin-bottom:.6rem;">Win Probabilities</div>
-  {% for row in probability_rows %}
-  <div class="kv-row"><span style="color:#8b949e;">{{ row.label }}</span><span>{{ row.value }}%</span></div>
-  {% endfor %}
-</div>
-
-{% if model_component_sections %}
-<div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
-  <div class="section-title-sm" style="margin-bottom:.6rem;">Model Components Captured</div>
-  {% for section in model_component_sections %}
-  <div style="margin-bottom:1rem;">
-    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">{{ section.title }}</div>
-    {% for row in section.rows %}
-    <div class="kv-row"><span style="color:#8b949e;">{{ row.label }}</span><span>{{ row.value }}</span></div>
-    {% endfor %}
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
-
-{% if evidence.goal_scorers.available %}
-<div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
-  <div class="section-title-sm" style="margin-bottom:.6rem;">Goal Scorers</div>
-  <div class="detail-grid">
-    <div>
-      <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">{{ evidence.goal_scorers.home_team }}</div>
-      {% for goal in evidence.goal_scorers.home_goals %}
-      <div class="kv-row"><span style="color:#8b949e;">{{ goal.player }}</span><span>{{ goal.minute }}{% if goal.type and goal.type != 'Goal' %} · {{ goal.type }}{% endif %}</span></div>
-      {% endfor %}
-    </div>
-    <div>
-      <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">{{ evidence.goal_scorers.away_team }}</div>
-      {% for goal in evidence.goal_scorers.away_goals %}
-      <div class="kv-row"><span style="color:#8b949e;">{{ goal.player }}</span><span>{{ goal.minute }}{% if goal.type and goal.type != 'Goal' %} · {{ goal.type }}{% endif %}</span></div>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
-<div class="card glow-card" style="padding:1.1rem; margin-bottom:1.25rem;">
-  <div class="section-title-sm" style="margin-bottom:.6rem;">Match Evidence Breakdown</div>
-  {% if evidence.evidence_layer_label %}
-  <div style="margin-bottom:.75rem;">
-    <span class="detail-pill">{{ evidence.evidence_layer_label }}</span>
-  </div>
-  {% endif %}
-
-  {% if evidence.summary_rows %}
-  <div class="detail-grid" style="margin-bottom:.85rem;">
-    {% for row in evidence.summary_rows %}
-    <div style="padding:.8rem .9rem; border:1px solid rgba(255,255,255,.08); border-radius:10px; background:rgba(255,255,255,.03);">
-      <div style="font-size:.74rem; color:#8b949e; text-transform:uppercase; letter-spacing:.45px; margin-bottom:.28rem;">{{ row.label }}</div>
-      <div style="font-size:.92rem; color:#f5f5f5; line-height:1.45;">{{ row.value }}</div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if evidence.summary_points %}
-  <div style="margin-bottom:.9rem; display:grid; gap:.45rem;">
-    {% for point in evidence.summary_points %}
-    <div style="padding:.62rem .78rem; border-left:2px solid rgba(0,255,135,.35); background:rgba(255,255,255,.02); color:#c9d1d9; font-size:.88rem; line-height:1.5;">{{ point }}</div>
-    {% endfor %}
-  </div>
-  {% elif comparison.evidence_summary %}
-  <p style="color:#c9d1d9; font-size:.92rem; margin-bottom:.85rem;">{{ comparison.evidence_summary }}</p>
-  {% endif %}
-
-  {% if evidence.metrics %}
-  <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Full Match Stats</div>
-  <div style="overflow-x:auto; margin-bottom:.8rem;">
-    <table style="width:100%; border-collapse:collapse; font-size:.84rem;">
-      <thead>
-        <tr style="border-bottom:1px solid #262626; background:rgba(255,255,255,.03);">
-          <th style="padding:.5rem .6rem; text-align:left; color:#8b949e;">Metric</th>
-          <th style="padding:.5rem .6rem; text-align:left; color:#8b949e;">{{ record.team_a }}</th>
-          <th style="padding:.5rem .6rem; text-align:left; color:#8b949e;">{{ record.team_b }}</th>
-          <th style="padding:.5rem .6rem; text-align:left; color:#8b949e;">Edge</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in evidence.metrics %}
-        <tr style="border-bottom:1px solid rgba(255,255,255,.06);">
-          <td style="padding:.5rem .6rem;">{{ row.label }}</td>
-          <td style="padding:.5rem .6rem;">{{ row.team_a }}</td>
-          <td style="padding:.5rem .6rem;">{{ row.team_b }}</td>
-          <td style="padding:.5rem .6rem; color:#c9d1d9;">{{ row.leader }}</td>
-        </tr>
+    {% if evidence.summary_points %}
+      <ul class="sp-why-list">
+        {% for point in evidence.summary_points[:4] %}
+          <li>{{ point }}</li>
         {% endfor %}
-      </tbody>
-    </table>
+      </ul>
+    {% elif evidence.summary %}
+      <p class="sp-muted">{{ evidence.summary }}</p>
+    {% else %}
+      <p class="sp-muted">No extra result notes were recorded for this pick.</p>
+    {% endif %}
   </div>
-  {% endif %}
+</section>
 
-  {% if evidence.key_events %}
-  <div style="margin-bottom:.85rem;">
-    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Major Match Events</div>
-    {% for event in evidence.key_events %}
-    <div class="kv-row"><span style="color:#8b949e;">{{ event.minute }} {{ event.type }}</span><span>{{ event.team }}{% if event.player %} · {{ event.player }}{% endif %}{% if event.detail %} ({{ event.detail }}){% endif %}</span></div>
-    {% endfor %}
+<section class="sp-section">
+  <div class="sp-page-actions">
+    <a class="btn btn-primary" href="/results">Back to Results</a>
+    <a class="btn btn-secondary" href="/">Home</a>
   </div>
-  {% endif %}
-
-  {% if evidence.player_impacts %}
-  <div style="margin-bottom:.85rem;">
-    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Key Player Contributions</div>
-    {% for row in evidence.player_impacts %}
-    <div class="kv-row"><span style="color:#8b949e;">{{ row.team }} · {{ row.name }}</span><span>{% if row.metric %}{{ row.metric }}: {{ row.value }}{% else %}Goals {{ row.goals or 0 }}, Assists {{ row.assists or 0 }}, Shots On {{ row.shots_on or 0 }}{% if row.rating %}, Rating {{ row.rating }}{% endif %}{% endif %}</span></div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if evidence.form_compare %}
-  <div style="margin-bottom:.85rem;">
-    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Recent Form Context</div>
-    {% for team_name, row in evidence.form_compare.items() %}
-    <div class="kv-row"><span style="color:#8b949e;">{{ team_name }}</span><span>
-      {% if row.draws is defined %}
-      {{ row.wins }}W-{{ row.draws }}D-{{ row.losses }}L · Avg GF {{ row.avg_goals_for }} · Avg GA {{ row.avg_goals_against }}
-      {% else %}
-      {{ row.wins }}W-{{ row.losses }}L · Avg PF {{ row.avg_points_for }} · Avg PA {{ row.avg_points_against }}
-      {% endif %}
-    </span></div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if evidence.injuries %}
-  <div style="margin-bottom:.2rem;">
-    <div style="font-size:.78rem; color:#8b949e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">Injury Context</div>
-    {% for team_name, row in evidence.injuries.items() %}
-    <div class="kv-row"><span style="color:#8b949e;">{{ team_name }}</span><span>{{ row.count }} listed absence{% if row.count != 1 %}s{% endif %}{% if row.notable %} · {{ row.notable | join(', ') }}{% endif %}</span></div>
-    {% endfor %}
-  </div>
-  {% endif %}
-</div>
+</section>
 {% endblock %}

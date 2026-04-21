@@ -1,265 +1,60 @@
 {% extends "base.html" %}
-{% block title %}{{ team_a.name }} vs {{ team_b.name }} - Match Analysis{% endblock %}
+{% import "components/decision.html" as ui with context %}
+
+{% block title %}ScorPred | Match Analysis{% endblock %}
+{% block topbar_title %}Match Analysis{% endblock %}
 
 {% block content %}
-{% set probs = scorpred.win_probabilities or {} %}
-{% set prob_a = (probs.a or 0) | float %}
-{% set prob_draw = (probs.draw or 0) | float %}
-{% set prob_b = (probs.b or 0) | float %}
-{% set top_prob = [prob_a, prob_draw, prob_b] | max %}
-{% set play_type = scorpred.play_type or 'LEAN' %}
-{% set risk_label = scorpred.risk_label or ('Elevated' if scorpred.best_pick.confidence == 'Low' else 'Watch' if scorpred.best_pick.confidence == 'Medium' else 'Controlled') %}
-{% set risk_class = 'sp-badge--danger' if risk_label == 'Elevated' else ('sp-badge--strong' if risk_label == 'Controlled' else 'sp-badge--caution') %}
-{% set completeness = scorpred.get('data_completeness', {}) %}
-{% set explainer = scorpred.get('decision_explainer', {}) %}
-{% set completeness_class = 'sp-badge--muted' %}
-{% if completeness.get('tier') == 'full' %}
-  {% set completeness_class = 'sp-badge--strong' %}
-{% elif completeness.get('tier') == 'partial' %}
-  {% set completeness_class = 'sp-badge--caution' %}
-{% elif completeness.get('tier') == 'limited' %}
-  {% set completeness_class = 'sp-badge--danger' %}
-{% endif %}
-
-<section class="sp-decision">
-  <div class="sp-decision__matchup">
-    <div class="sp-decision__team">
-      <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" class="sp-decision__logo" />
-      <span class="sp-decision__team-name">{{ team_a.name }}</span>
-      <span class="sp-decision__team-role">Home</span>
-    </div>
-
-    <div class="sp-decision__verdict">
-      <span class="sp-decision__play-type sp-decision__play-type--{{ play_type | lower }}">
-        {% if play_type == 'BET' %}BET{% elif play_type == 'AVOID' %}AVOID{% else %}LEAN{% endif %}
-      </span>
-      <h1 class="sp-decision__pick">{{ scorpred.best_pick.prediction }}</h1>
-      <p class="sp-decision__subtitle">{{ explainer.get('summary') or scorpred.best_pick.reasoning or scorpred.matchup_reading }}</p>
-      <div class="sp-decision__badges">
-        <span class="sp-badge conf-{{ scorpred.best_pick.confidence | lower }}">{{ scorpred.best_pick.confidence }} · {{ '%.1f'|format(top_prob) }}%</span>
-        <span class="sp-badge {{ risk_class }}">{{ risk_label }}</span>
-        <span class="sp-badge {{ completeness_class }}">{{ explainer.get('reliability_label') or completeness.get('label') or ((scorpred.data_quality or 'Moderate') ~ ' data') }}</span>
-      </div>
-    </div>
-
-    <div class="sp-decision__team">
-      <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" class="sp-decision__logo" />
-      <span class="sp-decision__team-name">{{ team_b.name }}</span>
-      <span class="sp-decision__team-role">Away</span>
-    </div>
-  </div>
+{% set card = scorpred.decision_card if scorpred else none %}
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">{{ selected_fixture.league_name or 'Soccer' }}</span>
+  <h1>{{ team_a.name }} vs {{ team_b.name }}</h1>
+  <p>The matchup view keeps the decision first, then shows the context behind the call.</p>
 </section>
 
-<section class="sp-panel" style="margin-bottom:1rem">
-  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.8rem">
+{% if card %}
+  <div class="sp-analysis-layout">
     <div>
-      <span class="sp-kicker">Decision</span>
-      <strong style="display:block; font-size:1.05rem; margin:.2rem 0">{{ scorpred.best_pick.prediction }}</strong>
-      <p style="font-size:.8rem; color:var(--text-2); margin:0">This is the match-analysis recommendation before you open the full prediction page.</p>
-    </div>
-    <div>
-      <span class="sp-kicker">Confidence</span>
-      <strong style="display:block; font-size:1.05rem; margin:.2rem 0">{{ '%.1f'|format(top_prob) }}%</strong>
-      <p style="font-size:.8rem; color:var(--text-2); margin:0">{{ scorpred.best_pick.confidence }} confidence from the current pre-match read.</p>
-    </div>
-    <div>
-      <span class="sp-kicker">Why this pick</span>
-      <strong style="display:block; font-size:1.05rem; margin:.2rem 0">{{ explainer.get('headline') or 'Match edge' }}</strong>
-      <p style="font-size:.8rem; color:var(--text-2); margin:0">{{ explainer.get('supporting_note') or 'The engine is summarizing the strongest matchup edge it sees.' }}</p>
-    </div>
-    <div>
-      <span class="sp-kicker">Data reliability</span>
-      <strong style="display:block; font-size:1.05rem; margin:.2rem 0">{{ explainer.get('reliability_label') or completeness.get('label') or 'Match context' }}</strong>
-      <p style="font-size:.8rem; color:var(--text-2); margin:0">{{ explainer.get('reliability_note') or completeness.get('summary') }}</p>
-    </div>
-  </div>
-  {% if explainer.get('tags') %}
-  <div style="display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.85rem">
-    {% for tag in explainer.get('tags') %}
-    <span class="sp-chip sp-chip--info">{{ tag }}</span>
-    {% endfor %}
-  </div>
-  {% endif %}
-</section>
+      {{ ui.decision_card(card, 'featured') }}
 
-{% if selected_fixture and selected_fixture.date %}
-<div class="sp-meta-strip">
-  <span>{{ selected_fixture.date[:10] }}{% if selected_fixture.date|length > 10 %} · {{ selected_fixture.date[11:16] }} UTC{% endif %}</span>
-  <span>{{ scorpred.ml_source_label or 'ML' }} · {{ scorpred.decision_layer or 'Combined Signal' }}</span>
-</div>
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2>Why This Pick</h2>
+          {% set explainer = scorpred.decision_explainer or {} %}
+          <ul class="sp-why-list">
+            <li>{{ card.reason }}</li>
+            {% for tag in explainer.tags or [] %}
+              <li>{{ tag }}</li>
+            {% endfor %}
+            {% if h2h_rec %}
+              <li>Recent head-to-head context is included where available.</li>
+            {% endif %}
+            {% if card.action == 'SKIP' %}
+              <li>No reliable edge is stronger than forcing a play.</li>
+            {% endif %}
+          </ul>
+        </div>
+      </section>
+    </div>
+
+    <aside class="sp-info-card">
+      <h2>Data Confidence</h2>
+      {{ ui.data_badge(card.data_badge) }}
+      <p class="sp-muted" style="margin-top:.75rem">{{ (scorpred.data_completeness or {}).summary or card.support_text }}</p>
+
+      <div class="sp-why-list">
+        <li>{{ team_a.name }} recent form: {{ form_a|length }} matches</li>
+        <li>{{ team_b.name }} recent form: {{ form_b|length }} matches</li>
+        <li>Head-to-head sample: {{ h2h|length if h2h else 0 }} matches</li>
+      </div>
+
+      <div class="sp-page-actions" style="margin-top:1rem">
+        <a class="btn btn-primary btn-sm" href="/prediction">Full Analysis</a>
+        <a class="btn btn-secondary btn-sm" href="/results">Results</a>
+      </div>
+    </aside>
+  </div>
+{% else %}
+  {{ ui.empty_state('Match analysis is unavailable', 'Select another fixture or refresh the slate.') }}
 {% endif %}
-
-<div data-sp-tabs>
-  <div class="sp-tabs">
-    <button class="sp-tab active" data-tab="overview">Overview</button>
-    <button class="sp-tab" data-tab="form">Form</button>
-    <button class="sp-tab" data-tab="details">Details</button>
-  </div>
-
-  <div class="sp-tab-panel active" data-panel="overview">
-    <div class="sp-panel">
-      <span class="sp-kicker">Outcome probabilities</span>
-      <div class="sp-prob-stack" style="margin-top:.6rem">
-        <div class="sp-prob-stack__seg sp-prob-stack__seg--home" style="width:{{ prob_a }}%"></div>
-        {% if prob_draw > 0 %}
-        <div class="sp-prob-stack__seg sp-prob-stack__seg--draw" style="width:{{ prob_draw }}%"></div>
-        {% endif %}
-        <div class="sp-prob-stack__seg sp-prob-stack__seg--away" style="width:{{ prob_b }}%"></div>
-      </div>
-      <div class="sp-prob-legend">
-        <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--home"></span> {{ team_a.name }} {{ '%.1f'|format(prob_a) }}%</span>
-        {% if prob_draw > 0 %}
-        <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--draw"></span> Draw {{ '%.1f'|format(prob_draw) }}%</span>
-        {% endif %}
-        <span class="sp-prob-legend__item"><span class="sp-prob-legend__dot sp-prob-legend__dot--away"></span> {{ team_b.name }} {{ '%.1f'|format(prob_b) }}%</span>
-      </div>
-    </div>
-
-    <div class="sp-split">
-      <div class="sp-panel">
-        <span class="sp-kicker">Why this pick</span>
-        <ul class="sp-insight-list" style="margin-top:.5rem">
-          <li>{{ explainer.get('summary') or scorpred.best_pick.reasoning }}</li>
-          {% if scorpred.matchup_reading %}
-          <li>{{ scorpred.matchup_reading }}</li>
-          {% endif %}
-          {% if scorpred.key_edges %}
-            {% for edge in scorpred.key_edges[:3] %}
-          <li><strong>{{ edge.team_name }}</strong> leads in {{ edge.category | lower }} by +{{ edge.margin }}</li>
-            {% endfor %}
-          {% endif %}
-        </ul>
-      </div>
-
-      <div class="sp-panel">
-        <span class="sp-kicker">Caution</span>
-        <ul class="sp-insight-list" style="margin-top:.5rem">
-          {% if scorpred.avoid_reasons %}
-            {% for reason in scorpred.avoid_reasons[:3] %}
-          <li>{{ reason }}</li>
-            {% endfor %}
-          {% else %}
-          <li>{{ explainer.get('reliability_note') or completeness.get('summary') }}</li>
-          <li>Late injuries, lineup changes, and market movement can still shift the edge.</li>
-          <li>Use the full prediction page if you want market and factor detail before acting.</li>
-          {% endif %}
-        </ul>
-      </div>
-    </div>
-  </div>
-
-  <div class="sp-tab-panel" data-panel="form">
-    {% set form_a_avg_scored = (form_a | sum(attribute='gf') / (form_a|length)) if form_a else 0 %}
-    {% set form_a_avg_allowed = (form_a | sum(attribute='ga') / (form_a|length)) if form_a else 0 %}
-    {% set form_b_avg_scored = (form_b | sum(attribute='gf') / (form_b|length)) if form_b else 0 %}
-    {% set form_b_avg_allowed = (form_b | sum(attribute='ga') / (form_b|length)) if form_b else 0 %}
-    {% set trend_a = 'up' if form_a_avg_scored >= form_a_avg_allowed else 'down' %}
-    {% set trend_b = 'up' if form_b_avg_scored >= form_b_avg_allowed else 'down' %}
-
-    <div class="sp-split">
-      <div class="sp-panel">
-        <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem">
-          <img src="{{ team_a.logo }}" alt="{{ team_a.name }}" style="width:28px; height:28px; object-fit:contain" />
-          <strong>{{ team_a.name }}</strong>
-          <span class="sp-badge sp-badge--{{ 'strong' if trend_a == 'up' else 'danger' }}">{{ 'Up' if trend_a == 'up' else 'Down' }}</span>
-        </div>
-        <div style="display:flex; gap:.25rem; margin-bottom:.6rem">
-          {% for row in form_a[:5] %}
-          <span class="sp-badge sp-badge--{{ 'strong' if row.result == 'W' else ('danger' if row.result == 'L' else 'caution') }}">{{ row.result }}</span>
-          {% else %}
-          <span style="color:var(--text-3); font-size:.82rem">No recent form</span>
-          {% endfor %}
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:.4rem; font-size:.82rem">
-          <div><span style="color:var(--text-3)">Scored</span><br><strong>{{ '%.2f'|format(form_a_avg_scored) }}</strong></div>
-          <div><span style="color:var(--text-3)">Allowed</span><br><strong>{{ '%.2f'|format(form_a_avg_allowed) }}</strong></div>
-          <div><span style="color:var(--text-3)">Wins (5)</span><br><strong>{{ form_a | selectattr('result', 'equalto', 'W') | list | length }}</strong></div>
-        </div>
-      </div>
-
-      <div class="sp-panel">
-        <div style="display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem">
-          <img src="{{ team_b.logo }}" alt="{{ team_b.name }}" style="width:28px; height:28px; object-fit:contain" />
-          <strong>{{ team_b.name }}</strong>
-          <span class="sp-badge sp-badge--{{ 'strong' if trend_b == 'up' else 'danger' }}">{{ 'Up' if trend_b == 'up' else 'Down' }}</span>
-        </div>
-        <div style="display:flex; gap:.25rem; margin-bottom:.6rem">
-          {% for row in form_b[:5] %}
-          <span class="sp-badge sp-badge--{{ 'strong' if row.result == 'W' else ('danger' if row.result == 'L' else 'caution') }}">{{ row.result }}</span>
-          {% else %}
-          <span style="color:var(--text-3); font-size:.82rem">No recent form</span>
-          {% endfor %}
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:.4rem; font-size:.82rem">
-          <div><span style="color:var(--text-3)">Scored</span><br><strong>{{ '%.2f'|format(form_b_avg_scored) }}</strong></div>
-          <div><span style="color:var(--text-3)">Allowed</span><br><strong>{{ '%.2f'|format(form_b_avg_allowed) }}</strong></div>
-          <div><span style="color:var(--text-3)">Wins (5)</span><br><strong>{{ form_b | selectattr('result', 'equalto', 'W') | list | length }}</strong></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="sp-tab-panel" data-panel="details">
-    <div class="sp-panel">
-      <span class="sp-kicker">Match edge</span>
-      <h2 class="sp-section-title" style="margin-bottom:.5rem">{{ explainer.get('headline') or 'Match edge' }}</h2>
-      <p style="color:var(--text-2); margin-bottom:.35rem">{{ explainer.get('supporting_note') }}</p>
-      <p style="color:var(--text-3); font-size:.78rem; margin:0">{{ explainer.get('raw_score_note') }}</p>
-    </div>
-
-    {% if completeness %}
-    <div class="sp-panel">
-      <span class="sp-kicker">Input reliability</span>
-      <h2 class="sp-section-title" style="margin-bottom:.35rem">{{ completeness.get('label') }}</h2>
-      <p style="color:var(--text-2); margin:0">{{ completeness.get('summary') }}</p>
-      {% if completeness.get('sections') %}
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.6rem; margin-top:.8rem">
-        {% for section in completeness.get('sections') %}
-        {% set section_class = 'sp-badge--muted' %}
-        {% if section.get('status') == 'available' %}
-          {% set section_class = 'sp-badge--strong' %}
-        {% elif section.get('status') == 'limited' %}
-          {% set section_class = 'sp-badge--caution' %}
-        {% elif section.get('status') == 'unavailable' %}
-          {% set section_class = 'sp-badge--danger' %}
-        {% endif %}
-        <div class="sp-panel sp-panel--tight" style="margin-bottom:0">
-          <div style="display:flex; justify-content:space-between; gap:.5rem; align-items:flex-start">
-            <strong style="font-size:.9rem">{{ section.get('label') }}</strong>
-            <span class="sp-badge {{ section_class }}">{{ section.get('status')|capitalize }}</span>
-          </div>
-          <p style="color:var(--text-3); font-size:.8rem; line-height:1.5; margin:.45rem 0 0">{{ section.get('detail') }}</p>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-    </div>
-    {% endif %}
-
-    {% if stats_compare %}
-    <div class="sp-panel">
-      <span class="sp-kicker">Raw team snapshot</span>
-      <div class="sp-list" style="margin-top:.4rem">
-        {% for row in stats_compare %}
-        <div class="sp-stat-row">
-          <span class="sp-stat-label">{{ row.label }}</span>
-          <span class="sp-stat-val">{{ row.a }} - {{ row.b }}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="sp-panel sp-panel--tight" style="font-size:.78rem; color:var(--text-3); line-height:1.6">
-      Model source: {{ scorpred.ml_source_label or 'Unknown' }}{% if scorpred.model_role %} ({{ scorpred.model_role }}){% endif %}<br>
-      Decision layer: {{ scorpred.decision_layer or 'Combined Signal' }} · Score gap: {{ scorpred.score_gap }}/10
-    </div>
-  </div>
-</div>
-
-<div style="display:flex; gap:.5rem; margin-top:1rem">
-  <a href="/prediction" class="btn btn-secondary btn-sm">Full prediction</a>
-  <a href="/strategy-lab" class="btn btn-secondary btn-sm">Strategy lab</a>
-  <a href="/soccer" class="btn btn-primary btn-sm">Analyze another</a>
-</div>
 {% endblock %}

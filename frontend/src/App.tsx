@@ -1,60 +1,45 @@
 import { useState } from 'react';
 import DarkHUD from './components/DarkHUD';
 import DashboardLayout from './components/DashboardTheme';
-import StrategyLabSection from './components/StrategyLabSection';
 import HomePage from './pages/HomePage';
 import SoccerPage from './pages/SoccerPage';
 import NBAPage from './pages/NBAPage';
 import MatchAnalysisPage from './pages/MatchAnalysisPage';
-import PerformancePage from './pages/PerformancePage';
+import ResultsPage from './pages/ResultsPage';
 
 type View = 'landing' | 'dashboard';
 
-type DashPage =
-  | 'Dashboard'
-  | 'Soccer'
-  | 'NBA'
-  | 'Match Analysis'
-  | 'Strategy Lab'
-  | 'Performance'
-  | 'Props Engine'
-  | 'Settings';
+export type DashPage = 'Home' | 'Soccer' | 'NBA' | 'Match Analysis' | 'Results';
 
 function PageContent({ page }: { page: DashPage }) {
   switch (page) {
-    case 'Dashboard':      return <HomePage />;
-    case 'Soccer':         return <SoccerPage />;
-    case 'NBA':            return <NBAPage />;
-    case 'Match Analysis': return <MatchAnalysisPage />;
-    case 'Strategy Lab':   return <StrategyLabSection />;
-    case 'Performance':    return <PerformancePage />;
-    default:
-      return (
-        <div className="page-stack">
-          <div>
-            <p className="page-eyebrow">// Coming Soon</p>
-            <h1 className="page-title">{page}</h1>
-            <div className="mt-4 h-px bg-gradient-to-r from-[#00ff87]/20 to-transparent" />
-          </div>
-          <div className="card">
-            <p className="text-neutral-500 text-sm font-mono">
-              This section is under construction.
-            </p>
-          </div>
-        </div>
-      );
+    case 'Home':
+      return <HomePage />;
+    case 'Soccer':
+      return <SoccerPage />;
+    case 'NBA':
+      return <NBAPage />;
+    case 'Match Analysis':
+      return <MatchAnalysisPage />;
+    case 'Results':
+      return <ResultsPage />;
   }
 }
 
 export default function App() {
   const [view, setView] = useState<View>('landing');
-  const [page, setPage] = useState<DashPage>('Dashboard');
+  const [page, setPage] = useState<DashPage>('Home');
 
   if (view === 'landing') {
     return (
-      <div onClick={() => setView('dashboard')} className="cursor-pointer">
+      <button
+        type="button"
+        onClick={() => setView('dashboard')}
+        className="block w-full cursor-pointer text-left"
+        aria-label="Open ScorPred app"
+      >
         <DarkHUD />
-      </div>
+      </button>
     );
   }
 

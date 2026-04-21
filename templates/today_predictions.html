@@ -1,155 +1,49 @@
 {% extends "base.html" %}
+{% import "components/decision.html" as ui with context %}
 
-{% block title %}Today's Soccer Predictions | ScorPred{% endblock %}
+{% block title %}ScorPred | Today's Soccer Predictions{% endblock %}
+{% block topbar_title %}Today's Soccer Predictions{% endblock %}
+{% block topbar_actions %}
+  <form class="sp-filter-row" method="get" action="/today-soccer-predictions">
+    <select class="sp-filter-control" name="league" onchange="this.form.submit()" aria-label="Competition">
+      {% for league in supported_leagues %}
+        <option value="{{ league.id }}" {% if current_league_id == league.id %}selected{% endif %}>{{ league.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+{% endblock %}
 
 {% block content %}
-{# ── HERO ── #}
-<section class="sp-hero">
-  <span class="sp-kicker">ScorPred Platform</span>
-  <h1>Today's Soccer Predictions</h1>
-  <p style="color:var(--text-3)">
-    {% if total_fixtures > 0 %}
-      {{ total_predictions }} of {{ total_fixtures }} matches predicted &mdash; sorted by confidence
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">Soccer decision plan</span>
+  <h1>Today's soccer predictions, sorted by action.</h1>
+  <p>Start with the strongest opportunities. If the edge is thin, ScorPred says so.</p>
+</section>
+
+{{ ui.plan_strip(today_plan) }}
+{{ ui.top_opportunities(top_opportunities) }}
+
+{% for group in grouped_predictions %}
+  <section class="sp-section">
+    <div class="sp-section__header">
+      <div>
+        <h2>{{ group.league_name or 'Competition' }}</h2>
+        <p>{{ group.predictions|length }} matches available.</p>
+      </div>
+    </div>
+    {% if group.cards %}
+      <div class="sp-card-grid">
+        {% for card in group.cards %}
+          {{ ui.decision_card(card) }}
+        {% endfor %}
+      </div>
     {% else %}
-      No matches found in the next 36 hours
+      {{ ui.empty_state('No strong data for this competition', 'Most matches are thin-edge or unavailable right now.') }}
     {% endif %}
-  </p>
-  <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem">
-    <a href="{{ url_for('soccer') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Soccer Hub</a>
+  </section>
+{% endfor %}
 
-  </div>
-</section>
-
-{# ── LOAD ERROR ── #}
-{% if load_error %}
-<div class="sp-notice sp-notice--warn">{{ load_error }} <a href="{{ url_for('today_soccer_predictions') }}?refresh=1">Refresh</a></div>
+{% if not grouped_predictions %}
+  {{ ui.empty_state('No soccer slate available', load_error or 'Check back when fixtures are available.') }}
 {% endif %}
-
-{# ── CONFIDENCE SUMMARY STRIP ── #}
-{% if predictions | length > 0 %}
-{% set high_conf = predictions | selectattr('confidence', 'equalto', 'High') | list %}
-{% set med_conf  = predictions | selectattr('confidence', 'equalto', 'Medium') | list %}
-{% set low_conf  = predictions | selectattr('confidence', 'equalto', 'Low') | list %}
-
-<div class="sp-kpi-strip">
-  <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-strong)">{{ high_conf | length }}</span><span class="sp-kpi__label">High</span></div>
-  <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--c-caution)">{{ med_conf | length }}</span><span class="sp-kpi__label">Medium</span></div>
-  <div class="sp-kpi"><span class="sp-kpi__val" style="color:var(--text-3)">{{ low_conf | length }}</span><span class="sp-kpi__label">Low</span></div>
-  <div class="sp-kpi"><span class="sp-kpi__val">{{ predictions | length }}</span><span class="sp-kpi__label">Total picks</span></div>
-</div>
-
-{# ── PREDICTION CARDS GRID ── #}
-{% set cards_with_data    = predictions | selectattr('has_data') | list %}
-{% set cards_limited      = predictions | rejectattr('has_data') | list %}
-
-<div class="sp-grid sp-grid--cards">
-  {% for item in cards_with_data %}
-  <article class="sp-panel sp-panel--tight">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">
-      <div style="font-size:.75rem; color:var(--text-3)">
-        {% if item.fixture.fixture.date %}{{ item.fixture.fixture.date[:10] }}{% if item.fixture.fixture.date|length > 10 %} &middot; {{ item.fixture.fixture.date[11:16] }} UTC{% endif %}{% else %}TBD{% endif %}
-        {% if item.fixture.league %} &middot; {{ item.fixture.league.name }}{% endif %}
-      </div>
-      <span class="action-badge action-{{ item.action|lower }}">{{ item.action }}</span>
-    </div>
-
-    <div style="display:flex; align-items:center; justify-content:center; gap:.6rem; margin-bottom:.5rem">
-      <div style="display:flex; align-items:center; gap:.3rem">
-        {% if item.home_team.logo %}<img src="{{ item.home_team.logo }}" alt="" style="width:22px;height:22px;object-fit:contain" />{% endif %}
-        <strong style="font-size:.85rem">{{ item.home_team.name }}</strong>
-      </div>
-      <span style="color:var(--text-3); font-size:.78rem">vs</span>
-      <div style="display:flex; align-items:center; gap:.3rem">
-        {% if item.away_team.logo %}<img src="{{ item.away_team.logo }}" alt="" style="width:22px;height:22px;object-fit:contain" />{% endif %}
-        <strong style="font-size:.85rem">{{ item.away_team.name }}</strong>
-      </div>
-    </div>
-
-    <div class="sp-prob-stack">
-      <div class="sp-prob-stack__bar" style="flex:{{ item.prob_home }}; background:var(--c-strong)" title="{{ '%.1f'|format(item.prob_home) }}%">
-        <span style="font-size:.65rem; padding:0 .3rem">{{ "%.0f"|format(item.prob_home) }}%</span>
-      </div>
-      <div class="sp-prob-stack__bar" style="flex:{{ item.prob_draw }}; background:var(--c-caution)" title="{{ '%.1f'|format(item.prob_draw) }}%">
-        <span style="font-size:.65rem; padding:0 .3rem">{{ "%.0f"|format(item.prob_draw) }}%</span>
-      </div>
-      <div class="sp-prob-stack__bar" style="flex:{{ item.prob_away }}; background:var(--c-active)" title="{{ '%.1f'|format(item.prob_away) }}%">
-        <span style="font-size:.65rem; padding:0 .3rem">{{ "%.0f"|format(item.prob_away) }}%</span>
-      </div>
-    </div>
-
-    <div style="display:flex; justify-content:space-between; align-items:center">
-      <div><span style="font-size:.72rem; color:var(--text-3)">Pick</span><br><strong style="color:var(--c-strong)">{{ item.predicted_winner }}</strong></div>
-      <span class="confidence-badge">{{ item.confidence_pct or item.confidence }}%</span>
-      <span class="reliability-badge reliability-{{ item.reliability|lower }}">{{ item.reliability }}</span>
-    </div>
-    {% if item.reasoning %}<p class="reasoning-text">{{ item.reasoning }}</p>{% endif %}
-  </article>
-  {% endfor %}
-
-  {% if cards_limited %}
-  <div style="grid-column:1/-1"><span class="sp-badge sp-badge--muted">{{ cards_limited | length }} match{{ 'es' if cards_limited|length != 1 else '' }} with no form data</span></div>
-  {% for item in cards_limited %}
-  <article class="sp-panel sp-panel--tight" style="opacity:.65">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">
-      <div style="font-size:.75rem; color:var(--text-3)">
-        {% if item.fixture.fixture.date %}{{ item.fixture.fixture.date[:10] }}{% if item.fixture.fixture.date|length > 10 %} &middot; {{ item.fixture.fixture.date[11:16] }} UTC{% endif %}{% else %}TBD{% endif %}
-        {% if item.fixture.league %} &middot; {{ item.fixture.league.name }}{% endif %}
-      </div>
-      <span class="sp-badge sp-badge--muted">No data</span>
-    </div>
-    <div style="display:flex; align-items:center; justify-content:center; gap:.6rem; margin-bottom:.4rem">
-      <div style="display:flex; align-items:center; gap:.3rem">
-        {% if item.home_team.logo %}<img src="{{ item.home_team.logo }}" alt="" style="width:22px;height:22px;object-fit:contain;opacity:.5" />{% endif %}
-        <span style="font-size:.85rem">{{ item.home_team.name }}</span>
-      </div>
-      <span style="color:var(--text-3); font-size:.78rem">vs</span>
-      <div style="display:flex; align-items:center; gap:.3rem">
-        {% if item.away_team.logo %}<img src="{{ item.away_team.logo }}" alt="" style="width:22px;height:22px;object-fit:contain;opacity:.5" />{% endif %}
-        <span style="font-size:.85rem">{{ item.away_team.name }}</span>
-      </div>
-    </div>
-    <div class="sp-notice sp-notice--info" style="font-size:.78rem">No recent form data &mdash; prediction unavailable.</div>
-  </article>
-  {% endfor %}
-  {% endif %}
-</div>
-
-{% else %}
-<div class="sp-panel" style="text-align:center; padding:2rem">
-  <h3>No predictions available</h3>
-  <p style="color:var(--text-3)">There are no upcoming matches with predictions right now.</p>
-  <a href="{{ url_for('index') }}" class="sp-badge sp-badge--strong" style="text-decoration:none; display:inline-block; margin-top:.5rem">Back to Home</a>
-</div>
-{% endif %}
-
-{# ── YESTERDAY'S RESULTS ── #}
-{% if yesterday_results | length > 0 %}
-<section style="margin-top:1.5rem">
-  <span class="sp-kicker">Recent Results</span>
-  <h2 style="font-size:1.1rem; margin:.25rem 0 .75rem">Yesterday's Outcomes</h2>
-  <div class="sp-grid sp-grid--cards">
-    {% for p in yesterday_results %}
-    <article class="sp-panel sp-panel--tight" style="border-left:3px solid {% if p.is_correct %}var(--c-strong){% else %}var(--c-danger){% endif %}">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.35rem">
-        <strong style="font-size:.88rem">{{ p.team_a }} vs {{ p.team_b }}</strong>
-        <span class="sp-badge sp-badge--{{ 'strong' if p.is_correct else 'danger' }}">{% if p.is_correct %}Correct{% else %}Incorrect{% endif %}</span>
-      </div>
-      <div style="display:flex; gap:.75rem; font-size:.82rem; color:var(--text-2)">
-        <span>Predicted: <strong>{{ p.predicted_winner }}</strong></span>
-        <span>Actual: <strong>{{ p.actual_result or '—' }}</strong></span>
-        <span class="sp-badge sp-badge--{{ 'strong' if p.confidence == 'High' else ('caution' if p.confidence == 'Medium' else 'muted') }}">{{ p.confidence }}</span>
-      </div>
-      <span style="font-size:.72rem; color:var(--text-3); margin-top:.25rem; display:block">{{ p.date }} &middot; Soccer</span>
-    </article>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
-
-{# ── BOTTOM NAV ── #}
-<div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-top:1.5rem">
-  <a href="{{ url_for('index') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Home</a>
-  <a href="{{ url_for('nba.today_predictions') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Today NBA</a>
-
-</div>
 {% endblock %}

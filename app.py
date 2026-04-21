@@ -1,4 +1,4 @@
-"""Flask application for the ScorPred football and NBA predictor."""
+﻿"""Flask application for the ScorPred football and NBA predictor."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ import model_tracker as mt
 import user_auth
 import odds_fetcher
 import result_updater as ru
+import decision_ui as dui
 from runtime_paths import (
     auth_db_path,
     auth_storage_diagnostics,
@@ -110,7 +111,7 @@ def _runtime_release_tag() -> str:
         return f"{branch}@{short}" if branch else short
     return _RELEASE_TAG
 
-# ── Production startup guard ───────────────────────────────────────────────────
+# â”€â”€ Production startup guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _secret_key = os.environ.get("SECRET_KEY", "").strip()
 _is_production = bool(os.environ.get("RENDER") or os.environ.get("FLASK_ENV") == "production")
 if _is_production and not _secret_key:
@@ -119,7 +120,7 @@ if _is_production and not _secret_key:
         "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
     )
 if not _secret_key:
-    _logger.warning("SECRET_KEY not set — using an insecure default. Set SECRET_KEY for production.")
+    _logger.warning("SECRET_KEY not set â€” using an insecure default. Set SECRET_KEY for production.")
     _secret_key = "dev-insecure-key-change-me"
 
 # --- Persistent session config ---
@@ -159,7 +160,7 @@ else:
         _auth_storage["path"],
     )
 
-# ── Blueprints ──────────────────────────────────────────────────────────────────
+# â”€â”€ Blueprints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.register_blueprint(nba_bp)
 app.register_blueprint(user_auth.user_auth_bp)
 
@@ -196,7 +197,7 @@ SEASON = CURRENT_SEASON
 LEAGUE_SESSION_KEY = "selected_league_id"
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _now_stamp() -> str:
     return assistant_services.now_stamp()
@@ -885,25 +886,25 @@ def _build_evidence_summary(
         {"label": "Actual Winner", "value": actual_winner},
     ]
 
-    winner_value = f"{winner_leg} · {predicted_pick}"
+    winner_value = f"{winner_leg} Â· {predicted_pick}"
     predicted_prob_text = _format_percent_value(predicted_prob)
     if predicted_prob_text:
-        winner_value += f" · Model {predicted_prob_text}"
+        winner_value += f" Â· Model {predicted_prob_text}"
     summary_rows.append({"label": "Winner Leg", "value": winner_value})
 
     if totals_pick:
-        totals_value = f"{totals_leg} · {totals_pick}"
+        totals_value = f"{totals_leg} Â· {totals_pick}"
         if total_scored is not None:
-            totals_value += f" · {total_scored} {total_label}"
+            totals_value += f" Â· {total_scored} {total_label}"
             if actual_total_side:
-                totals_value += f" · {actual_total_side}"
+                totals_value += f" Â· {actual_total_side}"
         summary_rows.append({"label": "Totals Leg", "value": totals_value})
 
     if upset_label:
         outcome_value = upset_label
         actual_prob_text = _format_percent_value(actual_prob)
         if actual_prob_text:
-            outcome_value += f" · {actual_winner} closed at {actual_prob_text}"
+            outcome_value += f" Â· {actual_winner} closed at {actual_prob_text}"
         summary_rows.append({"label": "Outcome Context", "value": outcome_value})
 
     summary_rows.append({"label": "Confidence", "value": confidence})
@@ -2188,6 +2189,61 @@ def _prediction_confidence_rank(item: dict) -> tuple[int, float]:
     return (conf_map.get(conf, 3), -prob_gap)
 
 
+def _soccer_decision_card_from_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
+    teams_block = fixture.get("teams") or {}
+    home = teams_block.get("home") or {}
+    away = teams_block.get("away") or {}
+    fixture_block = fixture.get("fixture") or {}
+    league_block = fixture.get("league") or {}
+    home_name = home.get("name") or "Home"
+    away_name = away.get("name") or "Away"
+    fixture_date = fixture_block.get("date") or ""
+    payload = {
+        "team_a": home.get("id") or "",
+        "team_b": away.get("id") or "",
+        "team_a_name": home_name,
+        "team_b_name": away_name,
+        "team_a_logo": home.get("logo") or "",
+        "team_b_logo": away.get("logo") or "",
+        "fixture_id": fixture_block.get("id") or "",
+        "fixture_date": fixture_date,
+        "league_id": league_block.get("id") or _active_league_id(),
+        "league_name": league_block.get("name") or "",
+        "round": league_block.get("round") or fixture.get("round") or "",
+        "venue_name": (fixture_block.get("venue") or {}).get("name") or "",
+        "data_source": fixture.get("data_source") or _football_data_source(),
+    }
+    card = dui.build_decision_card(
+        sport="soccer",
+        team_a=home_name,
+        team_b=away_name,
+        prediction=fixture.get("prediction") or {},
+        competition=league_block.get("name") or "",
+        match_date=fixture_date,
+        venue=payload["venue_name"],
+        cta_url="/select",
+        cta_label="Analyze Match",
+        cta_method="post",
+        cta_payload=payload,
+    )
+    fixture["decision_card"] = card
+    if isinstance(fixture.get("prediction"), dict):
+        fixture["prediction"]["decision_card"] = card
+        fixture["prediction"]["play_type"] = card["action"]
+        fixture["prediction"]["confidence_pct"] = card["confidence_pct"]
+    return card
+
+
+def _soccer_cards_from_fixtures(fixtures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cards = []
+    for fixture in fixtures or []:
+        try:
+            cards.append(_soccer_decision_card_from_fixture(fixture))
+        except Exception as exc:
+            app.logger.debug("Decision card build failed for soccer fixture: %s", exc)
+    return cards
+
+
 def _load_grouped_upcoming_fixtures_all_leagues(
     next_n_per_league: int = 8,
     *,
@@ -2501,14 +2557,15 @@ def _prediction_top_probability(pred: dict[str, Any]) -> float:
 
 def _home_play_type(pred: dict[str, Any]) -> str:
     predicted_winner = str(pred.get("predicted_winner") or "").lower()
-    if predicted_winner == "avoid":
-        return "AVOID"
+    if predicted_winner in {"avoid", "draw", "skip"}:
+        return "SKIP"
 
-    confidence = str(pred.get("confidence") or "")
     top_prob = _prediction_top_probability(pred)
-    if confidence == "High" and top_prob >= 60.0:
+    if top_prob >= 62.0:
         return "BET"
-    return "LEAN"
+    if top_prob >= 52.0:
+        return "CONSIDER"
+    return "SKIP"
 
 
 def _home_recommendation(pred: dict[str, Any]) -> str:
@@ -2521,7 +2578,7 @@ def _home_recommendation(pred: dict[str, Any]) -> str:
     if predicted_winner == "B":
         return f"{team_b} ML"
     if str(predicted_winner).lower() == "draw":
-        return "Draw"
+        return "No reliable edge"
     return "No clear edge"
 
 
@@ -2582,7 +2639,7 @@ def _build_home_dashboard_context() -> dict[str, Any]:
                 "play_type": _home_play_type(pred),
                 "recommendation": _home_recommendation(pred),
                 "confidence": confidence,
-                "confidence_display": f"{top_prob:.1f}% · {confidence}",
+                "confidence_display": f"{top_prob:.1f}% Â· {confidence}",
                 "sport": str(pred.get("sport") or "").upper(),
                 "game_date": pred.get("game_date") or pred.get("date"),
             }
@@ -2620,6 +2677,75 @@ def _build_home_dashboard_context() -> dict[str, Any]:
         "trust_cards": trust_cards,
         "top_picks": top_picks,
         "performance_preview": performance_preview,
+    }
+
+
+def _build_home_dashboard_context() -> dict[str, Any]:
+    """Build the decision-first home payload rendered by the product UI."""
+    metrics = mt.get_summary_metrics()
+    pending = mt.get_pending_predictions(limit=40)
+    completed = mt.get_completed_predictions(limit=8)
+
+    cards: list[dict[str, Any]] = []
+    for record in pending:
+        sport = str(record.get("sport") or "soccer").lower()
+        prediction_payload = {
+            "best_pick": {
+                "prediction": record.get("predicted_pick_label") or record.get("predicted_winner"),
+                "team": record.get("predicted_winner"),
+                "reasoning": record.get("reasoning") or record.get("decision_explainer"),
+                "confidence": record.get("confidence"),
+            },
+            "win_probabilities": {
+                "a": record.get("prob_a"),
+                "b": record.get("prob_b"),
+                "draw": record.get("prob_draw"),
+            },
+            "confidence_pct": record.get("confidence_pct"),
+            "data_completeness": record.get("data_completeness") or {},
+        }
+        cards.append(
+            dui.build_decision_card(
+                sport=sport,
+                team_a=record.get("team_a") or "Team A",
+                team_b=record.get("team_b") or "Team B",
+                prediction=prediction_payload,
+                competition=record.get("league_name") or sport.upper(),
+                match_date=record.get("game_date") or record.get("date") or record.get("created_at"),
+                cta_url="/nba/prediction" if sport == "nba" else "/prediction",
+                cta_label="View Matchup",
+            )
+        )
+
+    cards = dui.sort_cards(cards)
+    today_plan = dui.plan_summary(cards)
+    accuracy = metrics.get("overall_accuracy")
+    recent_results = [dui.normalize_result_record(item) for item in completed[:6]]
+    trust_cards = [
+        {
+            "title": "Decision assistant",
+            "value": f"{today_plan['BET']} BET",
+            "badge": "Today",
+            "sample_label": "Actions, confidence, and data trust in one scan.",
+            "summary": "ScorPred points you toward clear spots and tells you when to pass.",
+            "tone": "strong",
+        },
+        {
+            "title": "Tracked results",
+            "value": str(int(metrics.get("finalized_predictions") or 0)),
+            "badge": "Graded picks",
+            "sample_label": f"{accuracy:.1f}% win rate" if accuracy is not None else "Awaiting sample",
+            "summary": "Results stay visible so every recommendation can be checked later.",
+            "tone": "neutral",
+        },
+    ]
+
+    return {
+        "system_snapshot": {"tracked_predictions": int(metrics.get("total_predictions") or 0)},
+        "trust_cards": trust_cards,
+        "top_picks": dui.top_opportunities(cards, limit=5),
+        "recent_results": recent_results,
+        "today_plan": today_plan,
     }
 
 
@@ -2998,7 +3124,7 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
  
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _map_confidence_to_action(confidence):
     try:
@@ -3024,44 +3150,35 @@ def _calc_reliability_badge(pred):
 
 @app.route("/results")
 def results():
-    completed = mt.get_completed_predictions(limit=100)
-    results_list = []
-    win_count = 0
-    total_bets = 0
-    profit_loss = 0.0
-    reliability_score = 0
-    for pred_item in completed:
-        action = pred_item.get("action_label") or _map_confidence_to_action(pred_item.get("confidence"))
-        confidence = float(pred_item.get("confidence_pct") or pred_item.get("confidence") or 0)
-        result = "Win" if pred_item.get("is_correct") else "Loss"
-        if result == "Win":
-            win_count += 1
-            profit_loss += 1
-        else:
-            profit_loss -= 1
-        total_bets += 1
-        reliability = pred_item.get("reliability_badge") or _calc_reliability_badge(pred_item)
-        reliability_score += 1 if reliability == "High" else 0.5 if reliability == "Medium" else 0
-        results_list.append({
-            "date": _format_prediction_date(pred_item.get("game_date") or pred_item.get("date")),
-            "matchup": f"{pred_item.get('team_a', 'A')} vs {pred_item.get('team_b', 'B')}",
-            "pick": pred_item.get("predicted_pick_label") or pred_item.get("predicted_winner"),
-            "action": action,
-            "confidence": int(confidence),
-            "result": result,
-            "reasoning": pred_item.get("reasoning") or pred_item.get("decision_explainer") or "",
-            "reliability": reliability,
-        })
-    win_pct = round((win_count / total_bets) * 100, 1) if total_bets else 0
-    avg_reliability = reliability_score / total_bets if total_bets else 0
-    reliability_label = "High" if avg_reliability > 0.75 else "Medium" if avg_reliability > 0.4 else "Low"
-    summary = {
-        "total_bets": total_bets,
-        "win_pct": win_pct,
-        "profit_loss": f"{profit_loss:+.0f}",
-        "reliability": reliability_label,
-    }
-    return render_template("results.html", results=results_list, summary=summary)
+    completed = mt.get_completed_predictions(limit=200)
+    rows = [dui.normalize_result_record(item) for item in completed]
+    league_options = sorted({row["competition"] for row in rows if row.get("competition")})
+
+    league_filter = (request.args.get("league") or "all").strip()
+    action_filter = (request.args.get("action") or "all").strip().upper()
+    range_filter = (request.args.get("range") or "all").strip().lower()
+
+    if league_filter and league_filter != "all":
+        rows = [row for row in rows if row["competition"] == league_filter]
+    if action_filter in {"BET", "CONSIDER", "SKIP"}:
+        rows = [row for row in rows if row["action"] == action_filter]
+    if range_filter in {"10", "20"}:
+        rows = rows[: int(range_filter)]
+
+    summary = dui.results_summary(rows)
+    breakdowns = dui.results_breakdowns(rows)
+    return render_template(
+        "results.html",
+        **_page_context(
+            results=rows,
+            summary=summary,
+            breakdowns=breakdowns,
+            league_filter=league_filter or "all",
+            action_filter=action_filter.lower() if action_filter != "ALL" else "all",
+            range_filter=range_filter,
+            league_options=league_options,
+        ),
+    )
 
 
 @app.route("/", methods=["GET"])
@@ -3102,10 +3219,14 @@ def soccer():
         _football_data_source(),
         "",
     )
+    decision_cards = _soccer_cards_from_fixtures(fixtures)
     return render_template(
         "soccer.html",
         teams=teams,
         upcoming_fixtures=fixtures,
+        full_slate=decision_cards,
+        top_opportunities=dui.top_opportunities(decision_cards, limit=4),
+        today_plan=dui.plan_summary(decision_cards),
         fixtures_error=fixtures_error if fixtures_error or not fixtures else None,
         fixtures_source=fixtures_source,
         selection_notice=(request.args.get("selection_error") or "").strip() or None,
@@ -3138,11 +3259,15 @@ def fixtures():
         include_injuries=False,
         include_standings=False,
     )
+    decision_cards = _soccer_cards_from_fixtures(fixtures_data)
 
     return render_template(
         "fixtures.html",
         **_page_context(
             fixtures=fixtures_data or [],
+            full_slate=decision_cards,
+            top_opportunities=dui.top_opportunities(decision_cards, limit=4),
+            today_plan=dui.plan_summary(decision_cards),
             load_error=load_error,
             data_source=data_source,
             espn_slug=selected_slug,
@@ -3206,6 +3331,7 @@ def matchup():
     if not team_a:
         return _selection_error_redirect("soccer", "Match Analysis could not be opened because no soccer fixture is selected.")
     selected_fixture = _selected_fixture()
+    league_id = _set_active_league(_active_league_id())
 
     id_a, id_b = team_a["id"], team_b["id"]
     results = _run_parallel(
@@ -3339,7 +3465,7 @@ def matchup():
         {"label": "Corners", "a": _avg(form_a, "corners"), "b": _avg(form_b, "corners")},
     ]
 
-    # ── Scorpred Engine ────────────────────────────────────────────────────────
+    # â”€â”€ Scorpred Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     # H2H form from each team's perspective for the Scorpred model
     h2h_form_a = pred.extract_form(h2h_raw, id_a)[:10]
@@ -3350,10 +3476,10 @@ def matchup():
     squad_a = results.get("squad_a") or []
     squad_b = results.get("squad_b") or []
 
-    # Standings → opponent strength lookup for quality-of-schedule adjustment
+    # Standings â†’ opponent strength lookup for quality-of-schedule adjustment
     opp_strengths = _build_opp_strengths(standings_for_opp)
 
-    # ── Fetch live odds (graceful no-op when ODDS_API_KEY is unset) ──────────
+    # â”€â”€ Fetch live odds (graceful no-op when ODDS_API_KEY is unset) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     odds_result = odds_fetcher.fetch_match_odds("soccer", team_a["name"], team_b["name"])
     odds_ctx: dict[str, Any] | None = None
     if odds_result.get("available"):
@@ -3398,8 +3524,21 @@ def matchup():
         team_a_name=team_a["name"],
         team_b_name=team_b["name"],
     )
+    scorpred["decision_card"] = dui.build_decision_card(
+        sport="soccer",
+        team_a=team_a["name"],
+        team_b=team_b["name"],
+        prediction=scorpred,
+        competition=(selected_fixture or {}).get("league_name") or (LEAGUE_BY_ID.get(league_id, {}) or {}).get("name", ""),
+        match_date=(selected_fixture or {}).get("date") or "",
+        venue=(selected_fixture or {}).get("venue_name") or "",
+        cta_url="/prediction",
+        cta_label="View Matchup",
+    )
+    scorpred["play_type"] = scorpred["decision_card"]["action"]
+    scorpred["confidence_pct"] = scorpred["decision_card"]["confidence_pct"]
 
-    # ── Compute odds edge for template display ─────────────────────────────────
+    # â”€â”€ Compute odds edge for template display â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     edge_data: dict[str, Any] = {}
     if odds_result.get("available"):
         probs = scorpred.get("win_probabilities") or {}
@@ -3415,7 +3554,7 @@ def matchup():
             market_odds = odds_result.get("draw_odds")
         edge_data = odds_fetcher.compute_edge(model_prob, market_odds)
 
-    # ── Key threats (danger men) ────────────────────────────────────────────────
+    # â”€â”€ Key threats (danger men) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     threats_a = _build_key_threats(squad_a, injuries_a_raw, fixtures_a, id_a)
     threats_b = _build_key_threats(squad_b, injuries_b_raw, fixtures_b, id_b)
 
@@ -3626,11 +3765,11 @@ def _build_nba_winner_pick(
         if confidence != "High" and prob_home <= 60 and prob_away <= 60:
             return None
 
-        predicted_winner = best_pick.get("prediction", "—")
+        predicted_winner = best_pick.get("prediction", "â€”")
         winner_team = (
             home_team.get("name")
             if predicted_winner == "Home"
-            else away_team.get("name") if predicted_winner == "Away" else "—"
+            else away_team.get("name") if predicted_winner == "Away" else "â€”"
         )
 
         return {
@@ -3793,6 +3932,7 @@ def prediction():
     if not team_a:
         return _selection_error_redirect("soccer", "Match Analysis could not be opened because no soccer fixture is selected.")
     selected_fixture = _selected_fixture()
+    league_id = _set_active_league(_active_league_id())
 
     id_a, id_b = team_a["id"], team_b["id"]
     results, task_status = _run_parallel_with_status(
@@ -3843,11 +3983,11 @@ def prediction():
 
     if not fixtures_a and not fixtures_b and not h2h:
         app.logger.warning(
-            "No historical data for %s vs %s — Scorpred will use neutral fallbacks",
+            "No historical data for %s vs %s â€” Scorpred will use neutral fallbacks",
             team_a["name"], team_b["name"],
         )
 
-    # ── Unified Scorpred Engine Model (ONLY prediction source) ──────────────────
+    # â”€â”€ Unified Scorpred Engine Model (ONLY prediction source) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Extract form data from fixtures
     form_a = pred.extract_form(fixtures_a, id_a)[:5]
     form_b = pred.extract_form(fixtures_b, id_b)[:5]
@@ -3856,10 +3996,10 @@ def prediction():
     h2h_form_a = pred.extract_form(h2h, id_a)[:5]
     h2h_form_b = pred.extract_form(h2h, id_b)[:5]
 
-    # Standings → opponent strength lookup for quality-of-schedule adjustment
+    # Standings â†’ opponent strength lookup for quality-of-schedule adjustment
     opp_strengths = _build_opp_strengths(standings_for_opp)
 
-    # Optional decimal odds for edge calculation — all three required or ignored
+    # Optional decimal odds for edge calculation â€” all three required or ignored
     _odds: dict[str, float] | None = None
     try:
         _ho = (request.args.get("home_odds") or "").strip()
@@ -3906,8 +4046,20 @@ def prediction():
         team_a_name=team_a["name"],
         team_b_name=team_b["name"],
     )
+    prediction["decision_card"] = dui.build_decision_card(
+        sport="soccer",
+        team_a=team_a["name"],
+        team_b=team_b["name"],
+        prediction=prediction,
+        competition=(selected_fixture or {}).get("league_name") or (LEAGUE_BY_ID.get(league_id, {}) or {}).get("name", ""),
+        match_date=(selected_fixture or {}).get("date") or "",
+        venue=(selected_fixture or {}).get("venue_name") or "",
+        cta_url="/prediction",
+        cta_label="View Matchup",
+    )
+    prediction["play_type"] = prediction["decision_card"]["action"]
+    prediction["confidence_pct"] = prediction["decision_card"]["confidence_pct"]
     mastermind["ui_prediction"] = prediction
-    league_id = _set_active_league(_active_league_id())
 
     try:
         best_pick = prediction.get("best_pick", {})
@@ -4026,7 +4178,7 @@ def props():
     )
 
 
-# ── Props Bet Builder ─────────────────────────────────────────────────────────
+# â”€â”€ Props Bet Builder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.route("/props/generate", methods=["GET", "POST"])
 def props_generate():
@@ -4226,13 +4378,15 @@ def today_soccer_predictions():
             prediction = fixture.get("prediction", {})
             best_pick = prediction.get("best_pick", {})
             probs = prediction.get("win_probabilities", {})
+            card = _soccer_decision_card_from_fixture(fixture)
 
             return {
                 "fixture": fixture,
+                "decision_card": card,
                 "home_team": home_team,
                 "away_team": away_team,
                 "league": league_block,
-                "predicted_winner": best_pick.get("prediction", "—"),
+                "predicted_winner": best_pick.get("prediction", "â€”"),
                 "confidence": best_pick.get("confidence", "Low"),
                 "prob_home": probs.get("a", 50),
                 "prob_draw": probs.get("draw", 0),
@@ -4246,15 +4400,19 @@ def today_soccer_predictions():
             return None
 
     predictions = [item for item in (_build_prediction_item(fixture) for fixture in fixtures_with_pred) if item]
+    decision_cards = [item["decision_card"] for item in predictions if item.get("decision_card")]
     grouped_predictions = []
     for group in grouped_fixtures:
         items = [item for item in (_build_prediction_item(fixture) for fixture in group.get("fixtures", [])) if item]
-        grouped_predictions.append({**group, "predictions": items})
+        grouped_predictions.append({**group, "predictions": items, "cards": [item["decision_card"] for item in items if item.get("decision_card")]})
 
     return render_template(
         "today_predictions.html",
         **_page_context(
             predictions=predictions,
+            full_slate=decision_cards,
+            top_opportunities=dui.top_opportunities(decision_cards, limit=4),
+            today_plan=dui.plan_summary(decision_cards),
             grouped_predictions=grouped_predictions,
             total_fixtures=len(fixtures_with_pred),
             total_predictions=len(predictions),
@@ -4267,230 +4425,13 @@ def today_soccer_predictions():
 
 @app.route("/top-picks-today", methods=["GET"])
 def top_picks_today():
-    """Show high-confidence picks from today's soccer and NBA predictions."""
-    _set_data_refresh()
-    league_id = _set_active_league(_active_league_id())
-    soccer_predictions, grouped_soccer_fixtures, load_error, _ = _load_grouped_upcoming_fixtures_all_leagues(
-        next_n_per_league=6,
-        max_deep_predictions=1,
-        include_injuries=False,
-        include_standings=False,
-    )
-    soccer_picks = []
-    for fixture in soccer_predictions:
-        try:
-            teams_block = fixture.get("teams", {})
-            home_team = teams_block.get("home", {})
-            away_team = teams_block.get("away", {})
-            prediction = fixture.get("prediction", {})
-            best_pick = prediction.get("best_pick", {})
-            probs = prediction.get("win_probabilities", {})
-            
-            if best_pick.get("confidence") == "High":
-                predicted_winner = best_pick.get("prediction", "—")
-                if predicted_winner == home_team.get("name"):
-                    probability = probs.get("a", 50)
-                elif predicted_winner == away_team.get("name"):
-                    probability = probs.get("b", 50)
-                elif str(predicted_winner).lower() == "draw":
-                    probability = probs.get("draw", 0)
-                else:
-                    probability = max(probs.get("a", 0), probs.get("b", 0), probs.get("draw", 0))
-
-                soccer_picks.append({
-                    "fixture": fixture,
-                    "home_team": home_team,
-                    "away_team": away_team,
-                    "league_id": _safe_int((fixture.get("league") or {}).get("id"), league_id),
-                    "predicted_winner": predicted_winner,
-                    "confidence": "High",
-                    "prob_home": probs.get("a", 50),
-                    "prob_draw": probs.get("draw", 0),
-                    "prob_away": probs.get("b", 50),
-                    "pick": f"{predicted_winner} to Win" if str(predicted_winner).lower() != "draw" else "Draw",
-                    "probability": round(float(probability), 1),
-                    "note": best_pick.get("reasoning", "Model confidence edge"),
-                    "pick_type": "match_winner" if best_pick.get("prediction") != "Draw" else "draw",
-                    "reasoning": best_pick.get("reasoning", ""),
-                })
-        except Exception as e:
-            app.logger.debug("Error preparing soccer top pick: %s", e)
-            continue
-
-    soccer_picks.sort(key=lambda item: (-float(item.get("probability", 0)), item.get("league_id", 0)))
-    grouped_soccer_picks = []
-    for group in grouped_soccer_fixtures:
-        league_picks = [pick for pick in soccer_picks if pick.get("league_id") == group.get("league_id")]
-        grouped_soccer_picks.append({**group, "picks": league_picks})
-    
-    # Load NBA predictions from tracker
-    nba_picks = []
-    try:
-        recent = mt.get_recent_predictions(limit=50)
-        from datetime import date, timedelta
-        today_str = date.today().strftime("%Y-%m-%d")
-        nba_records = [
-            p for p in recent
-            if p.get("sport") == "nba"
-            and p.get("date", "") == today_str
-            and p.get("is_correct") is None
-        ]
-        for record in nba_records[:10]:
-            if record.get("confidence") != "High":
-                continue
-
-            winner_code = str(record.get("predicted_winner", "")).strip().lower()
-            if winner_code == "a":
-                predicted_winner = record.get("team_a", "Team A")
-                win_probability = record.get("prob_a", 50)
-            elif winner_code == "b":
-                predicted_winner = record.get("team_b", "Team B")
-                win_probability = record.get("prob_b", 50)
-            elif winner_code == "draw":
-                predicted_winner = "Draw"
-                win_probability = record.get("prob_draw", 0)
-            else:
-                predicted_winner = record.get("predicted_winner", "Unknown")
-                win_probability = max(record.get("prob_a", 0), record.get("prob_b", 0), record.get("prob_draw", 0))
-
-            nba_picks.append(
-                {
-                    "home_team": {"id": "", "name": record.get("team_a", "Team A")},
-                    "away_team": {"id": "", "name": record.get("team_b", "Team B")},
-                    "predicted_winner": predicted_winner,
-                    "confidence": record.get("confidence", "Low"),
-                    "win_probability": round(float(win_probability), 1),
-                }
-            )
-    except Exception as e:
-        app.logger.debug("Error loading NBA picks: %s", e)
-    
-    return render_template(
-        "top_picks_today.html",
-        **_page_context(
-            soccer_totals=soccer_picks[:10],
-            grouped_soccer_picks=grouped_soccer_picks,
-            nba_winners=nba_picks[:10],
-            soccer_picks=soccer_picks[:10],
-            nba_picks=nba_picks[:10],
-            load_error=load_error,
-            **_league_context(league_id),
-        ),
-    )
-
+    """Fold legacy top-picks traffic into the Soccer workspace."""
+    return redirect(url_for("soccer"))
 
 @app.route("/model-performance")
 def model_performance():
-    """Display model evaluation dashboard with trends, calibration, and strategy analytics."""
-    sport_filter = request.args.get('sport', '').lower()
-    rolling_window = request.args.get('window', default=10, type=int) or 10
-    exclude_seeded = request.args.get('include_seeded', '0') != '1'
-    try:
-        metrics = mt.get_summary_metrics(exclude_seeded=exclude_seeded)
-        completed_predictions = mt.get_completed_predictions()
-        pending_predictions = mt.get_pending_predictions()
-
-        strategy_context = strategy_lab_services.build_strategy_lab_context()
-        performance_comparison = strategy_context.get("performance_comparison") or {}
-        ml_comparison = strategy_context.get("ml_comparison") or {}
-        walk_forward_context = strategy_context.get("walk_forward") or strategy_lab_services.walk_forward_summary()
-        evaluation = mt.get_evaluation_dashboard(
-            rolling_window=max(1, min(rolling_window, 50)),
-            strategy_reference=performance_comparison,
-            exclude_seeded=exclude_seeded,
-        )
-        
-        # Filter completed predictions by sport if specified
-        if sport_filter in ['soccer', 'nba']:
-            completed_predictions = [p for p in completed_predictions if p.get('sport', '').lower() == sport_filter]
-            evaluation["failure_rows"] = [
-                row for row in evaluation.get("failure_rows", [])
-                if row.get("sport", "").lower() == sport_filter
-            ]
-            evaluation["pass_rows"] = [
-                row for row in evaluation.get("pass_rows", [])
-                if row.get("sport", "").lower() == sport_filter
-            ]
-        
-        # Guarantee every key the template expects is present
-        metrics.setdefault("finalized_predictions", 0)
-        metrics.setdefault("by_confidence", {})
-        metrics.setdefault("by_sport", {})
-        metrics.setdefault("by_league", {})
-        metrics.setdefault("recent_predictions", [])
-    except Exception as exc:
-        app.logger.error("model_performance: get_summary_metrics failed — %s", exc, exc_info=True)
-        metrics = dict(_EMPTY_METRICS)
-        completed_predictions = []
-        pending_predictions = []
-        evaluation = {
-            "kpis": {
-                "overall_accuracy": None,
-                "rolling_win_rate": None,
-                "total_tracked_predictions": 0,
-                "finalized_predictions": 0,
-                "avoids_skipped": 0,
-                "current_best_strategy": "Awaiting sample",
-                "roi_or_points": 0,
-            },
-            "rolling_window": rolling_window,
-            "series": {
-                "rolling_by_match": [],
-                "rolling_by_day": [],
-                "cumulative_points": [],
-            },
-            "confidence_calibration": [],
-            "strategy_comparison": [],
-            "breakdowns": {
-                "by_sport": [],
-                "by_confidence_tier": [],
-                "by_predicted_outcome": [],
-                "recent_form": {"last_10": {"count": 0, "accuracy": None}, "last_20": {"count": 0, "accuracy": None}},
-            },
-            "failure_rows": [],
-            "pass_rows": [],
-        }
-        performance_comparison = {}
-        ml_comparison = {}
-        walk_forward_context = {}
-
-    primary_metric = _build_walk_forward_metric_summary(walk_forward_context)
-    live_metric = _build_live_metric_summary(
-        metrics.get("overall_accuracy"),
-        metrics.get("finalized_predictions"),
-    )
-    offline_metric = _build_offline_metric_summary(
-        performance_comparison.get("combined_accuracy") or ml_comparison.get("ensemble_accuracy"),
-        performance_comparison.get("evaluation_matches") or ml_comparison.get("evaluation_matches"),
-        title="Offline model evaluation",
-        summary="Use this to compare model variants. It is more trustworthy than a tiny live sample, but the walk-forward number should still be the main headline metric.",
-    )
-    reading_guide = [
-        "~50% is realistic for a noisy sports prediction model.",
-        "55%+ is a strong edge if the sample behind it is large enough.",
-        "Small live samples should be treated as early signals, not headline proof.",
-    ]
-
-    _assistant_store_model_performance_context(metrics, sport_filter)
-
-    return render_template(
-        "model_performance.html",
-        **_page_context(
-            metrics=metrics,
-            completed_predictions=completed_predictions,
-            pending_predictions=pending_predictions,
-            sport_filter=sport_filter,
-            evaluation=evaluation,
-            performance_comparison=performance_comparison,
-            ml_comparison=ml_comparison,
-            walk_forward=walk_forward_context,
-            primary_metric=primary_metric,
-            live_metric=live_metric,
-            offline_metric=offline_metric,
-            reading_guide=reading_guide,
-        ),
-    )
-
+    """Redirect legacy credibility traffic to Results."""
+    return redirect(url_for("results"))
 
 @app.route("/pass-analysis")
 def pass_analysis():
@@ -4560,71 +4501,12 @@ def prediction_result_detail(prediction_id: str):
 
 @app.route("/strategy-lab")
 def strategy_lab():
-    """Display product-facing strategy and ML comparison context."""
-    exclude_seeded = request.args.get('include_seeded', '0') != '1'
-    try:
-        context = strategy_lab_services.build_strategy_lab_context()
-    except Exception as exc:
-        app.logger.error("strategy_lab: failed to build context - %s", exc, exc_info=True)
-        context = strategy_lab_services.empty_strategy_lab_context()
-
-    # Add calibration data from tracker
-    try:
-        _metrics = mt.get_summary_metrics(exclude_seeded=exclude_seeded)
-        context["calibration"] = _metrics.get("calibration") or {}
-        context["seeded_count"] = _metrics.get("seeded_count", 0) if exclude_seeded else 0
-        context["real_prediction_count"] = _metrics.get("total_predictions", 0)
-        context["exclude_seeded"] = exclude_seeded
-    except Exception:
-        context.setdefault("calibration", {})
-        context.setdefault("seeded_count", 0)
-        context.setdefault("real_prediction_count", 0)
-        context.setdefault("exclude_seeded", exclude_seeded)
-
-    context["primary_metric"] = _build_walk_forward_metric_summary(context.get("walk_forward"))
-    context["live_metric"] = _build_live_metric_summary(
-        context.get("live_hit_rate"),
-        context.get("live_sample_size"),
-    )
-    context["offline_metric"] = _build_offline_metric_summary(
-        context.get("offline_accuracy"),
-        (context.get("performance_comparison") or {}).get("evaluation_matches")
-        or (context.get("ml_comparison") or {}).get("evaluation_matches"),
-        title="Offline model evaluation",
-        summary="This is the cleaner number for comparing models. The walk-forward result still matters most when you want the fairest end-to-end test.",
-    )
-    context["reading_guide"] = [
-        "Lead with walk-forward accuracy when you want the fairest performance read.",
-        "Use offline model evaluation to compare variants, not to overpromise production results.",
-        "Treat live tracking as early evidence until the graded sample is large enough.",
-    ]
-
-    return render_template(
-        "strategy_lab.html",
-        **_page_context(**context),
-    )
-
+    """Redirect the legacy lab surface to Results."""
+    return redirect(url_for("results"))
 
 @app.route("/update-prediction-results", methods=["GET", "POST"])
 def update_prediction_results():
-    summary = ru.get_update_summary()
-    update_stats = None
-
-    if request.method == "POST":
-        update_stats = ru.update_pending_predictions()
-        metrics = mt.get_summary_metrics()
-    else:
-        metrics = mt.get_summary_metrics()
-
-    return render_template(
-        "update_results.html",
-        **_page_context(
-            summary=summary,
-            update_stats=update_stats,
-            metrics=metrics,
-        ),
-    )
-
+    return redirect(url_for("results"))
 
 @app.route("/worldcup", methods=["GET", "POST"])
 def worldcup():
@@ -4650,7 +4532,7 @@ def worldcup():
         else:
             result = pred.wc_predict(team_a, team_b)
             if result is None:
-                wc_error = "Unknown team name — pick from the list."
+                wc_error = "Unknown team name â€” pick from the list."
 
     return render_template(
         "worldcup.html",
@@ -4838,7 +4720,7 @@ def football_prefetch_competition_api():
         }), 200
 
 
-# ── Error page ────────────────────────────────────────────────────────────────
+# â”€â”€ Error page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.errorhandler(404)
 def not_found(_):

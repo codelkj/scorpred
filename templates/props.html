@@ -404,8 +404,9 @@ function buildSlip(slip) {
     </div>`;
   }).join('<hr class="sp-slip-divider">');
 
-  const riskCls = (slip.parlay_risk || "").toUpperCase() === "LOW"    ? "sp-parlay-low"    :
-                  (slip.parlay_risk || "").toUpperCase() === "MEDIUM"  ? "sp-parlay-medium" : "sp-parlay-high";
+  const riskValue = String(slip.parlay_risk || "").toLowerCase();
+  const riskCls = riskValue === "low" ? "sp-parlay-low" :
+                  riskValue === "medium" ? "sp-parlay-medium" : "sp-parlay-high";
 
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem">

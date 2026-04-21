@@ -27,6 +27,7 @@ from flask import (
 )
 import scorpred_engine as se
 import model_tracker as mt
+import decision_ui as dui
 from runtime_paths import cache_dir
 
 nba_bp = Blueprint(
@@ -580,6 +581,44 @@ def _build_upcoming_prediction_card(game: dict, team_map: dict[str, dict], nba_o
         ),
         data_limited=(len(form_home) < 2 or len(form_away) < 2),
     )
+    data_completeness = _nba_data_completeness(
+        form_a_games=len(form_home),
+        form_b_games=len(form_away),
+        stats_a_available=True,
+        stats_b_available=True,
+        used_historical_context=bool(
+            form_home_context.get("using_historical_context")
+            or form_away_context.get("using_historical_context")
+        ),
+        data_limited=(len(form_home) < 2 or len(form_away) < 2),
+    )
+    prediction = _apply_nba_product_presentation(
+        prediction,
+        data_completeness=data_completeness,
+        team_a_name=home_team.get("nickname") or home_team["name"],
+        team_b_name=away_team.get("nickname") or away_team["name"],
+    )
+    if prediction.get("decision_card"):
+        prediction["decision_card"].update(
+            {
+                "cta_url": "/nba/select-game",
+                "cta_method": "post",
+                "cta_label": "Analyze Match",
+                "cta_payload": {
+                    "team_a": home_id,
+                    "team_b": away_id,
+                    "team_a_name": home_team.get("name") or home_team.get("nickname") or "Home",
+                    "team_b_name": away_team.get("name") or away_team.get("nickname") or "Away",
+                    "team_a_logo": home_team.get("logo") or "",
+                    "team_b_logo": away_team.get("logo") or "",
+                    "event_id": game.get("id") or "",
+                    "event_date": ((game.get("date") or {}).get("start") or ""),
+                    "event_status": ((game.get("status") or {}).get("long") or ""),
+                    "venue_name": ((game.get("venue") or {}).get("name") or ""),
+                    "short_name": game.get("short_name") or "",
+                },
+            }
+        )
     return {**game, "prediction": prediction}
 
 
@@ -776,19 +815,30 @@ def _apply_nba_product_presentation(
     prob_gap = abs(prob_a - prob_b)
 
     if data_completeness.get("tier") == "limited" or confidence in {"Low", "Limited Data"} or prob_gap < 4:
-        play_type = "AVOID"
+        play_type = "SKIP"
         risk_label = "Elevated"
     elif confidence == "High" and prob_gap >= 14:
         play_type = "BET"
         risk_label = "Controlled"
     else:
-        play_type = "LEAN"
+        play_type = "CONSIDER"
         risk_label = "Balanced"
 
-    prediction["play_type"] = play_type
-    prediction["confidence_pct"] = round(max(prob_a, prob_b), 1)
+    prediction["data_completeness"] = data_completeness
+    decision_card = dui.build_decision_card(
+        sport="nba",
+        team_a=team_a_name,
+        team_b=team_b_name,
+        prediction=prediction,
+        competition="NBA",
+        cta_url="/nba/prediction",
+        cta_label="View Matchup",
+    )
+    prediction["play_type"] = decision_card["action"]
+    prediction["confidence_pct"] = decision_card["confidence_pct"]
     prediction["risk_label"] = risk_label
     prediction["data_completeness"] = data_completeness
+    prediction["decision_card"] = decision_card
     prediction["decision_explainer"] = _build_nba_prediction_explainer(
         prediction,
         data_completeness=data_completeness,
@@ -1145,12 +1195,21 @@ def _index_inner():
 
         upcoming_games_with_predictions = [result for result in ordered_results if result is not None]
 
+    decision_cards = [
+        (game.get("prediction") or {}).get("decision_card")
+        for game in upcoming_games_with_predictions
+        if (game.get("prediction") or {}).get("decision_card")
+    ]
+
     return render_template(
         "nba/index.html",
         **_page_context(
             teams=teams,
             today_games=today_games,
             upcoming_games=upcoming_games_with_predictions,
+            full_slate=decision_cards,
+            top_opportunities=dui.top_opportunities(decision_cards, limit=4),
+            today_plan=dui.plan_summary(decision_cards),
             selection_notice=(request.args.get("selection_error") or "").strip() or None,
             selected_game=_selected_nba_game() or {},
             load_error=load_error,
@@ -1414,6 +1473,20 @@ def _matchup_inner():
             stats_b_available=bool(stats_b),
             used_historical_context=bool(form_context_a.get("using_historical_context") or form_context_b.get("using_historical_context")),
             data_limited=(len(recent_form_a) < 2 or len(recent_form_b) < 2),
+        )
+        data_completeness = _nba_data_completeness(
+            form_a_games=len(recent_form_a),
+            form_b_games=len(recent_form_b),
+            stats_a_available=bool(stats_a),
+            stats_b_available=bool(stats_b),
+            used_historical_context=bool(form_context_a.get("using_historical_context") or form_context_b.get("using_historical_context")),
+            data_limited=(len(recent_form_a) < 2 or len(recent_form_b) < 2),
+        )
+        scorpred = _apply_nba_product_presentation(
+            scorpred,
+            data_completeness=data_completeness,
+            team_a_name=team_a.get("nickname") or team_a["name"],
+            team_b_name=team_b.get("nickname") or team_b["name"],
         )
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
@@ -1919,6 +1992,44 @@ def _build_today_prediction_card(
         ),
         data_limited=(len(form_home) < 2 or len(form_away) < 2),
     )
+    data_completeness = _nba_data_completeness(
+        form_a_games=len(form_home),
+        form_b_games=len(form_away),
+        stats_a_available=True,
+        stats_b_available=True,
+        used_historical_context=bool(
+            form_home_context.get("using_historical_context")
+            or form_away_context.get("using_historical_context")
+        ),
+        data_limited=(len(form_home) < 2 or len(form_away) < 2),
+    )
+    prediction = _apply_nba_product_presentation(
+        prediction,
+        data_completeness=data_completeness,
+        team_a_name=home_team.get("nickname") or home_team.get("name") or "Home",
+        team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
+    )
+    if prediction.get("decision_card"):
+        prediction["decision_card"].update(
+            {
+                "cta_url": "/nba/select-game",
+                "cta_method": "post",
+                "cta_label": "Analyze Match",
+                "cta_payload": {
+                    "team_a": home_id,
+                    "team_b": away_id,
+                    "team_a_name": home_team.get("name") or home_team.get("nickname") or "Home",
+                    "team_b_name": away_team.get("name") or away_team.get("nickname") or "Away",
+                    "team_a_logo": home_team.get("logo") or "",
+                    "team_b_logo": away_team.get("logo") or "",
+                    "event_id": game.get("id") or "",
+                    "event_date": game_date_start,
+                    "event_status": ((game.get("status") or {}).get("long") or ""),
+                    "venue_name": ((game.get("venue") or {}).get("name") or ""),
+                    "short_name": game.get("short_name") or "",
+                },
+            }
+        )
 
     best_pick = prediction.get("best_pick", {})
     probs = prediction.get("win_probabilities", {})
@@ -1930,6 +2041,7 @@ def _build_today_prediction_card(
         "home_team": home_team,
         "away_team": away_team,
         "prediction": prediction,
+        "decision_card": prediction.get("decision_card"),
         "predicted_winner": best_pick.get("prediction", "—"),
         "confidence": best_pick.get("confidence", "Low"),
         "prob_home": probs.get("a", 50),
@@ -2034,12 +2146,12 @@ def _today_predictions_inner():
         len(predictions_for_games), len(today_games),
     )
 
-    # Sort by confidence then probability gap
-    conf_order = {"High": 0, "Medium": 1, "Low": 2}
+    # Sort by action strength, then displayed confidence.
+    action_order = {"BET": 0, "CONSIDER": 1, "SKIP": 2}
     predictions_for_games.sort(
         key=lambda x: (
-            conf_order.get(x["confidence"], 3),
-            -abs(x["prob_home"] - x["prob_away"]),
+            action_order.get(((x.get("decision_card") or {}).get("action") or "SKIP"), 3),
+            -float(((x.get("decision_card") or {}).get("confidence_pct") or 0)),
         )
     )
 
@@ -2058,10 +2170,15 @@ def _today_predictions_inner():
     except Exception:
         yesterday_results = []
 
+    decision_cards = [item.get("decision_card") for item in predictions_for_games if item.get("decision_card")]
+
     return render_template(
         "nba/today_predictions.html",
         **_page_context(
             predictions=predictions_for_games,
+            full_slate=decision_cards,
+            top_opportunities=dui.top_opportunities(decision_cards, limit=4),
+            today_plan=dui.plan_summary(decision_cards),
             total_games=len(today_games),
             total_predictions=len(predictions_for_games),
             load_error=load_error,

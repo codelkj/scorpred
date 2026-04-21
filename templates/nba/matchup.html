@@ -1,316 +1,55 @@
 {% extends "base.html" %}
+{% import "components/decision.html" as ui with context %}
 
-{% block title %}NBA Matchup — {{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}{% endblock %}
+{% block title %}ScorPred | NBA Matchup{% endblock %}
+{% block topbar_title %}NBA Matchup{% endblock %}
 
 {% block content %}
-{# ── Header ── #}
-<section class="sp-hero sp-nba" style="text-align:center">
-  <div style="display:flex; align-items:center; justify-content:center; gap:1.2rem; flex-wrap:wrap">
-    <div style="display:flex; align-items:center; gap:.4rem">
-      {% if team_a.logo %}<img src="{{ team_a.logo }}" style="width:36px;height:36px;object-fit:contain" alt="{{ team_a.name }}" />{% endif %}
-      <div><strong>{{ team_a.city or '' }} {{ team_a.nickname or team_a.name }}</strong><br><span style="font-size:.72rem; color:var(--text-3)">Home</span></div>
-    </div>
-    <span style="font-size:1rem; font-weight:700; color:var(--text-3)">VS</span>
-    <div style="display:flex; align-items:center; gap:.4rem">
-      {% if team_b.logo %}<img src="{{ team_b.logo }}" style="width:36px;height:36px;object-fit:contain" alt="{{ team_b.name }}" />{% endif %}
-      <div><strong>{{ team_b.city or '' }} {{ team_b.nickname or team_b.name }}</strong><br><span style="font-size:.72rem; color:var(--text-3)">Away</span></div>
-    </div>
-  </div>
-  <div style="display:flex; gap:.5rem; justify-content:center; margin-top:.5rem; flex-wrap:wrap">
-    <a href="{{ url_for('nba.index') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Back to games</a>
-    <a href="{{ url_for('nba.player') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Rosters</a>
-    <a href="{{ url_for('nba.prediction') }}" class="sp-badge sp-badge--strong" style="text-decoration:none">Full prediction</a>
-  </div>
+{% set card = scorpred.decision_card if scorpred else none %}
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">NBA matchup</span>
+  <h1>{{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}</h1>
+  <p>Decision first, with form and availability context underneath.</p>
 </section>
 
-{% if route_support %}
-<div class="sp-panel sp-panel--tight" style="display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.75rem">
-  {% for key, info in route_support.items() %}
-  <span class="sp-badge sp-badge--{{ 'strong' if info.state == 'live' else ('caution' if info.state in ('fallback','mock') else 'muted') }}" title="{{ info.detail }}">{{ info.title }}</span>
-  {% endfor %}
-</div>
-{% endif %}
+{% if card %}
+  <div class="sp-analysis-layout">
+    <div>
+      {{ ui.decision_card(card, 'featured') }}
 
-{% if season_context and (season_context.form_a_current < 2 or season_context.form_b_current < 2 or season_context.has_historical_context) %}
-<div class="sp-notice sp-notice--warn">Current-season data is limited. Historical context shown where needed.</div>
-{% endif %}
-
-{% set status_text = game_snapshot.status.long if game_snapshot else (selected_game.status if selected_game else '') %}
-{% set status_state = game_snapshot.status.state if game_snapshot else '' %}
-{% set matchup_name = game_snapshot.short_name if game_snapshot else (selected_game.short_name if selected_game else '') %}
-{% set tipoff = game_snapshot.date.start if game_snapshot else (selected_game.date if selected_game else '') %}
-{% set venue_name = game_snapshot.venue.name if game_snapshot and game_snapshot.venue else (selected_game.venue_name if selected_game else '') %}
-
-{% if selected_game or game_snapshot %}
-<div class="sp-meta-strip sp-panel sp-panel--tight" style="margin-bottom:.75rem">
-  <span class="sp-badge sp-badge--{{ 'strong' if status_state == 'in' else ('caution' if status_state == 'post' else 'muted') }}">{{ status_text or 'Scheduled' }}</span>
-  {% if matchup_name %}<span>{{ matchup_name }}</span>{% endif %}
-  {% if tipoff %}<span>{{ tipoff[:10] }}{% if tipoff|length > 10 %} {{ tipoff[11:16] }} UTC{% endif %}</span>{% endif %}
-  {% if venue_name %}<span>{{ venue_name }}</span>{% endif %}
-  {% if game_snapshot and game_snapshot.scores.home.points is not none and game_snapshot.scores.visitors.points is not none %}
-  <span style="font-weight:700; color:var(--c-caution)">{{ game_snapshot.scores.home.points }} - {{ game_snapshot.scores.visitors.points }}</span>
-  {% endif %}
-</div>
-{% else %}
-<div class="sp-notice sp-notice--info">Manual team selection active. Pick a game from the NBA home page for live context.</div>
-{% endif %}
-
-{% if error %}
-<div class="sp-notice sp-notice--error">{{ error }}</div>
-{% endif %}
-
-{# ── Tabs ── #}
-<div data-sp-tabs>
-  <div class="sp-tabs">
-    <button class="sp-tab active" data-tab="h2h">H2H</button>
-    <button class="sp-tab" data-tab="form">Form</button>
-    <button class="sp-tab" data-tab="stats">Stats</button>
-    <button class="sp-tab" data-tab="splits">Splits</button>
-    <button class="sp-tab" data-tab="injuries">Injuries</button>
-  </div>
-
-  {# ── H2H Tab ── #}
-  <div class="sp-tab-panel active" data-panel="h2h">
-    <div class="sp-panel">
-      <span class="sp-kicker">Last 10 H2H Meetings</span>
-      {% if h2h_rows %}
-      <div class="sp-table-wrap">
-        <table class="sp-table">
-          <thead><tr><th>Date</th><th>Venue</th><th>{{ team_a.nickname or team_a.name }}</th><th>{{ team_b.nickname or team_b.name }}</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th><th>Winner</th></tr></thead>
-          <tbody>
-            {% for g in h2h_rows %}
-            <tr>
-              <td>{{ g.date }}</td>
-              <td style="color:var(--text-3)">{{ g.venue }}</td>
-              <td style="font-weight:600;{% if g.a_pts > g.b_pts %}color:var(--c-caution){% endif %}">{{ g.a_pts }}</td>
-              <td style="font-weight:600;{% if g.b_pts > g.a_pts %}color:var(--c-caution){% endif %}">{{ g.b_pts }}</td>
-              {% for i in range(4) %}
-              <td style="font-size:.78rem; color:var(--text-3)">{{ g.a_qs[i] if i < g.a_qs|length else '-' }}–{{ g.b_qs[i] if i < g.b_qs|length else '-' }}</td>
-              {% endfor %}
-              <td><span class="sp-badge sp-badge--{{ 'strong' if g.a_pts > g.b_pts else 'active' }}">{% if g.a_pts > g.b_pts %}{{ team_a.nickname or team_a.name }}{% else %}{{ team_b.nickname or team_b.name }}{% endif %}</span></td>
-            </tr>
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2>Why This Pick</h2>
+          {% set explainer = scorpred.decision_explainer or {} %}
+          <ul class="sp-why-list">
+            <li>{{ card.reason }}</li>
+            {% for tag in explainer.tags or [] %}
+              <li>{{ tag }}</li>
             {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% set ns = namespace(wins_a=0, wins_b=0) %}
-      {% for g in h2h_rows %}
-        {% if g.a_pts > g.b_pts %}{% set ns.wins_a = ns.wins_a + 1 %}
-        {% elif g.b_pts > g.a_pts %}{% set ns.wins_b = ns.wins_b + 1 %}{% endif %}
-      {% endfor %}
-      <div style="display:flex; gap:1rem; margin-top:.75rem; font-size:.85rem">
-        <span>{{ team_a.nickname or team_a.name }}: <strong style="color:var(--c-strong)">{{ ns.wins_a }}</strong></span>
-        <span>{{ team_b.nickname or team_b.name }}: <strong style="color:var(--c-active)">{{ ns.wins_b }}</strong></span>
-        <span style="color:var(--text-3)">{{ h2h_rows | length }} games</span>
-      </div>
-      {% else %}
-      <p style="color:var(--text-3)">No recent H2H data found.</p>
-      {% endif %}
-    </div>
-  </div>
-
-  {# ── Form Tab ── #}
-  <div class="sp-tab-panel" data-panel="form">
-    <div class="sp-split">
-      {% for side, team, form_list in [('A', team_a, form_a), ('B', team_b, form_b)] %}
-      <div class="sp-panel">
-        <span class="sp-kicker">{{ team.nickname or team.name }} — Last {{ form_list|length }} Games</span>
-        {% if form_list %}
-        {% set streak_count = namespace(val=0) %}
-        {% set streak_res = namespace(val='') %}
-        {% for g in form_list %}
-          {% if loop.first %}{% set streak_res.val = g.result %}{% set streak_count.val = 1 %}
-          {% elif g.result == streak_res.val %}{% set streak_count.val = streak_count.val + 1 %}{% endif %}
-        {% endfor %}
-        <span class="sp-badge sp-badge--{{ 'strong' if streak_res.val == 'W' else 'danger' }}" style="margin-bottom:.5rem">{{ streak_count.val }}{{ streak_res.val }} Streak</span>
-        <div class="sp-table-wrap">
-          <table class="sp-table">
-            <thead><tr><th>Date</th><th>Venue</th><th>Opp</th><th>Score</th><th></th></tr></thead>
-            <tbody>
-              {% for g in form_list %}
-              <tr>
-                <td>{{ g.date }}</td><td style="color:var(--text-3)">{{ g.venue }}</td><td>{{ g.opponent }}</td><td style="font-weight:600">{{ g.score }}</td>
-                <td><span class="sp-badge sp-badge--{{ 'strong' if g.result == 'W' else 'danger' }}">{{ g.result }}</span></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+            {% if h2h_summary.summary %}
+              <li>{{ h2h_summary.summary }}</li>
+            {% endif %}
+          </ul>
         </div>
-        {% else %}
-        <p style="color:var(--text-3)">Form data limited.</p>
-        {% endif %}
+      </section>
+    </div>
+
+    <aside class="sp-info-card">
+      <h2>Data Confidence</h2>
+      {{ ui.data_badge(card.data_badge) }}
+      <p class="sp-muted" style="margin-top:.75rem">{{ (scorpred.data_completeness or {}).summary or card.support_text }}</p>
+      <ul class="sp-why-list">
+        <li>{{ team_a.nickname or team_a.name }} recent form: {{ form_a|length }} games</li>
+        <li>{{ team_b.nickname or team_b.name }} recent form: {{ form_b|length }} games</li>
+        <li>Head-to-head sample: {{ h2h_rows|length }} games</li>
+      </ul>
+      <div class="sp-page-actions" style="margin-top:1rem">
+        <a class="btn btn-primary btn-sm" href="{{ url_for('nba.prediction') }}">Full Analysis</a>
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('nba.index') }}">NBA Home</a>
       </div>
-      {% endfor %}
-    </div>
+    </aside>
   </div>
-
-  {# ── Stats Tab ── #}
-  <div class="sp-tab-panel" data-panel="stats">
-    <div class="sp-panel">
-      <span class="sp-kicker">Season Stats</span>
-      <span class="sp-badge sp-badge--{{ 'strong' if stats_a and stats_b else 'muted' }}" style="float:right; font-size:.65rem">{% if stats_a and stats_b %}Current{% else %}Historical{% endif %}</span>
-      <div class="sp-split" style="margin-top:.5rem">
-        {% for side, team, stats in [('A', team_a, stats_a), ('B', team_b, stats_b)] %}
-        <div>
-          <strong style="color:var(--c-caution); font-size:.9rem">{{ team.nickname or team.name }}</strong>
-          {% if stats %}
-          <div class="sp-stat-row"><span>PPG</span><strong>{{ stats.ppg }}</strong></div>
-          <div class="sp-stat-row"><span>Opp PPG</span><strong>{{ stats.opp_ppg }}</strong></div>
-          <div class="sp-stat-row"><span>Net Rating</span><strong style="color:{% if stats.net_rtg > 0 %}var(--c-strong){% else %}var(--c-danger){% endif %}">{{ stats.net_rtg }}</strong></div>
-          <div class="sp-stat-row"><span>W-L</span><strong>{{ stats.wins }}-{{ stats.losses }}</strong></div>
-          {% else %}
-          <p style="color:var(--text-3); font-size:.82rem">Stats unavailable</p>
-          {% endif %}
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-
-  {# ── Splits Tab ── #}
-  <div class="sp-tab-panel" data-panel="splits">
-    <div class="sp-split">
-      {% for side, team, split in [('A', team_a, split_a), ('B', team_b, split_b)] %}
-      <div class="sp-panel">
-        <span class="sp-kicker">{{ team.nickname or team.name }}</span>
-        {% if split %}
-        <div class="sp-split" style="margin-top:.4rem">
-          {% for loc, data in [('Home', split.home), ('Away', split.away)] %}
-          <div>
-            <strong style="font-size:.78rem; text-transform:uppercase; letter-spacing:.05em; color:var(--c-caution)">{{ loc }}</strong>
-            <div class="sp-stat-row"><span>Record</span><strong>{{ data.w }}-{{ data.l }}</strong></div>
-            <div class="sp-stat-row"><span>PPG</span><strong>{{ data.ppg }}</strong></div>
-            <div class="sp-stat-row"><span>Opp PPG</span><strong>{{ data.opp_ppg }}</strong></div>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <p style="color:var(--text-3)">No split data.</p>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-
-  {# ── Injuries Tab ── #}
-  <div class="sp-tab-panel" data-panel="injuries">
-    <div class="sp-split">
-      {% for side, team, inj_list in [('A', team_a, injuries_a), ('B', team_b, injuries_b)] %}
-      <div class="sp-panel">
-        <span class="sp-kicker">{{ team.nickname or team.name }} Injuries</span>
-        {% if inj_list %}
-        <div class="sp-table-wrap">
-          <table class="sp-table">
-            <thead><tr><th>Player</th><th>Status</th><th>Injury</th></tr></thead>
-            <tbody>
-              {% for inj in inj_list %}
-              {% set status = inj.status | lower %}
-              <tr>
-                <td>{{ inj.player.firstname }} {{ inj.player.lastname }}</td>
-                <td><span class="sp-badge sp-badge--{{ 'danger' if status == 'out' else ('caution' if status in ['doubtful','questionable'] else 'muted') }}">{{ inj.status }}</span></td>
-                <td style="color:var(--text-3); font-size:.82rem">{{ inj.description or '—' }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        {% else %}
-        <p style="color:var(--text-3)">No current injuries reported.</p>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-
-{% if scorpred %}
-<div class="sp-panel sp-panel--highlight" style="margin-top:1rem">
-  <span class="sp-kicker">ScorPred Model Verdict</span>
-  <p style="font-size:.75rem; color:var(--text-3); margin-bottom:.75rem">Form 39% · Attack 14% · Defense 14% · H2H 9% · Venue 8% · Opp Quality 7% · Squad 4% · Match Context 5%</p>
-
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem">
-    <div style="text-align:center"><strong style="font-size:1.8rem; color:var(--c-strong)">{{ scorpred.team_a_score }}</strong><br><span style="font-size:.8rem; color:var(--text-3)">{{ team_a.nickname or team_a.name }}</span></div>
-    <div style="text-align:center">
-      <span style="font-size:.72rem; color:var(--text-3); text-transform:uppercase">Score /10</span><br>
-      <span class="sp-badge sp-badge--{{ 'strong' if scorpred.best_pick.confidence == 'High' else ('caution' if scorpred.best_pick.confidence == 'Medium' else 'muted') }}">{{ scorpred.best_pick.confidence_label or scorpred.best_pick.confidence }}</span>
-    </div>
-    <div style="text-align:center"><strong style="font-size:1.8rem; color:var(--c-active)">{{ scorpred.team_b_score }}</strong><br><span style="font-size:.8rem; color:var(--text-3)">{{ team_b.nickname or team_b.name }}</span></div>
-  </div>
-
-  {% set total_s = scorpred.team_a_score + scorpred.team_b_score %}
-  {% set pct_a = (scorpred.team_a_score / total_s * 100) | round(1) if total_s > 0 else 50 %}
-  <div class="sp-prob-stack" style="margin-bottom:.75rem">
-    <div class="sp-prob-stack__bar" style="flex:{{ pct_a }}; background:var(--c-strong); border-radius:4px 0 0 4px">&nbsp;</div>
-    <div class="sp-prob-stack__bar" style="flex:{{ 100 - pct_a }}; background:var(--c-active); border-radius:0 4px 4px 0">&nbsp;</div>
-  </div>
-
-  {% set components = [
-    ("Form", scorpred.components_a.form, scorpred.components_b.form),
-    ("Attack", scorpred.components_a.offense, scorpred.components_b.offense),
-    ("Defense", scorpred.components_a.defense, scorpred.components_b.defense),
-    ("H2H", scorpred.components_a.h2h, scorpred.components_b.h2h),
-    ("Venue", scorpred.components_a.home_away, scorpred.components_b.home_away),
-    ("Opp Quality", scorpred.components_a.opp_strength, scorpred.components_b.opp_strength),
-    ("Squad", scorpred.components_a.squad, scorpred.components_b.squad),
-  ] %}
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:.4rem; margin-bottom:.75rem">
-    {% for label, a_val, b_val in components %}
-    {% set row_tot = a_val + b_val %}
-    {% set row_pct = (a_val / row_tot * 100) | round(1) if row_tot > 0 else 50 %}
-    <div class="sp-comp-row" style="padding:.4rem .6rem; border:1px solid var(--border); border-radius:var(--radius)">
-      <span class="sp-comp-row__label" style="font-size:.72rem">{{ label }}</span>
-      <span style="font-size:.78rem; color:var(--c-strong); font-weight:600; min-width:1.8rem; text-align:right">{{ a_val }}</span>
-      <div class="sp-prob-stack" style="flex:1; height:4px">
-        <div class="sp-prob-stack__bar" style="flex:{{ row_pct }}; background:var(--c-strong); border-radius:2px 0 0 2px">&nbsp;</div>
-        <div class="sp-prob-stack__bar" style="flex:{{ 100 - row_pct }}; background:var(--c-active); border-radius:0 2px 2px 0">&nbsp;</div>
-      </div>
-      <span style="font-size:.78rem; color:var(--c-active); font-weight:600; min-width:1.8rem">{{ b_val }}</span>
-    </div>
-    {% endfor %}
-  </div>
-
-  <div style="display:flex; gap:.75rem; margin-bottom:.5rem">
-    <div style="flex:1; text-align:center"><strong style="font-size:1.2rem; color:var(--c-strong)">{{ scorpred.win_probabilities.a }}%</strong><br><span style="font-size:.72rem; color:var(--text-3)">{{ team_a.nickname or team_a.name }}</span></div>
-    <div style="flex:1; text-align:center"><strong style="font-size:1.2rem; color:var(--c-active)">{{ scorpred.win_probabilities.b }}%</strong><br><span style="font-size:.72rem; color:var(--text-3)">{{ team_b.nickname or team_b.name }}</span></div>
-  </div>
-
-  {% if scorpred.key_edges %}
-  <div style="margin-bottom:.5rem">
-    {% for edge in scorpred.key_edges %}
-    <div style="display:flex; align-items:center; gap:.5rem; padding:.25rem 0; border-bottom:1px solid var(--border); font-size:.82rem">
-      <span class="sp-badge sp-badge--{{ 'strong' if edge.team == 'A' else 'active' }}">{{ edge.team_name }}</span>
-      <span>{{ edge.category }}</span>
-      <strong style="margin-left:auto">+{{ edge.margin }}</strong>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if scorpred.matchup_reading %}
-  <p style="font-size:.82rem; color:var(--text-2); border-left:3px solid var(--border); padding-left:.75rem; margin:.5rem 0">{{ scorpred.matchup_reading }}</p>
-  {% endif %}
-
-  <div style="background:rgba(60,242,164,.06); border:1px solid rgba(60,242,164,.2); border-radius:var(--radius); padding:.75rem 1rem; margin-top:.5rem">
-    <span style="font-size:.72rem; color:var(--text-3); text-transform:uppercase; letter-spacing:.05em">Best Pick</span>
-    <div style="display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-top:.2rem">
-      <strong style="font-size:1.05rem; color:var(--c-strong)">{{ scorpred.best_pick.prediction }}</strong>
-      <span class="sp-badge sp-badge--{{ 'strong' if scorpred.best_pick.confidence == 'High' else ('caution' if scorpred.best_pick.confidence == 'Medium' else 'muted') }}">{{ scorpred.best_pick.confidence_label or scorpred.best_pick.confidence }}</span>
-      <span style="font-size:.78rem; color:var(--text-3)">Gap: {{ scorpred.score_gap }}/10</span>
-    </div>
-    {% if scorpred.best_pick.reasoning %}<p style="font-size:.8rem; color:var(--text-2); margin-top:.3rem">{{ scorpred.best_pick.reasoning }}</p>{% endif %}
-  </div>
-
-  {% if scorpred.optional_picks %}
-  <div style="display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.5rem">
-    {% for pick in scorpred.optional_picks %}
-    <div style="border:1px solid var(--border); border-radius:var(--radius); padding:.35rem .6rem; font-size:.8rem">
-      <span style="color:var(--text-3)">{{ pick.market }}:</span>
-      <strong style="color:{% if pick.lean in ('Over','Yes') %}var(--c-strong){% else %}var(--c-caution){% endif %}">{{ pick.lean }}</strong>
-      <span style="color:var(--text-3)">— {{ pick.reasoning }}</span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-</div>
+{% else %}
+  {{ ui.empty_state('NBA matchup data is unavailable', 'Select another game or try again after the slate refreshes.') }}
 {% endif %}
 {% endblock %}
