@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Activity, CheckCircle2, Home, Search } from 'lucide-react';
-import kneeslide from '../assets/kneeslide.svg';
+import scorpredMark from '../assets/scorpred-mark.png';
 
 interface NavItem {
   label: string;
@@ -62,7 +62,7 @@ export default function DashboardLayout({
       <aside className="sidebar hidden flex-col border-r border-white/[0.07] bg-[#0c1424] md:flex">
         <div className="border-b border-white/[0.07] px-5 py-6">
           <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/25 bg-emerald-400/10">
-            <img src={kneeslide} alt="Knee Slide Mark" className="h-7 w-7" />
+            <img src={scorpredMark} alt="ScorPred celebration mark" className="h-full w-full rounded-xl object-cover" />
           </div>
           <p className="font-oswald text-xl uppercase tracking-normal text-white">ScorPred</p>
           <p className="mt-1 text-xs text-slate-500">Decision Intelligence</p>
