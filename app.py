@@ -3336,6 +3336,67 @@ def _build_home_dashboard_context() -> dict[str, Any]:
     }
 
 
+def _card_data_label(card: dict[str, Any]) -> str:
+    badge = card.get("data_confidence") or card.get("data_badge") or {}
+    return str(badge.get("label") or "Limited Data")
+
+
+def _card_volatility_score(card: dict[str, Any]) -> int:
+    confidence = dui.safe_float(card.get("confidence_pct"), 0)
+    data_label = _card_data_label(card)
+    action = str(card.get("action") or "").upper()
+    score = int(max(0, 100 - confidence))
+    if data_label == "Partial Data":
+        score += 8
+    elif data_label == "Limited Data":
+        score += 16
+    if action == "CONSIDER":
+        score += 5
+    elif action == "SKIP":
+        score += 14
+    for row in card.get("probability_rows") or []:
+        if str(row.get("label") or "").lower() == "draw" and dui.safe_float(row.get("value"), 0) >= 26:
+            score += 8
+            break
+    return int(dui.clamp(score, 0, 100))
+
+
+def _insight_signals_for_card(card: dict[str, Any]) -> list[dict[str, str]]:
+    data_label = _card_data_label(card)
+    confidence = int(round(dui.safe_float(card.get("confidence_pct"), 0)))
+    signals = [
+        {"label": "Confidence", "value": f"{confidence}%"},
+        {"label": "Data trust", "value": data_label},
+    ]
+    metrics = card.get("comparison_metrics") or []
+    if metrics:
+        leader_metric = metrics[0]
+        signals.append(
+            {
+                "label": "Edge signal",
+                "value": str(leader_metric.get("label") or "Matchup edge"),
+            }
+        )
+    sport = str(card.get("sport") or "").upper()
+    if sport:
+        signals.append({"label": "Surface", "value": sport})
+    return signals[:4]
+
+
+def _with_insight_metadata(card: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(card)
+    score = _card_volatility_score(enriched)
+    enriched["volatility_score"] = score
+    enriched["insight_signals"] = _insight_signals_for_card(enriched)
+    if score >= 58:
+        enriched["volatility_note"] = "Actionable, but late team news or matchup swings matter more here."
+    elif score >= 44:
+        enriched["volatility_note"] = "Playable read with a few context checks before locking it in."
+    else:
+        enriched["volatility_note"] = "Cleaner profile with fewer obvious caution flags."
+    return enriched
+
+
 def _store_selected_teams(
     team_a: dict,
     team_b: dict,
@@ -3716,20 +3777,63 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 @app.route("/insights")
 def insights():
     home_context = _build_home_dashboard_context()
-    cards = home_context.get("all_cards") or []
+    all_cards = [_with_insight_metadata(card) for card in home_context.get("all_cards") or []]
+    sport_filter = (request.args.get("sport") or "all").strip().lower()
+    if sport_filter not in {"all", "soccer", "nba"}:
+        sport_filter = "all"
+    cards = [
+        card for card in all_cards
+        if sport_filter == "all" or str(card.get("sport") or "").lower() == sport_filter
+    ]
+    home_context["insight_cards"] = [_with_insight_metadata(card) for card in dui.top_opportunities(cards, limit=6)]
     action_mix = dui.plan_summary(cards)
+    sport_counts = {
+        "all": len(all_cards),
+        "soccer": len([card for card in all_cards if str(card.get("sport") or "").lower() != "nba"]),
+        "nba": len([card for card in all_cards if str(card.get("sport") or "").lower() == "nba"]),
+    }
     confidence_groups = {
         "Top confidence": len([card for card in cards if dui.safe_float(card.get("confidence_pct"), 0) >= 66]),
         "Playable range": len([card for card in cards if 55 <= dui.safe_float(card.get("confidence_pct"), 0) < 66]),
         "Caution range": len([card for card in cards if dui.safe_float(card.get("confidence_pct"), 0) < 55]),
     }
-    home_context["data_mix"] = home_context.get("data_mix") or {}
+    volatility_watch = sorted(
+        [card for card in cards if str(card.get("action") or "").upper() != "SKIP"],
+        key=lambda card: (
+            -int(card.get("volatility_score") or 0),
+            -dui.safe_float(card.get("confidence_pct"), 0),
+        ),
+    )[:4]
+    context_watch = []
+    for card in volatility_watch:
+        context_watch.append(
+            {
+                "matchup": card.get("matchup") or f"{card.get('team_a')} vs {card.get('team_b')}",
+                "side": card.get("recommended_side") or card.get("pick_side") or "",
+                "action": card.get("action") or "CONSIDER",
+                "confidence_pct": int(round(dui.safe_float(card.get("confidence_pct"), 0))),
+                "data_label": _card_data_label(card),
+                "note": card.get("volatility_note") or "",
+            }
+        )
+    trust_rows = _completed_result_rows(limit=30)
+    if sport_filter != "all":
+        trust_rows = [row for row in trust_rows if str(row.get("sport") or "").lower() == sport_filter]
+    trust_rows = trust_rows[:6]
+    trust_summary = dui.results_summary(trust_rows) if trust_rows else {}
+    home_context["data_mix"] = dict(Counter(_card_data_label(card) for card in cards))
     return render_template(
         "insights.html",
         **_page_context(
             **home_context,
             action_mix=action_mix,
             confidence_groups=confidence_groups,
+            sport_filter=sport_filter,
+            sport_counts=sport_counts,
+            volatility_watch=volatility_watch,
+            context_watch=context_watch,
+            trust_rows=trust_rows,
+            trust_summary=trust_summary,
         ),
     )
 

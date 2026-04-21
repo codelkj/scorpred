@@ -2633,6 +2633,151 @@ h3 { font-size: 1.05rem; }
   place-items: center;
 }
 
+.sp-topbar__pill--active {
+  color: var(--action-bet);
+  border-color: rgba(var(--c-strong-rgb), .3);
+  background: rgba(var(--c-strong-rgb), .08);
+}
+
+.sp-insights-hero {
+  background:
+    radial-gradient(circle at 82% 14%, rgba(var(--c-strong-rgb), .18), transparent 34%),
+    linear-gradient(135deg, rgba(15, 23, 42, .94), rgba(2, 10, 15, .82));
+}
+
+.sp-insight-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem;
+}
+
+.sp-insight-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 38px;
+  padding: .55rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-2);
+  background: rgba(255,255,255,.035);
+}
+
+.sp-insight-tabs a.active {
+  color: var(--action-bet);
+  border-color: rgba(var(--c-strong-rgb), .32);
+  background: rgba(var(--c-strong-rgb), .1);
+}
+
+.sp-insight-tabs span {
+  min-width: 1.6rem;
+  height: 1.6rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255,255,255,.07);
+  font-family: var(--font-mono);
+  font-size: .72rem;
+}
+
+.sp-insight-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: .85rem;
+}
+
+.sp-info-card--accent {
+  border-color: rgba(var(--c-strong-rgb), .28);
+  background:
+    linear-gradient(135deg, rgba(var(--c-strong-rgb), .1), transparent 50%),
+    rgba(15, 23, 42, .72);
+}
+
+.sp-opportunity-grid--insights {
+  align-items: stretch;
+}
+
+.sp-insight-card-wrap {
+  display: grid;
+  gap: .65rem;
+}
+
+.sp-insight-signal-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: .45rem;
+}
+
+.sp-insight-signal-row span {
+  display: grid;
+  gap: .15rem;
+  padding: .65rem .7rem;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  background: rgba(255,255,255,.035);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.sp-insight-signal-row small {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+
+.sp-watch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: .85rem;
+}
+
+.sp-watch-card {
+  display: grid;
+  gap: .75rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid rgba(var(--c-caution-rgb), .22);
+  background:
+    radial-gradient(circle at 90% 0%, rgba(var(--c-caution-rgb), .12), transparent 36%),
+    rgba(15, 23, 42, .66);
+}
+
+.sp-watch-card small {
+  color: var(--action-consider);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: .68rem;
+}
+
+.sp-watch-card strong {
+  display: block;
+  margin-top: .25rem;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.sp-watch-card span,
+.sp-watch-card p {
+  color: var(--text-2);
+}
+
+.sp-watch-card__meter {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.07);
+}
+
+.sp-watch-card__meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--action-consider), var(--c-cyan));
+}
+
 @media (max-width: 760px) {
   .sp-card-identity,
   .sp-result-card {
