@@ -278,55 +278,108 @@ def _fixture_context_from_form():
     """
     Wrapper for fixture_context_from_form using Flask's request.form or request.args.
     """
-    from flask import request
-    # Prefer form data, fallback to args
-    form_data = request.form if request.method == "POST" else request.args
-    return fixture_context_from_form(form_data)
-def _summarize_form_compare(form_compare: dict, actual_winner: str | None = None) -> str | None:
-    """
-    Summarize recent form comparison for both teams, optionally referencing the actual winner.
-    """
-    if not form_compare or not isinstance(form_compare, dict):
-        return None
-    segments = []
-    for team, stats in (form_compare or {}).items():
-        if not stats:
-            continue
-        wins = stats.get("wins")
-        losses = stats.get("losses")
-        avg_for = stats.get("avg_goals_for") or stats.get("avg_points_for")
-        avg_against = stats.get("avg_goals_against") or stats.get("avg_points_against")
-        seg = f"{team}: {wins}W-{losses}L"
-        if avg_for is not None and avg_against is not None:
-            seg += f" ({avg_for} for, {avg_against} against)"
-        segments.append(seg)
-    if not segments:
-        return None
-    joined = "; ".join(segments)
-    if actual_winner and actual_winner != "Unknown":
-        return f"Recent form: {joined}. {actual_winner} had the edge in recent results." if actual_winner in form_compare else f"Recent form: {joined}."
-    return f"Recent form: {joined}."
+
+    from __future__ import annotations
+
+    import importlib
+    import os
+
+    import re
+    import unicodedata
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import date, datetime, timedelta, timezone
+    from typing import Any, Callable
+    from urllib.parse import urlparse
+
+    try:
+        from dotenv import load_dotenv
+    except ImportError:  # pragma: no cover
+        def load_dotenv(*_args, **_kwargs):
+            return False
+    from flask import Flask, jsonify, redirect, render_template, request, session, url_for, g
+    from werkzeug.middleware.proxy_fix import ProxyFix
 
 
-def _reality_sentence(record: dict) -> str:
-    """
-    Generate a short sentence summarizing the actual result for a prediction record.
-    """
-    actual_winner = record.get("actual_winner") or "Unknown"
-    final_score = record.get("final_score_display") or "Unknown"
-    total_scored = record.get("total_scored")
-    if total_scored is not None:
-        unit = "goal" if str(record.get("sport") or "").lower() == "soccer" else "point"
-        label = unit if total_scored == 1 else f"{unit}s"
-        return f"{actual_winner}, {final_score}, {total_scored} {label}"
-    return f"{actual_winner}, {final_score}"
+    import api_client as ac
+    import predictor as pred
+    import props_engine as pe
+    import scorpred_engine as se
+    import model_tracker as mt
+    import user_auth
+    import odds_fetcher
+    import result_updater as ru
+    from runtime_paths import (
+        auth_db_path,
+        auth_storage_diagnostics,
+        data_root,
+        ensure_runtime_dirs,
+        ml_report_path,
+        walk_forward_report_path,
+    )
+    from security import check_chat_rate_limit, configure_security, sanitize_error
+    from services import analysis_assistant as assistant_services
+    from db_models import db
+
+    try:
+        import nba_live_client as nc
+        import nba_predictor as np_nba
+    except ImportError:  # pragma: no cover
+        nc = None  # type: ignore[assignment]
+        np_nba = None  # type: ignore[assignment]
+    from services import evidence as evidence_services
+    from services import tracking_bootstrap as bootstrap_services
+    from services.tracking_bootstrap import fixture_context_from_form
+    from league_config import (
+        CURRENT_SEASON,
+        DEFAULT_LEAGUE_ID,
+        LEAGUE_BY_ID,
+        SUPPORTED_LEAGUES,
+        SUPPORTED_LEAGUE_IDS,
+    )
+    from nba_routes import nba_bp
+
+    try:
+        import anthropic
+    except ImportError:  # pragma: no cover
+        anthropic = None
+
+    load_dotenv()
+    ensure_runtime_dirs()
+
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+    _RELEASE_TAG = "2026-04-20-d53ddbe"
 
 
-def _prediction_sentence(record: dict) -> str:
-    """
-    Generate a short sentence summarizing the model's prediction for a record.
-    """
-    pick = _prediction_pick_display(record)
+    class _LazyModuleProxy:
+        """Lazy-load heavyweight modules to keep cold starts leaner."""
+
+        def __init__(self, module_name: str):
+            self._module_name = module_name
+            self._module = None
+
+        def _load(self):
+            if self._module is None:
+                self._module = importlib.import_module(self._module_name)
+            return self._module
+
+        def __getattr__(self, name: str):
+            return getattr(self._load(), name)
+
+    sm = _LazyModuleProxy("scormastermind")
+    strategy_lab_services = _LazyModuleProxy("services.strategy_lab")
+    _EMPTY_METRICS = {
+        "total_predictions": 0,
+        "finalized_predictions": 0,
+        "wins": 0,
+        "losses": 0,
+        "overall_accuracy": None,
+        "by_confidence": {},
+        "by_sport": {},
+        "recent_predictions": [],
+    }
+
+
     prob = _predicted_outcome_probability(record)
     prob_text = _format_percent_value(prob)
     if pick and prob_text:
@@ -334,6 +387,73 @@ def _prediction_sentence(record: dict) -> str:
     if pick:
         return f"Model pick: {pick}"
     return "Model pick unavailable"
+
+    # ── Production startup guard ───────────────────────────────────────────────────
+    _secret_key = os.environ.get("SECRET_KEY", "").strip()
+    _is_production = bool(os.environ.get("RENDER") or os.environ.get("FLASK_ENV") == "production")
+    if _is_production and not _secret_key:
+        raise RuntimeError(
+            "SECRET_KEY environment variable must be set in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    if not _secret_key:
+        _logger.warning("SECRET_KEY not set — using an insecure default. Set SECRET_KEY for production.")
+        _secret_key = "dev-insecure-key-change-me"
+
+    # --- Persistent session config ---
+    app = Flask(__name__)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+    configure_security(app, _secret_key)
+    _database_url = (os.getenv("DATABASE_URL") or "").strip()
+
+    # ── Results Page ─────────────────────────────────────────────────────────────
+
+    @app.route("/results")
+    def results():
+        # Fetch completed predictions
+        completed = mt.get_completed_predictions(limit=100)
+        results = []
+        win_count = 0
+        total_bets = 0
+        profit_loss = 0.0
+        reliability_score = 0
+        for pred in completed:
+            # Action: BET/CONSIDER/SKIP
+            action = pred.get("action_label") or _map_confidence_to_action(pred.get("confidence"))
+            confidence = float(pred.get("confidence_pct") or pred.get("confidence") or 0)
+            result = "Win" if pred.get("is_correct") else "Loss"
+            if result == "Win":
+                win_count += 1
+                profit_loss += 1  # Assume +1 unit for win
+            else:
+                profit_loss -= 1  # Assume -1 unit for loss
+            total_bets += 1
+            reliability = pred.get("reliability_badge") or _calc_reliability_badge(pred)
+            reliability_score += 1 if reliability == "High" else 0.5 if reliability == "Medium" else 0
+            results.append({
+                "date": _format_prediction_date(pred.get("game_date") or pred.get("date")),
+                "matchup": f"{pred.get('team_a', 'A')} vs {pred.get('team_b', 'B')}",
+                "pick": pred.get("predicted_pick_label") or pred.get("predicted_winner"),
+                "action": action,
+                "confidence": int(confidence),
+                "result": result,
+                "reasoning": pred.get("reasoning") or pred.get("decision_explainer") or "",
+                "reliability": reliability,
+            })
+        win_pct = round((win_count / total_bets) * 100, 1) if total_bets else 0
+        avg_reliability = reliability_score / total_bets if total_bets else 0
+        reliability_label = "High" if avg_reliability > 0.75 else "Medium" if avg_reliability > 0.4 else "Low"
+        summary = {
+            "total_bets": total_bets,
+            "win_pct": win_pct,
+            "profit_loss": f"{profit_loss:+.0f}",
+            "reliability": reliability_label,
+        }
+        return render_template(
+            "results.html",
+            results=results,
+            summary=summary,
+        )
 
 
 def _filter_useful_injury_context(injuries: dict) -> dict:
