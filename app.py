@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import hashlib
+import copy
 import os
 
 import re
@@ -2561,6 +2562,8 @@ def _prediction_top_probability(pred: dict[str, Any]) -> float:
 _SOCCER_LOGO_LOOKUPS: dict[int, dict[str, str]] = {}
 _NBA_LOGO_LOOKUP: dict[str, str] | None = None
 _LIVE_RESULT_ROWS_CACHE: dict[str, Any] = {"expires_at": None, "rows": []}
+_HOME_DASHBOARD_CACHE: dict[str, Any] = {"expires_at": None, "context": None}
+_HOME_DASHBOARD_TTL_SECONDS = int(os.environ.get("SCORPRED_HOME_CACHE_SECONDS", "90") or 90)
 _NBA_ESPN_ABBR_BY_KEY = {
     "atlanta hawks": "atl",
     "hawks": "atl",
@@ -2966,9 +2969,10 @@ def _home_live_nba_cards(limit: int = 6) -> list[dict[str, Any]]:
 
 def _home_live_soccer_cards(limit: int = 8) -> list[dict[str, Any]]:
     try:
-        fixtures, _, _, _ = _load_grouped_upcoming_fixtures_all_leagues(
-            next_n_per_league=3,
+        fixtures, _, _, _ = _load_upcoming_fixtures(
+            next_n=limit,
             max_deep_predictions=0,
+            league=_active_league_id(),
             include_injuries=False,
             include_standings=False,
         )
@@ -2977,6 +2981,23 @@ def _home_live_soccer_cards(limit: int = 8) -> list[dict[str, Any]]:
         return []
     cards = _soccer_cards_from_fixtures(fixtures or [])
     return _dedupe_decision_cards(cards, limit=limit)
+
+
+def _tracker_result_rows(limit: int = 6) -> list[dict[str, Any]]:
+    """Fast local trust trail rows; avoids live result backfill during page render."""
+    rows = []
+    for item in mt.get_completed_predictions(limit=limit) or []:
+        sport = str(item.get("sport") or "soccer").lower()
+        team_a = item.get("team_a") or item.get("home_team") or "Team A"
+        team_b = item.get("team_b") or item.get("away_team") or "Team B"
+        logo_a, logo_b, league_logo = _resolve_record_logos(item, sport=sport, team_a=team_a, team_b=team_b)
+        rows.append(
+            dui.normalize_result_record(
+                {**item, "team_a_logo": logo_a, "team_b_logo": logo_b, "league_logo": league_logo}
+            )
+        )
+    rows.sort(key=lambda item: str(item.get("raw_date") or ""), reverse=True)
+    return rows[:limit]
 
 
 def _result_prediction_record(
@@ -3194,6 +3215,12 @@ def _completed_result_rows(limit: int = 200) -> list[dict[str, Any]]:
 
 def _build_home_dashboard_context() -> dict[str, Any]:
     """Build the decision-first home payload rendered by the product UI."""
+    now = datetime.now(timezone.utc)
+    expires_at = _HOME_DASHBOARD_CACHE.get("expires_at")
+    cached_context = _HOME_DASHBOARD_CACHE.get("context")
+    if isinstance(expires_at, datetime) and expires_at > now and isinstance(cached_context, dict):
+        return copy.deepcopy(cached_context)
+
     metrics = mt.get_summary_metrics()
     pending = mt.get_pending_predictions(limit=40)
 
@@ -3321,7 +3348,7 @@ def _build_home_dashboard_context() -> dict[str, Any]:
         },
     ]
 
-    return {
+    context = {
         "system_snapshot": {"tracked_predictions": int(metrics.get("total_predictions") or 0)},
         "trust_cards": trust_cards,
         "all_cards": cards,
@@ -3334,6 +3361,9 @@ def _build_home_dashboard_context() -> dict[str, Any]:
         "soccer_plan": soccer_plan,
         "nba_plan": nba_plan,
     }
+    _HOME_DASHBOARD_CACHE["context"] = copy.deepcopy(context)
+    _HOME_DASHBOARD_CACHE["expires_at"] = now + timedelta(seconds=_HOME_DASHBOARD_TTL_SECONDS)
+    return context
 
 
 def _card_data_label(card: dict[str, Any]) -> str:
@@ -3816,7 +3846,7 @@ def insights():
                 "note": card.get("volatility_note") or "",
             }
         )
-    trust_rows = _completed_result_rows(limit=30)
+    trust_rows = _tracker_result_rows(limit=12)
     if sport_filter != "all":
         trust_rows = [row for row in trust_rows if str(row.get("sport") or "").lower() == sport_filter]
     trust_rows = trust_rows[:6]
