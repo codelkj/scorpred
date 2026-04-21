@@ -886,7 +886,7 @@ class TestStrategyLabRoute:
 
         assert rv.status_code in (302, 303)
         # Structural markers (data-testid) — stable across copy rewrites
-        assert "/results" in rv.headers.get("Location", "")
+        assert "/insights" in rv.headers.get("Location", "")
         # Content assertions — verify report data is rendered
         assert b"missing_model_comparison" not in rv.data
 
@@ -1010,7 +1010,7 @@ class TestModelPerformanceRoute:
         rv = client.get("/model-performance")
 
         assert rv.status_code in (302, 303)
-        assert "/results" in rv.headers.get("Location", "")
+        assert "/insights" in rv.headers.get("Location", "")
 
     def test_pass_analysis_renders(self, client, monkeypatch):
         monkeypatch.setattr(
@@ -1059,7 +1059,7 @@ class TestModelPerformanceRoute:
 
         assert rv.status_code in (302, 303)
         # Structural marker — stable regardless of display copy wording
-        assert "/results" in rv.headers.get("Location", "")
+        assert "/insights" in rv.headers.get("Location", "")
         # Legacy page content is not rendered.
         assert b"missing_model_comparison" not in rv.data
 
@@ -1100,7 +1100,7 @@ class TestModelPerformanceRoute:
         rv = client.get("/strategy-lab")
 
         assert rv.status_code in (302, 303)
-        assert "/results" in rv.headers.get("Location", "")
+        assert "/insights" in rv.headers.get("Location", "")
         # The legacy URL redirects and does not run report generation.
         assert not report_path.exists()
 
@@ -1452,7 +1452,7 @@ class TestUpdateResultsRoute:
             rv = client.post("/update-prediction-results")
 
         assert rv.status_code in (302, 303)
-        assert rv.headers["Location"].endswith("/results")
+        assert rv.headers["Location"].endswith("/insights")
 
 
 class TestPredictionResultDetailRoute:
@@ -1928,7 +1928,7 @@ class TestSoccerEvidenceFallbacks:
             rv = client.get("/model-performance")
 
         assert rv.status_code in (302, 303)
-        assert "/results" in rv.headers.get("Location", "")
+        assert "/insights" in rv.headers.get("Location", "")
 
 
 class TestConnectedFlows:
@@ -1957,10 +1957,10 @@ class TestConnectedFlows:
              patch("model_tracker.get_summary_metrics", return_value={"total_predictions": 1, "finalized_predictions": 0, "wins": 0, "losses": 0, "overall_accuracy": None, "by_confidence": {}, "by_sport": {}, "recent_predictions": []}):
             performance_resp = client.get("/model-performance")
             assert performance_resp.status_code in (302, 303)
-            assert "/results" in performance_resp.headers.get("Location", "")
+            assert "/insights" in performance_resp.headers.get("Location", "")
             update_resp = client.get("/update-prediction-results")
             assert update_resp.status_code in (302, 303)
-            assert "/results" in update_resp.headers.get("Location", "")
+            assert "/insights" in update_resp.headers.get("Location", "")
 
     def test_props_page_renders_soccer_mode_with_team_context(self, client):
         with client.session_transaction() as sess:

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Activity, CheckCircle2, Home, Search } from 'lucide-react';
-import scorpredMark from '../assets/scorpred-mark.png';
+import { Activity, Home, Search, TrendingUp } from 'lucide-react';
+import scorpredMark from '../assets/scorpred-player-logo.png';
 
 interface NavItem {
   label: string;
@@ -12,7 +12,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Soccer', icon: <SoccerIcon /> },
   { label: 'NBA', icon: <BasketballIcon /> },
   { label: 'Match Analysis', icon: <Search className="h-4 w-4" /> },
-  { label: 'Results', icon: <CheckCircle2 className="h-4 w-4" /> },
+  { label: 'Insights', icon: <TrendingUp className="h-4 w-4" /> },
 ];
 
 function SoccerIcon() {

@@ -201,6 +201,39 @@ _NBA_TEAM_METADATA = {
     "wizards": {"name": "Washington Wizards", "city": "Washington", "nickname": "Wizards"},
 }
 
+_NBA_ESPN_ABBR_BY_CANONICAL = {
+    "hawks": "atl",
+    "celtics": "bos",
+    "nets": "bkn",
+    "hornets": "cha",
+    "bulls": "chi",
+    "cavaliers": "cle",
+    "mavericks": "dal",
+    "nuggets": "den",
+    "pistons": "det",
+    "warriors": "gsw",
+    "rockets": "hou",
+    "pacers": "ind",
+    "clippers": "lac",
+    "lakers": "lal",
+    "grizzlies": "mem",
+    "heat": "mia",
+    "bucks": "mil",
+    "timberwolves": "min",
+    "pelicans": "nop",
+    "knicks": "nyk",
+    "thunder": "okc",
+    "magic": "orl",
+    "76ers": "phi",
+    "suns": "phx",
+    "trail blazers": "por",
+    "kings": "sac",
+    "spurs": "sa",
+    "raptors": "tor",
+    "jazz": "uta",
+    "wizards": "wsh",
+}
+
 
 def _normalize_nba_name(value: str) -> str:
     text = (value or "").strip().lower()
@@ -310,13 +343,17 @@ def _fallback_nba_team_from_selection(raw_id: str, raw_name: str, raw_logo: str)
     display_name = metadata.get("name") or raw_name.strip() or canonical.title()
     nickname = metadata.get("nickname") or display_name.split()[-1]
     city = metadata.get("city") or display_name.removesuffix(f" {nickname}").strip()
+    fallback_logo = raw_logo
+    abbr = _NBA_ESPN_ABBR_BY_CANONICAL.get(canonical)
+    if not fallback_logo and abbr:
+        fallback_logo = f"https://a.espncdn.com/i/teamlogos/nba/500/scoreboard/{abbr}.png"
     return {
         "id": str(raw_id).strip(),
         "name": display_name,
         "nickname": nickname,
         "shortName": nickname,
         "city": city,
-        "logo": raw_logo or "",
+        "logo": fallback_logo or "",
         "abbrev": "",
     }, f"matched by selection payload canonical name {canonical}"
 
@@ -533,6 +570,11 @@ def _team_logo(team: dict) -> str:
     for item in logos:
         if isinstance(item, dict) and item.get("href"):
             return str(item.get("href") or "").strip()
+    for candidate in _team_name_candidates(team):
+        canonical = _canonical_nba_name(candidate)
+        abbr = _NBA_ESPN_ABBR_BY_CANONICAL.get(canonical)
+        if abbr:
+            return f"https://a.espncdn.com/i/teamlogos/nba/500/scoreboard/{abbr}.png"
     return ""
 
 

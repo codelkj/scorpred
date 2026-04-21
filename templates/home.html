@@ -7,12 +7,12 @@
 {% block content %}
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">Decision intelligence for matchday</span>
-  <h1>Clear actions, richer matchup evidence, and results you can verify.</h1>
+  <h1>Clear actions, richer matchup evidence, and sharper slate insights.</h1>
   <p>ScorPred keeps every normal matchup analyzable: a side, an action, confidence, visual support, and the data quality behind the read.</p>
   <div class="sp-page-actions">
     <a class="btn btn-primary" href="/soccer">Open Soccer</a>
     <a class="btn btn-secondary" href="/nba/">Open NBA</a>
-    <a class="btn btn-secondary" href="/results">View Results</a>
+    <a class="btn btn-secondary" href="/insights">Open Insights</a>
   </div>
 </section>
 
@@ -74,20 +74,20 @@
 <section class="sp-section">
   <div class="sp-section__header">
     <div>
-      <h2>Recent Results</h2>
-      <p>Accountability for the latest graded decisions.</p>
+      <h2>Opportunity Radar</h2>
+      <p>The strongest cross-sport reads with confidence, data trust, and matchup identity.</p>
     </div>
-    <a class="btn btn-secondary btn-sm" href="/results">Open Results</a>
+    <a class="btn btn-secondary btn-sm" href="/insights">Open Insights</a>
   </div>
 
-  {% if recent_results %}
-    <div class="sp-result-list">
-      {% for row in recent_results %}
-        {{ ui.result_row(row) }}
+  {% if insight_cards %}
+    <div class="sp-opportunity-grid">
+      {% for card in insight_cards[:3] %}
+        {{ ui.decision_card(card, 'featured') }}
       {% endfor %}
     </div>
   {% else %}
-    {{ ui.empty_state('No graded results yet', 'Once picks are finalized, this section becomes the trust trail.') }}
+    {{ ui.empty_state('Insights are loading', 'As soon as the slate refreshes, ScorPred will rank the best opportunities here.') }}
   {% endif %}
 </section>
 
@@ -102,7 +102,7 @@
     {{ ui.quick_link('/soccer', 'Soccer', 'Today plan, top opportunities, and full slate') }}
     {{ ui.quick_link('/nba/', 'NBA', 'Daily card with the same decision system') }}
     {{ ui.quick_link(match_analysis_href, 'Match Analysis', 'Focused breakdown for a selected matchup') }}
-    {{ ui.quick_link('/results', 'Results', 'Win rate, recent form, and graded picks') }}
+    {{ ui.quick_link('/insights', 'Insights', 'Opportunity radar, trust mix, and slate context') }}
   </div>
 </section>
 {% endblock %}

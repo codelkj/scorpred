@@ -8,6 +8,7 @@ import os
 
 import re
 import unicodedata
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
@@ -2560,6 +2561,72 @@ def _prediction_top_probability(pred: dict[str, Any]) -> float:
 _SOCCER_LOGO_LOOKUPS: dict[int, dict[str, str]] = {}
 _NBA_LOGO_LOOKUP: dict[str, str] | None = None
 _LIVE_RESULT_ROWS_CACHE: dict[str, Any] = {"expires_at": None, "rows": []}
+_NBA_ESPN_ABBR_BY_KEY = {
+    "atlanta hawks": "atl",
+    "hawks": "atl",
+    "boston celtics": "bos",
+    "celtics": "bos",
+    "brooklyn nets": "bkn",
+    "nets": "bkn",
+    "charlotte hornets": "cha",
+    "hornets": "cha",
+    "chicago bulls": "chi",
+    "bulls": "chi",
+    "cleveland cavaliers": "cle",
+    "cavaliers": "cle",
+    "dallas mavericks": "dal",
+    "mavericks": "dal",
+    "denver nuggets": "den",
+    "nuggets": "den",
+    "detroit pistons": "det",
+    "pistons": "det",
+    "golden state warriors": "gsw",
+    "warriors": "gsw",
+    "houston rockets": "hou",
+    "rockets": "hou",
+    "indiana pacers": "ind",
+    "pacers": "ind",
+    "los angeles clippers": "lac",
+    "la clippers": "lac",
+    "clippers": "lac",
+    "los angeles lakers": "lal",
+    "la lakers": "lal",
+    "lakers": "lal",
+    "memphis grizzlies": "mem",
+    "grizzlies": "mem",
+    "miami heat": "mia",
+    "heat": "mia",
+    "milwaukee bucks": "mil",
+    "bucks": "mil",
+    "minnesota timberwolves": "min",
+    "timberwolves": "min",
+    "new orleans pelicans": "nop",
+    "pelicans": "nop",
+    "new york knicks": "nyk",
+    "knicks": "nyk",
+    "oklahoma city thunder": "okc",
+    "thunder": "okc",
+    "orlando magic": "orl",
+    "magic": "orl",
+    "philadelphia 76ers": "phi",
+    "philadelphia sixers": "phi",
+    "76ers": "phi",
+    "sixers": "phi",
+    "phoenix suns": "phx",
+    "suns": "phx",
+    "portland trail blazers": "por",
+    "trail blazers": "por",
+    "sacramento kings": "sac",
+    "kings": "sac",
+    "san antonio spurs": "sa",
+    "spurs": "sa",
+    "toronto raptors": "tor",
+    "raptors": "tor",
+    "utah jazz": "uta",
+    "jazz": "uta",
+    "washington wizards": "wsh",
+    "wizards": "wsh",
+}
 
 
 def _logo_lookup_key(value: Any) -> str:
@@ -2580,6 +2647,36 @@ def _logo_from_team_payload(team: dict[str, Any]) -> str:
     for item in logos:
         if isinstance(item, dict) and item.get("href"):
             return str(item.get("href") or "").strip()
+    return ""
+
+
+def _espn_soccer_logo(team_id: Any) -> str:
+    text = str(team_id or "").strip()
+    return f"https://a.espncdn.com/i/teamlogos/soccer/500/{text}.png" if text else ""
+
+
+def _espn_nba_logo_from_name(name: Any) -> str:
+    key = _logo_lookup_key(name)
+    abbr = _NBA_ESPN_ABBR_BY_KEY.get(key)
+    return f"https://a.espncdn.com/i/teamlogos/nba/500/scoreboard/{abbr}.png" if abbr else ""
+
+
+def _espn_nba_logo_from_team(team: dict[str, Any]) -> str:
+    if not isinstance(team, dict):
+        return ""
+    logo = _logo_from_team_payload(team)
+    if logo:
+        return logo
+    for candidate in (
+        team.get("name"),
+        team.get("displayName"),
+        team.get("nickname"),
+        " ".join(part for part in [team.get("city"), team.get("nickname")] if part),
+        team.get("abbrev"),
+    ):
+        logo = _espn_nba_logo_from_name(candidate)
+        if logo:
+            return logo
     return ""
 
 
@@ -2668,7 +2765,9 @@ def _resolve_record_logos(record: dict[str, Any], *, sport: str, team_a: str, te
             key = _logo_lookup_key(candidate)
             if key and lookup.get(key):
                 return lookup[key]
-        return ""
+        if sport == "nba":
+            return _espn_nba_logo_from_name(name)
+        return _espn_soccer_logo(team_id)
 
     logo_a = _find_logo(team_a, record.get("team_a_id") or record.get("home_id"), explicit_a)
     logo_b = _find_logo(team_b, record.get("team_b_id") or record.get("away_id"), explicit_b)
@@ -2784,8 +2883,8 @@ def _decision_card_from_nba_game(game: dict[str, Any]) -> dict[str, Any] | None:
         competition="NBA",
         match_date=(game.get("date") or {}).get("start") or "",
         venue=(game.get("venue") or {}).get("name") or "",
-        team_a_logo=_logo_from_team_payload(home),
-        team_b_logo=_logo_from_team_payload(away),
+        team_a_logo=_espn_nba_logo_from_team(home),
+        team_b_logo=_espn_nba_logo_from_team(away),
         cta_url="/nba/select-game",
         cta_label="View Matchup",
         cta_method="post",
@@ -2794,8 +2893,8 @@ def _decision_card_from_nba_game(game: dict[str, Any]) -> dict[str, Any] | None:
             "team_b": away.get("id") or "",
             "team_a_name": home_name,
             "team_b_name": away_name,
-            "team_a_logo": _logo_from_team_payload(home),
-            "team_b_logo": _logo_from_team_payload(away),
+            "team_a_logo": _espn_nba_logo_from_team(home),
+            "team_b_logo": _espn_nba_logo_from_team(away),
             "event_id": game.get("id") or "",
             "event_date": (game.get("date") or {}).get("start") or "",
             "event_status": (game.get("status") or {}).get("long") or "",
@@ -2807,11 +2906,49 @@ def _decision_card_from_nba_game(game: dict[str, Any]) -> dict[str, Any] | None:
     return card
 
 
+def _dedupe_decision_cards(cards: list[dict[str, Any]], limit: int | None = None) -> list[dict[str, Any]]:
+    """Keep one rich card per matchup so home does not repeat stale tracker rows."""
+    by_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        teams = sorted([_logo_lookup_key(card.get("team_a")), _logo_lookup_key(card.get("team_b"))])
+        key = (
+            str(card.get("sport") or ""),
+            str(card.get("competition") or ""),
+            str(card.get("match_date") or "")[:10],
+            "|".join(teams),
+        )
+        if not key[-1].strip("|"):
+            key = (
+                str(card.get("sport") or ""),
+                str(card.get("competition") or ""),
+                str(card.get("match_date") or "")[:10],
+                str(card.get("matchup") or id(card)),
+            )
+        existing = by_key.get(key)
+        if not existing:
+            by_key[key] = card
+            continue
+        existing_score = (
+            int(bool(existing.get("team_a_logo"))) + int(bool(existing.get("team_b_logo"))),
+            dui.safe_float(existing.get("confidence_pct"), 0),
+        )
+        candidate_score = (
+            int(bool(card.get("team_a_logo"))) + int(bool(card.get("team_b_logo"))),
+            dui.safe_float(card.get("confidence_pct"), 0),
+        )
+        if candidate_score > existing_score:
+            by_key[key] = card
+    ordered = dui.sort_cards(list(by_key.values()))
+    return ordered[:limit] if limit is not None else ordered
+
+
 def _home_live_nba_cards(limit: int = 6) -> list[dict[str, Any]]:
     if not nc:
         return []
     try:
-        games = nc.get_upcoming_games(limit, 5, "page") or nc.get_today_games("page") or []
+        games = nc.get_today_games("page") or nc.get_upcoming_games(limit, 5, "page") or []
     except Exception as exc:
         app.logger.debug("Home NBA live cards unavailable: %s", exc)
         return []
@@ -2824,7 +2961,7 @@ def _home_live_nba_cards(limit: int = 6) -> list[dict[str, Any]]:
             cards.append(card)
         if len(cards) >= limit:
             break
-    return dui.assign_opportunity_ranks(cards)
+    return dui.assign_opportunity_ranks(_dedupe_decision_cards(cards, limit=limit))
 
 
 def _home_live_soccer_cards(limit: int = 8) -> list[dict[str, Any]]:
@@ -2839,7 +2976,7 @@ def _home_live_soccer_cards(limit: int = 8) -> list[dict[str, Any]]:
         app.logger.debug("Home soccer live cards unavailable: %s", exc)
         return []
     cards = _soccer_cards_from_fixtures(fixtures or [])
-    return dui.sort_cards(cards)[:limit]
+    return _dedupe_decision_cards(cards, limit=limit)
 
 
 def _result_prediction_record(
@@ -3112,7 +3249,23 @@ def _build_home_dashboard_context() -> dict[str, Any]:
                 }
             )
         elif sport == "nba":
-            card["cta_url"] = "/nba/"
+            card.update(
+                {
+                    "cta_url": "/nba/select-game",
+                    "cta_method": "post",
+                    "cta_payload": {
+                        "team_a": record.get("team_a_id") or dui.initials(team_a).lower(),
+                        "team_b": record.get("team_b_id") or dui.initials(team_b).lower(),
+                        "team_a_name": team_a,
+                        "team_b_name": team_b,
+                        "team_a_logo": logo_a,
+                        "team_b_logo": logo_b,
+                        "event_id": record.get("fixture_id") or record.get("game_id") or "",
+                        "event_date": record.get("game_date") or record.get("date") or "",
+                        "short_name": f"{team_b} @ {team_a}",
+                    },
+                }
+            )
         elif record.get("team_a_id") and record.get("team_b_id"):
             card.update(
                 {
@@ -3136,18 +3289,19 @@ def _build_home_dashboard_context() -> dict[str, Any]:
             card["cta_url"] = "/soccer"
         cards.append(card)
 
-    tracker_soccer_cards = dui.sort_cards([card for card in cards if card.get("sport") != "nba"])
-    tracker_nba_cards = dui.sort_cards([card for card in cards if card.get("sport") == "nba"])
+    tracker_soccer_cards = _dedupe_decision_cards([card for card in cards if card.get("sport") != "nba"])
+    tracker_nba_cards = _dedupe_decision_cards([card for card in cards if card.get("sport") == "nba"])
     live_soccer_cards = _home_live_soccer_cards(limit=8)
     live_nba_cards = _home_live_nba_cards(limit=6)
-    soccer_cards = live_soccer_cards or tracker_soccer_cards
-    nba_cards = live_nba_cards or tracker_nba_cards
-    cards = dui.sort_cards([*soccer_cards, *nba_cards])
+    soccer_cards = _dedupe_decision_cards([*live_soccer_cards, *tracker_soccer_cards], limit=8)
+    nba_cards = _dedupe_decision_cards([*live_nba_cards, *tracker_nba_cards], limit=6)
+    cards = _dedupe_decision_cards([*soccer_cards, *nba_cards])
     today_plan = dui.plan_summary(cards)
     soccer_plan = dui.plan_summary(soccer_cards)
     nba_plan = dui.plan_summary(nba_cards)
     accuracy = metrics.get("overall_accuracy")
-    recent_results = _completed_result_rows(limit=60)[:6]
+    top_radar = dui.top_opportunities(cards, limit=6)
+    data_mix = Counter(((card.get("data_confidence") or {}).get("label") or "Limited Data") for card in cards)
     trust_cards = [
         {
             "title": "Action board",
@@ -3158,11 +3312,11 @@ def _build_home_dashboard_context() -> dict[str, Any]:
             "tone": "strong",
         },
         {
-            "title": "Tracked results",
-            "value": str(int(metrics.get("finalized_predictions") or 0)),
-            "badge": "Graded picks",
-            "sample_label": f"{accuracy:.1f}% win rate" if accuracy is not None else "Awaiting sample",
-            "summary": "Results stay visible so every recommendation can be checked later.",
+            "title": "Opportunity radar",
+            "value": str(len(top_radar)),
+            "badge": "Live reads",
+            "sample_label": f"{accuracy:.1f}% tracked win rate" if accuracy is not None else "Fresh slate focus",
+            "summary": "Insights group the best reads by sport, trust level, and confidence so the app does not feel empty.",
             "tone": "neutral",
         },
     ]
@@ -3170,10 +3324,12 @@ def _build_home_dashboard_context() -> dict[str, Any]:
     return {
         "system_snapshot": {"tracked_predictions": int(metrics.get("total_predictions") or 0)},
         "trust_cards": trust_cards,
+        "all_cards": cards,
         "top_picks": dui.top_opportunities(cards, limit=5),
         "soccer_picks": dui.top_opportunities(soccer_cards, limit=3),
         "nba_picks": dui.top_opportunities(nba_cards, limit=3),
-        "recent_results": recent_results,
+        "insight_cards": top_radar,
+        "data_mix": dict(data_mix),
         "today_plan": today_plan,
         "soccer_plan": soccer_plan,
         "nba_plan": nba_plan,
@@ -3557,36 +3713,30 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 
 # â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-@app.route("/results")
-def results():
-    rows = _completed_result_rows(limit=200)
-    league_options = sorted({row["competition"] for row in rows if row.get("competition")})
-
-    league_filter = (request.args.get("league") or "all").strip()
-    action_filter = (request.args.get("action") or request.args.get("tier") or "all").strip().upper()
-    range_filter = (request.args.get("range") or "all").strip().lower()
-
-    if league_filter and league_filter != "all":
-        rows = [row for row in rows if row["competition"] == league_filter]
-    if action_filter != "ALL":
-        rows = [row for row in rows if str(row.get("action") or "").upper() == action_filter]
-    if range_filter in {"10", "20"}:
-        rows = rows[: int(range_filter)]
-
-    summary = dui.results_summary(rows)
-    breakdowns = dui.results_breakdowns(rows)
+@app.route("/insights")
+def insights():
+    home_context = _build_home_dashboard_context()
+    cards = home_context.get("all_cards") or []
+    action_mix = dui.plan_summary(cards)
+    confidence_groups = {
+        "Top confidence": len([card for card in cards if dui.safe_float(card.get("confidence_pct"), 0) >= 66]),
+        "Playable range": len([card for card in cards if 55 <= dui.safe_float(card.get("confidence_pct"), 0) < 66]),
+        "Caution range": len([card for card in cards if dui.safe_float(card.get("confidence_pct"), 0) < 55]),
+    }
+    home_context["data_mix"] = home_context.get("data_mix") or {}
     return render_template(
-        "results.html",
+        "insights.html",
         **_page_context(
-            results=rows,
-            summary=summary,
-            breakdowns=breakdowns,
-            league_filter=league_filter or "all",
-            action_filter=action_filter if action_filter != "ALL" else "all",
-            range_filter=range_filter,
-            league_options=league_options,
+            **home_context,
+            action_mix=action_mix,
+            confidence_groups=confidence_groups,
         ),
     )
+
+
+@app.route("/results")
+def results():
+    return redirect(url_for("insights"))
 
 
 @app.route("/api/results/live")
@@ -4862,8 +5012,8 @@ def top_picks_today():
 
 @app.route("/model-performance")
 def model_performance():
-    """Redirect legacy credibility traffic to Results."""
-    return redirect(url_for("results"))
+    """Redirect legacy credibility traffic to Insights."""
+    return redirect(url_for("insights"))
 
 @app.route("/pass-analysis")
 def pass_analysis():
@@ -4933,12 +5083,12 @@ def prediction_result_detail(prediction_id: str):
 
 @app.route("/strategy-lab")
 def strategy_lab():
-    """Redirect the legacy lab surface to Results."""
-    return redirect(url_for("results"))
+    """Redirect the legacy lab surface to Insights."""
+    return redirect(url_for("insights"))
 
 @app.route("/update-prediction-results", methods=["GET", "POST"])
 def update_prediction_results():
-    return redirect(url_for("results"))
+    return redirect(url_for("insights"))
 
 @app.route("/worldcup", methods=["GET", "POST"])
 def worldcup():

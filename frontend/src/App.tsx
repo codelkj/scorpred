@@ -5,11 +5,11 @@ import HomePage from './pages/HomePage';
 import SoccerPage from './pages/SoccerPage';
 import NBAPage from './pages/NBAPage';
 import MatchAnalysisPage from './pages/MatchAnalysisPage';
-import ResultsPage from './pages/ResultsPage';
+import InsightsPage from './pages/InsightsPage';
 
 type View = 'landing' | 'dashboard';
 
-export type DashPage = 'Home' | 'Soccer' | 'NBA' | 'Match Analysis' | 'Results';
+export type DashPage = 'Home' | 'Soccer' | 'NBA' | 'Match Analysis' | 'Insights';
 
 function PageContent({ page }: { page: DashPage }) {
   switch (page) {
@@ -21,8 +21,8 @@ function PageContent({ page }: { page: DashPage }) {
       return <NBAPage />;
     case 'Match Analysis':
       return <MatchAnalysisPage />;
-    case 'Results':
-      return <ResultsPage />;
+    case 'Insights':
+      return <InsightsPage />;
   }
 }
 

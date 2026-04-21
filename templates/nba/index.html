@@ -11,7 +11,7 @@
   <p>Review the plan, scan top opportunities, then open a focused matchup when a game deserves more context.</p>
   <div class="sp-page-actions">
     <a class="btn btn-primary" href="{{ url_for('nba.today_predictions') }}">Today's NBA Plan</a>
-    <a class="btn btn-secondary" href="/results">Results</a>
+    <a class="btn btn-secondary" href="/insights">Insights</a>
   </div>
 </section>
 
@@ -47,7 +47,7 @@
 <section class="sp-section">
   <div class="sp-quick-grid">
     {{ ui.quick_link(url_for('nba.prediction'), 'Match Analysis', 'Open the selected NBA matchup') }}
-    {{ ui.quick_link('/results', 'Results', 'Review graded NBA decisions') }}
+    {{ ui.quick_link('/insights', 'Insights', 'NBA opportunity radar and trust mix') }}
   </div>
 </section>
 {% endblock %}

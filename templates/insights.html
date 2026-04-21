@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% import "components/decision.html" as ui with context %}
+
+{% block title %}ScorPred | Insights{% endblock %}
+{% block topbar_title %}Insights{% endblock %}
+
+{% block content %}
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">Opportunity radar</span>
+  <h1>Where the slate looks most actionable.</h1>
+  <p>Insights gives you a live cross-sport read: top opportunities, action mix, confidence ranges, and data trust in one premium view.</p>
+  <div class="sp-page-actions">
+    <a class="btn btn-primary" href="/soccer">Open Soccer</a>
+    <a class="btn btn-secondary" href="/nba/">Open NBA</a>
+  </div>
+</section>
+
+<section class="sp-section">
+  <div class="sp-card-grid">
+    <article class="sp-info-card">
+      <small>Action mix</small>
+      <strong>{{ action_mix.bet or 0 }} BET</strong>
+      <span>{{ action_mix.consider or 0 }} CONSIDER · {{ action_mix.skip or 0 }} SKIP</span>
+      <p>ScorPred keeps the slate analyzable while separating stronger plays from caution spots.</p>
+    </article>
+    {% for label, value in confidence_groups.items() %}
+      <article class="sp-info-card">
+        <small>Confidence range</small>
+        <strong>{{ value }}</strong>
+        <span>{{ label }}</span>
+        <p>Confidence bands help you scan the board without turning the app into a technical dashboard.</p>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="sp-section sp-section--opportunities">
+  <div class="sp-section__header">
+    <div>
+      <h2>Top Cross-Sport Opportunities</h2>
+      <p>Ranked from today’s soccer and NBA cards with logos, side, confidence, and data trust.</p>
+    </div>
+  </div>
+  {% if insight_cards %}
+    <div class="sp-opportunity-grid">
+      {% for card in insight_cards %}
+        {{ ui.decision_card(card, 'featured') }}
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('Insights are refreshing', 'Open Soccer or NBA while the slate data refreshes.') }}
+  {% endif %}
+</section>
+
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Sport Breakdown</h2>
+      <p>Each sport keeps its own clean recommendation surface.</p>
+    </div>
+  </div>
+  <div class="sp-card-grid">
+    <article class="sp-info-card">
+      <small>Soccer</small>
+      <strong>{{ soccer_plan.bet or 0 }} BET</strong>
+      <span>{{ soccer_plan.consider or 0 }} CONSIDER · {{ soccer_plan.skip or 0 }} SKIP</span>
+      <p>Football picks stay grouped with league context, logos, and matchup detail.</p>
+      <a class="btn btn-secondary btn-sm" href="/soccer">Open Soccer</a>
+    </article>
+    <article class="sp-info-card">
+      <small>NBA</small>
+      <strong>{{ nba_plan.bet or 0 }} BET</strong>
+      <span>{{ nba_plan.consider or 0 }} CONSIDER · {{ nba_plan.skip or 0 }} SKIP</span>
+      <p>NBA cards use live scoreboard matchups and route directly into matchup analysis.</p>
+      <a class="btn btn-secondary btn-sm" href="/nba/">Open NBA</a>
+    </article>
+    <article class="sp-info-card">
+      <small>Data trust</small>
+      <strong>{{ data_mix.get('Strong Data', 0) + data_mix.get('Partial Data', 0) }}</strong>
+      <span>Strong or partial data cards</span>
+      <p>Limited data still gets called out clearly, but it no longer makes the product feel empty.</p>
+    </article>
+  </div>
+</section>
+{% endblock %}

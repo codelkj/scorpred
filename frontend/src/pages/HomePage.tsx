@@ -23,17 +23,17 @@ const topOpportunities: Decision[] = [
   },
 ];
 
-const recentResults = [
-  { match: 'Arsenal vs Bournemouth', action: 'BET', side: 'Arsenal', score: '1-2', status: 'Incorrect' },
-  { match: 'Celtics vs Heat', action: 'CONSIDER', side: 'Celtics', score: '112-108', status: 'Correct' },
-  { match: 'Inter Milan vs AC Milan', action: 'CONSIDER', side: 'Inter Milan', score: '1-1', status: 'Push' },
+const insightRows = [
+  { match: 'Arsenal vs Bournemouth', action: 'BET', side: 'Arsenal', confidence: '68%', trust: 'Strong Data' },
+  { match: 'Celtics vs Heat', action: 'CONSIDER', side: 'Celtics', confidence: '59%', trust: 'Partial Data' },
+  { match: 'Inter Milan vs AC Milan', action: 'CONSIDER', side: 'Inter Milan', confidence: '56%', trust: 'Partial Data' },
 ];
 
 const quickLinks = [
   { title: 'Soccer', body: 'Today plan, top opportunities, and full slate.' },
   { title: 'NBA', body: 'Same decision-first workflow for tonight.' },
   { title: 'Match Analysis', body: 'Focused breakdown of one matchup.' },
-  { title: 'Results', body: 'Transparent tracking and recent form.' },
+  { title: 'Insights', body: 'Opportunity radar and trust mix.' },
 ];
 
 export default function HomePage() {
@@ -64,7 +64,7 @@ export default function HomePage() {
       </section>
 
       <section className="section">
-        <p className="section-label">Recent Results</p>
+        <p className="section-label">Opportunity Radar</p>
         <div className="card overflow-x-auto">
           <table className="w-full min-w-[620px] text-sm">
             <thead>
@@ -72,20 +72,18 @@ export default function HomePage() {
                 <th className="pb-3 font-medium">Match</th>
                 <th className="pb-3 font-medium">Action</th>
                 <th className="pb-3 font-medium">Side</th>
-                <th className="pb-3 font-medium">Final</th>
-                <th className="pb-3 font-medium">Status</th>
+                <th className="pb-3 font-medium">Confidence</th>
+                <th className="pb-3 font-medium">Trust</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
-              {recentResults.map((row) => (
+              {insightRows.map((row) => (
                 <tr key={row.match}>
                   <td className="py-3 text-slate-200">{row.match}</td>
                   <td className="py-3 text-slate-400">{row.action}</td>
                   <td className="py-3 text-slate-400">{row.side}</td>
-                  <td className="py-3 text-slate-400">{row.score}</td>
-                  <td className={row.status === 'Correct' ? 'py-3 text-emerald-300' : row.status === 'Push' ? 'py-3 text-amber-300' : 'py-3 text-rose-300'}>
-                    {row.status}
-                  </td>
+                  <td className="py-3 text-emerald-300">{row.confidence}</td>
+                  <td className="py-3 text-slate-400">{row.trust}</td>
                 </tr>
               ))}
             </tbody>
