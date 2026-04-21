@@ -33,13 +33,24 @@
     <div class="sp-intro-loader__glow" aria-hidden="true"></div>
     <div class="sp-intro-loader__card">
       <div class="sp-intro-loader__media-wrap">
-        <img
+        <video
           class="sp-intro-loader__media"
-          src="{{ url_for('static', filename='media/scorpred-loader.gif') }}"
-          alt="Soccer player slide celebration silhouette animation"
-          loading="eager"
-          decoding="async"
-        />
+          autoplay
+          muted
+          playsinline
+          preload="auto"
+          poster="{{ url_for('static', filename='media/player.png') }}"
+          aria-hidden="true"
+        >
+          <source src="{{ url_for('static', filename='media/scorpred-loader.webm') }}" type="video/webm">
+          <source src="{{ url_for('static', filename='media/scorpred-loader.mp4') }}" type="video/mp4">
+          <img
+            src="{{ url_for('static', filename='media/scorpred-loader.gif') }}"
+            alt="Soccer player slide celebration silhouette animation"
+            loading="eager"
+            decoding="async"
+          />
+        </video>
         <div class="sp-intro-loader__fallback" aria-hidden="true">
           <span>SP</span>
         </div>

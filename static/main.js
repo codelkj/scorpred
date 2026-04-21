@@ -45,7 +45,7 @@
     }, { once: true });
   }
 
-  const delay = reducedMotion ? 120 : 1800;
+  const delay = reducedMotion ? 120 : 2600;
   if (document.readyState === 'complete') {
     removeLoader(delay);
   } else {
