@@ -279,7 +279,6 @@ def _fixture_context_from_form():
     Wrapper for fixture_context_from_form using Flask's request.form or request.args.
     """
 
-    from __future__ import annotations
 
     import importlib
     import os
