@@ -1,3 +1,5 @@
+
+from __future__ import annotations
 # ── Results Page ─────────────────────────────────────────────────────────────
 
 @app.route("/results")
@@ -70,8 +72,6 @@ def _calc_reliability_badge(pred):
         return "Medium"
     return "Low"
 """Flask application for the ScorPred football and NBA predictor."""
-
-from __future__ import annotations
 
 import importlib
 import os
