@@ -2,8 +2,8 @@ import { DecisionCard, PlanStrip, type Decision } from '../components/DecisionCa
 
 const topOpportunities: Decision[] = [
   {
-    action: 'BET',
-    pick: 'Arsenal',
+    tier: 'Best Bet',
+    side: 'Arsenal',
     confidence: 68,
     reason: 'Strong attacking form plus home edge.',
     data: 'Strong Data',
@@ -11,20 +11,20 @@ const topOpportunities: Decision[] = [
     cta: 'Analyze Match',
   },
   {
-    action: 'CONSIDER',
-    pick: 'Napoli',
-    confidence: 54,
-    reason: 'Slight edge with a few open questions.',
+    tier: 'Strong Lean',
+    side: 'Napoli',
+    confidence: 57,
+    reason: 'More stable attack metrics with a useful venue edge.',
     data: 'Partial Data',
-    support: 'Monitor team news before committing.',
+    support: 'Solid side profile, with lineup confirmation still worth tracking.',
     cta: 'View Matchup',
   },
 ];
 
 const recentResults = [
-  { match: 'Arsenal vs Bournemouth', action: 'BET', side: 'Arsenal', score: '1-2', status: 'Incorrect' },
-  { match: 'Celtics vs Heat', action: 'CONSIDER', side: 'Celtics', score: '112-108', status: 'Correct' },
-  { match: 'Burnley vs Everton', action: 'SKIP', side: 'No reliable edge', score: '0-0', status: 'Skipped' },
+  { match: 'Arsenal vs Bournemouth', tier: 'Best Bet', side: 'Arsenal', score: '1-2', status: 'Incorrect' },
+  { match: 'Celtics vs Heat', tier: 'Strong Lean', side: 'Celtics', score: '112-108', status: 'Correct' },
+  { match: 'Inter Milan vs AC Milan', tier: 'Risky', side: 'Inter Milan', score: '1-1', status: 'Push' },
 ];
 
 const quickLinks = [
@@ -41,11 +41,11 @@ export default function HomePage() {
         <p className="page-eyebrow">Decision Intelligence</p>
         <h1 className="page-title">Clear actions for matchday.</h1>
         <p className="mt-4 max-w-2xl text-slate-400">
-          ScorPred turns each slate into a simple decision: what to do, why it matters, and how trustworthy the data is.
+          ScorPred ranks every playable matchup with a side, strength tier, confidence context, and the trust signal behind it.
         </p>
       </section>
 
-      <PlanStrip bet={2} consider={5} skip={14} />
+      <PlanStrip bestBet={2} strongLean={5} lean={9} risky={4} />
 
       <section className="section">
         <div>
@@ -56,7 +56,7 @@ export default function HomePage() {
         </div>
         <div className="grid-2">
           {topOpportunities.map((decision) => (
-            <DecisionCard key={`${decision.action}-${decision.pick}`} decision={decision} featured />
+            <DecisionCard key={`${decision.tier}-${decision.side}`} decision={decision} featured />
           ))}
         </div>
       </section>
@@ -68,7 +68,7 @@ export default function HomePage() {
             <thead>
               <tr className="border-b border-white/[0.06] text-left text-xs uppercase tracking-[0.12em] text-slate-500">
                 <th className="pb-3 font-medium">Match</th>
-                <th className="pb-3 font-medium">Action</th>
+                <th className="pb-3 font-medium">Tier</th>
                 <th className="pb-3 font-medium">Side</th>
                 <th className="pb-3 font-medium">Final</th>
                 <th className="pb-3 font-medium">Status</th>
@@ -78,10 +78,10 @@ export default function HomePage() {
               {recentResults.map((row) => (
                 <tr key={row.match}>
                   <td className="py-3 text-slate-200">{row.match}</td>
-                  <td className="py-3 text-slate-400">{row.action}</td>
+                  <td className="py-3 text-slate-400">{row.tier}</td>
                   <td className="py-3 text-slate-400">{row.side}</td>
                   <td className="py-3 text-slate-400">{row.score}</td>
-                  <td className={row.status === 'Correct' ? 'py-3 text-emerald-300' : row.status === 'Skipped' ? 'py-3 text-slate-500' : 'py-3 text-rose-300'}>
+                  <td className={row.status === 'Correct' ? 'py-3 text-emerald-300' : row.status === 'Push' ? 'py-3 text-amber-300' : 'py-3 text-rose-300'}>
                     {row.status}
                   </td>
                 </tr>

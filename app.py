@@ -710,23 +710,23 @@ def _prediction_edge_state(prediction: dict[str, Any]) -> dict[str, str]:
 
     if gap < 0.35:
         return {
-            "title": "No clear advantage detected",
-            "summary": "The teams grade out almost evenly, so the model is treating this as a high-uncertainty spot.",
+            "title": "Narrow matchup profile",
+            "summary": "The side edge is playable but tight, so confidence depends more on venue, form, and lineup context.",
         }
     if play_type == "AVOID":
         return {
-            "title": "Edge too small to trust",
-            "summary": "There is a lean, but not enough separation to justify a confident decision.",
+            "title": "Volatile matchup",
+            "summary": "The matchup still has a side, but volatility is high enough to keep the strength tier conservative.",
         }
     if gap < 1.0:
         return {
-            "title": "Small edge",
+            "title": "Playable lean",
             "summary": "One side rates slightly better, but the advantage is still modest.",
         }
     if gap < 1.8:
         return {
             "title": "Clear edge",
-            "summary": "The model sees a meaningful pre-match separation between the two teams.",
+            "summary": "The pre-match profile shows meaningful separation between the two teams.",
         }
     return {
         "title": "Strong edge",
@@ -745,11 +745,11 @@ def _build_prediction_reason_tags(prediction: dict[str, Any]) -> list[str]:
 
     gap = _safe_float(prediction.get("score_gap"), 0.0)
     if gap < 0.35:
-        tags.append("No clear edge")
+        tags.append("Tight side edge")
     elif gap < 1.0:
-        tags.append("Weak edge")
+        tags.append("Modest separation")
     else:
-        tags.append("Model separation")
+        tags.append("Clear separation")
 
     draw_prob = _safe_float((prediction.get("win_probabilities") or {}).get("draw"), 0.0)
     if draw_prob >= 28.0:
@@ -800,9 +800,7 @@ def _build_prediction_explainer(prediction: dict[str, Any], *, team_a_name: str,
         "reliability_label": reliability_label,
         "reliability_note": reliability_note,
         "tags": _build_prediction_reason_tags(prediction),
-        "raw_score_note": (
-            f"Internal rating: {team_a_name} {prediction.get('team_a_score', 0)} - {prediction.get('team_b_score', 0)} {team_b_name}"
-        ),
+        "raw_score_note": "",
     }
 
 
@@ -2221,6 +2219,9 @@ def _soccer_decision_card_from_fixture(fixture: dict[str, Any]) -> dict[str, Any
         competition=league_block.get("name") or "",
         match_date=fixture_date,
         venue=payload["venue_name"],
+        team_a_logo=home.get("logo") or "",
+        team_b_logo=away.get("logo") or "",
+        league_logo=league_block.get("logo") or "",
         cta_url="/select",
         cta_label="Analyze Match",
         cta_method="post",
@@ -2241,7 +2242,7 @@ def _soccer_cards_from_fixtures(fixtures: list[dict[str, Any]]) -> list[dict[str
             cards.append(_soccer_decision_card_from_fixture(fixture))
         except Exception as exc:
             app.logger.debug("Decision card build failed for soccer fixture: %s", exc)
-    return cards
+    return dui.assign_opportunity_ranks(cards)
 
 
 def _load_grouped_upcoming_fixtures_all_leagues(
@@ -2555,131 +2556,6 @@ def _prediction_top_probability(pred: dict[str, Any]) -> float:
     )
 
 
-def _home_play_type(pred: dict[str, Any]) -> str:
-    predicted_winner = str(pred.get("predicted_winner") or "").lower()
-    if predicted_winner in {"avoid", "draw", "skip"}:
-        return "SKIP"
-
-    top_prob = _prediction_top_probability(pred)
-    if top_prob >= 62.0:
-        return "BET"
-    if top_prob >= 52.0:
-        return "CONSIDER"
-    return "SKIP"
-
-
-def _home_recommendation(pred: dict[str, Any]) -> str:
-    predicted_winner = str(pred.get("predicted_winner") or "")
-    team_a = pred.get("team_a") or "Team A"
-    team_b = pred.get("team_b") or "Team B"
-
-    if predicted_winner == "A":
-        return f"{team_a} ML"
-    if predicted_winner == "B":
-        return f"{team_b} ML"
-    if str(predicted_winner).lower() == "draw":
-        return "No reliable edge"
-    return "No clear edge"
-
-
-def _best_strategy_label(metrics: dict[str, Any]) -> str:
-    candidates: list[tuple[float, int, str]] = []
-    for key, row in (metrics.get("by_confidence") or {}).items():
-        accuracy = row.get("accuracy")
-        count = int(row.get("count") or 0)
-        if accuracy is not None and count >= 3:
-            candidates.append((float(accuracy), count, f"{key} Confidence"))
-
-    for key, row in (metrics.get("by_sport") or {}).items():
-        accuracy = row.get("accuracy")
-        count = int(row.get("count") or 0)
-        if accuracy is not None and count >= 3:
-            label = "Soccer" if key == "soccer" else "NBA" if key == "nba" else str(key).title()
-            candidates.append((float(accuracy), count, f"{label} Segment"))
-
-    if not candidates:
-        return "Awaiting sample"
-    best = max(candidates, key=lambda item: (item[0], item[1]))
-    return f"{best[2]} ({best[0]:.1f}%)"
-
-
-def _build_home_dashboard_context() -> dict[str, Any]:
-    metrics = mt.get_summary_metrics()
-    pending = mt.get_pending_predictions(limit=40)
-    completed = mt.get_completed_predictions(limit=8)
-    try:
-        walk_forward = strategy_lab_services.walk_forward_summary()
-    except Exception:
-        walk_forward = {}
-
-    conf_rank = {"High": 3, "Medium": 2, "Low": 1}
-    candidates = [
-        pred for pred in pending
-        if str(pred.get("predicted_winner") or "").lower() != "avoid"
-        and str(pred.get("confidence") or "") in {"High", "Medium"}
-        and _prediction_top_probability(pred) >= 52.0
-    ]
-
-    candidates.sort(
-        key=lambda pred: (
-            conf_rank.get(str(pred.get("confidence") or ""), 0),
-            _prediction_top_probability(pred),
-            str(pred.get("created_at") or ""),
-        ),
-        reverse=True,
-    )
-
-    top_picks = []
-    for pred in candidates[:5]:
-        confidence = str(pred.get("confidence") or "Low")
-        top_prob = _prediction_top_probability(pred)
-        top_picks.append(
-            {
-                "matchup": f"{pred.get('team_a', 'Team A')} vs {pred.get('team_b', 'Team B')}",
-                "play_type": _home_play_type(pred),
-                "recommendation": _home_recommendation(pred),
-                "confidence": confidence,
-                "confidence_display": f"{top_prob:.1f}% Â· {confidence}",
-                "sport": str(pred.get("sport") or "").upper(),
-                "game_date": pred.get("game_date") or pred.get("date"),
-            }
-        )
-
-    performance_preview = [
-        (pred.get("overall_game_result") or ("Win" if pred.get("winner_hit") else "Loss"))
-        for pred in completed[:6]
-    ]
-
-    primary_metric = _build_walk_forward_metric_summary(walk_forward)
-    live_metric = _build_live_metric_summary(
-        metrics.get("overall_accuracy"),
-        metrics.get("finalized_predictions"),
-    )
-    trust_cards = [
-        primary_metric,
-        live_metric,
-        {
-            "title": "How to trust a pick",
-            "value": "Decision first",
-            "badge": "Product guide",
-            "sample_label": "Confidence, explanation, and data reliability should agree",
-            "summary": "The cleanest spots are matches with a clear lean, a simple reason, and strong live context. Thin edges should stay as leans or avoids.",
-            "tone": "neutral",
-        },
-    ]
-
-    return {
-        "system_snapshot": {
-            "primary_metric": primary_metric,
-            "live_metric": live_metric,
-            "tracked_predictions": int(metrics.get("total_predictions") or 0),
-        },
-        "trust_cards": trust_cards,
-        "top_picks": top_picks,
-        "performance_preview": performance_preview,
-    }
-
-
 def _build_home_dashboard_context() -> dict[str, Any]:
     """Build the decision-first home payload rendered by the product UI."""
     metrics = mt.get_summary_metrics()
@@ -2723,11 +2599,11 @@ def _build_home_dashboard_context() -> dict[str, Any]:
     recent_results = [dui.normalize_result_record(item) for item in completed[:6]]
     trust_cards = [
         {
-            "title": "Decision assistant",
-            "value": f"{today_plan['BET']} BET",
+            "title": "Strength board",
+            "value": f"{today_plan['best_bet']} Best Bet",
             "badge": "Today",
-            "sample_label": "Actions, confidence, and data trust in one scan.",
-            "summary": "ScorPred points you toward clear spots and tells you when to pass.",
+            "sample_label": "Side, strength tier, confidence, and data trust in one scan.",
+            "summary": "ScorPred ranks playable matchups without erasing useful analysis.",
             "tone": "strong",
         },
         {
@@ -3126,28 +3002,6 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 
 # â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-def _map_confidence_to_action(confidence):
-    try:
-        c = float(confidence)
-        if c >= 70:
-            return "BET"
-        elif c >= 55:
-            return "CONSIDER"
-        else:
-            return "SKIP"
-    except Exception:
-        return "SKIP"
-
-
-def _calc_reliability_badge(pred):
-    comp = pred.get("data_completeness") or {}
-    if comp.get("all_data_available"):
-        return "High"
-    if comp.get("partial_data"):
-        return "Medium"
-    return "Low"
-
-
 @app.route("/results")
 def results():
     completed = mt.get_completed_predictions(limit=200)
@@ -3155,13 +3009,13 @@ def results():
     league_options = sorted({row["competition"] for row in rows if row.get("competition")})
 
     league_filter = (request.args.get("league") or "all").strip()
-    action_filter = (request.args.get("action") or "all").strip().upper()
+    tier_filter = (request.args.get("tier") or request.args.get("action") or "all").strip()
     range_filter = (request.args.get("range") or "all").strip().lower()
 
     if league_filter and league_filter != "all":
         rows = [row for row in rows if row["competition"] == league_filter]
-    if action_filter in {"BET", "CONSIDER", "SKIP"}:
-        rows = [row for row in rows if row["action"] == action_filter]
+    if tier_filter != "all":
+        rows = [row for row in rows if row["strength_tier"].lower().replace(" ", "-") == tier_filter.lower().replace(" ", "-")]
     if range_filter in {"10", "20"}:
         rows = rows[: int(range_filter)]
 
@@ -3174,7 +3028,7 @@ def results():
             summary=summary,
             breakdowns=breakdowns,
             league_filter=league_filter or "all",
-            action_filter=action_filter.lower() if action_filter != "ALL" else "all",
+            tier_filter=tier_filter.lower().replace(" ", "-") if tier_filter != "all" else "all",
             range_filter=range_filter,
             league_options=league_options,
         ),
@@ -3532,6 +3386,9 @@ def matchup():
         competition=(selected_fixture or {}).get("league_name") or (LEAGUE_BY_ID.get(league_id, {}) or {}).get("name", ""),
         match_date=(selected_fixture or {}).get("date") or "",
         venue=(selected_fixture or {}).get("venue_name") or "",
+        team_a_logo=team_a.get("logo") or (selected_fixture or {}).get("home_logo") or "",
+        team_b_logo=team_b.get("logo") or (selected_fixture or {}).get("away_logo") or "",
+        league_logo=(selected_fixture or {}).get("league_logo") or "",
         cta_url="/prediction",
         cta_label="View Matchup",
     )
@@ -4054,6 +3911,9 @@ def prediction():
         competition=(selected_fixture or {}).get("league_name") or (LEAGUE_BY_ID.get(league_id, {}) or {}).get("name", ""),
         match_date=(selected_fixture or {}).get("date") or "",
         venue=(selected_fixture or {}).get("venue_name") or "",
+        team_a_logo=team_a.get("logo") or (selected_fixture or {}).get("home_logo") or "",
+        team_b_logo=team_b.get("logo") or (selected_fixture or {}).get("away_logo") or "",
+        league_logo=(selected_fixture or {}).get("league_logo") or "",
         cta_url="/prediction",
         cta_label="View Matchup",
     )

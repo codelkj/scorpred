@@ -7,8 +7,8 @@
 {% block content %}
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">Decision intelligence for matchday</span>
-  <h1>Clear actions, honest confidence, and trust signals before you act.</h1>
-  <p>ScorPred turns the slate into a simple plan: bet the clearest edges, consider the watchlist, and skip the noise.</p>
+  <h1>Strength-tier picks, honest confidence, and trust signals before you act.</h1>
+  <p>ScorPred turns every playable slate into side recommendations ranked by Best Bet, Strong Lean, Lean, and Risky.</p>
   <div class="sp-page-actions">
     <a class="btn btn-primary" href="/soccer">Open Soccer</a>
     <a class="btn btn-secondary" href="/results">View Results</a>
@@ -31,12 +31,12 @@
     <div class="sp-results-grid">
       {% for row in recent_results %}
         <article class="sp-result-card">
-          <small>{{ row.date }} · {{ row.competition }}</small>
+          <small>{{ row.date }} &middot; {{ row.competition }}</small>
           <strong>{{ row.matchup }}</strong>
           <span>{{ row.final_score }}</span>
           <div class="sp-page-actions">
             <span class="sp-status sp-status--{{ row.result }}">{{ row.result_label }}</span>
-            <span class="sp-plan-pill sp-plan-pill--{{ row.action_class }}">{{ row.action }}</span>
+            <span class="sp-plan-pill sp-plan-pill--{{ row.strength_class }}">{{ row.strength_tier }}</span>
           </div>
         </article>
       {% endfor %}

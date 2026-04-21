@@ -1,13 +1,13 @@
 const summary = [
   { label: 'Total graded picks', value: '126' },
-  { label: 'Win rate', value: '61.9%' },
+  { label: 'Overall win rate', value: '61.9%' },
+  { label: 'Recent win rate', value: '64.0%' },
   { label: 'Correct picks', value: '78' },
   { label: 'Incorrect picks', value: '43' },
   { label: 'Pushes', value: '5' },
-  { label: 'Skips', value: '31' },
 ];
 
-const recentForm = ['W', 'W', 'L', 'P', 'W', 'S', 'W', 'L', 'W', 'W'];
+const recentForm = ['W', 'W', 'L', 'P', 'W', 'W', 'W', 'L', 'W', 'W'];
 
 const rows = [
   {
@@ -15,8 +15,9 @@ const rows = [
     competition: 'Premier League',
     match: 'Arsenal vs Bournemouth',
     score: '1-2',
-    action: 'BET',
+    tier: 'Best Bet',
     side: 'Arsenal',
+    confidence: '68%',
     status: 'Incorrect',
   },
   {
@@ -24,25 +25,28 @@ const rows = [
     competition: 'NBA',
     match: 'Celtics vs Heat',
     score: '112-108',
-    action: 'CONSIDER',
+    tier: 'Strong Lean',
     side: 'Celtics',
+    confidence: '59%',
     status: 'Correct',
   },
   {
     date: '2026-04-19',
     competition: 'Premier League',
-    match: 'Burnley vs Everton',
-    score: '0-0',
-    action: 'SKIP',
-    side: 'No reliable edge',
-    status: 'Skipped',
+    match: 'Inter Milan vs AC Milan',
+    score: '1-1',
+    tier: 'Risky',
+    side: 'Inter Milan',
+    confidence: '51%',
+    status: 'Push',
   },
 ];
 
 const breakdown = [
-  { label: 'BET win rate', value: '64.4%' },
-  { label: 'CONSIDER win rate', value: '55.8%' },
-  { label: 'SKIP usage', value: '19.7%' },
+  { label: 'Best Bet win rate', value: '64.4%' },
+  { label: 'Strong Lean win rate', value: '58.8%' },
+  { label: 'Lean win rate', value: '54.2%' },
+  { label: 'Risky win rate', value: '49.7%' },
   { label: 'Current streak', value: 'W2' },
   { label: 'Best league', value: 'Premier League' },
 ];
@@ -50,7 +54,6 @@ const breakdown = [
 function statusClass(status: string) {
   if (status === 'Correct') return 'text-emerald-300';
   if (status === 'Incorrect') return 'text-rose-300';
-  if (status === 'Skipped') return 'text-slate-500';
   return 'text-amber-300';
 }
 
@@ -78,7 +81,7 @@ export default function ResultsPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="section-label">Recent Form</p>
-            <h2 className="font-oswald text-xl uppercase tracking-[0.08em] text-white">Last 10 graded actions</h2>
+            <h2 className="font-oswald text-xl uppercase tracking-[0.08em] text-white">Last 10 graded picks</h2>
           </div>
           <div className="form-strip">
             {recentForm.map((item, index) => (
@@ -90,7 +93,7 @@ export default function ResultsPage() {
 
       <section className="card">
         <div className="mb-5 flex flex-wrap gap-3">
-          {['All leagues', 'Last 30 days', 'All actions'].map((filter) => (
+          {['All leagues', 'Last 30 days', 'All tiers'].map((filter) => (
             <button key={filter} type="button" className="rounded-full border border-white/[0.1] px-4 py-2 text-sm text-slate-300">
               {filter}
             </button>
@@ -104,8 +107,9 @@ export default function ResultsPage() {
                 <th className="pb-3 font-medium">Competition</th>
                 <th className="pb-3 font-medium">Match</th>
                 <th className="pb-3 font-medium">Final score</th>
-                <th className="pb-3 font-medium">Action</th>
+                <th className="pb-3 font-medium">Tier</th>
                 <th className="pb-3 font-medium">Side</th>
+                <th className="pb-3 font-medium">Confidence</th>
                 <th className="pb-3 font-medium">Status</th>
               </tr>
             </thead>
@@ -116,8 +120,9 @@ export default function ResultsPage() {
                   <td className="py-3 text-slate-400">{row.competition}</td>
                   <td className="py-3 text-slate-200">{row.match}</td>
                   <td className="py-3 text-slate-400">{row.score}</td>
-                  <td className="py-3 text-slate-300">{row.action}</td>
+                  <td className="py-3 text-slate-300">{row.tier}</td>
                   <td className="py-3 text-slate-400">{row.side}</td>
+                  <td className="py-3 text-slate-400">{row.confidence}</td>
                   <td className={`py-3 font-semibold ${statusClass(row.status)}`}>{row.status}</td>
                 </tr>
               ))}

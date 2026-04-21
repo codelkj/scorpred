@@ -9,7 +9,7 @@
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">NBA</span>
   <h1>{{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}</h1>
-  <p>A focused decision card first, with supporting context kept secondary.</p>
+  <p>A richer read on the recommended side, strength tier, confidence, matchup support, and data quality.</p>
 </section>
 
 {% if error %}
@@ -30,10 +30,17 @@
             {% for tag in explainer.tags or [] %}
               <li>{{ tag }}</li>
             {% endfor %}
-            {% if card.action == 'SKIP' %}
-              <li>No reliable edge is stronger than forcing a play.</li>
+            {% if card.data_confidence.state == 'limited' %}
+              <li>Limited data lowers the strength tier while keeping the game analyzable.</li>
             {% endif %}
           </ul>
+        </div>
+      </section>
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2>Visual Read</h2>
+          {{ ui.probability_bar(card) }}
+          {{ ui.comparison_bars(card.comparison_metrics) }}
         </div>
       </section>
 
@@ -42,7 +49,7 @@
         <div class="sp-section__header">
           <div>
             <h2>Related Markets</h2>
-            <p>Secondary context only. The main action remains the decision card above.</p>
+            <p>Secondary context only. The strength-tier side remains the main recommendation above.</p>
           </div>
         </div>
         <div class="sp-card-grid">
@@ -60,7 +67,7 @@
 
     <aside class="sp-info-card">
       <h2>Trust Check</h2>
-      {{ ui.data_badge(card.data_badge) }}
+      {{ ui.data_badge(card.data_confidence) }}
       <p class="sp-muted" style="margin-top:.75rem">{{ (scorpred.data_completeness or {}).summary or card.support_text }}</p>
       <ul class="sp-why-list">
         <li>{{ team_a.nickname or team_a.name }} recent form: {{ form_a|length }} games</li>

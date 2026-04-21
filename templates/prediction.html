@@ -9,7 +9,7 @@
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">{{ selected_fixture.league_name or current_league.name if current_league else 'Soccer' }}</span>
   <h1>{{ team_a.name }} vs {{ team_b.name }}</h1>
-  <p>A focused breakdown of the recommended action, the reason behind it, and the strength of the available data.</p>
+  <p>A richer read on the recommended side, strength tier, confidence, matchup support, and data quality.</p>
 </section>
 
 {% if card %}
@@ -26,17 +26,27 @@
             {% for tag in explainer.tags or [] %}
               <li>{{ tag }}</li>
             {% endfor %}
-            {% if card.data_badge.state == 'limited' %}
-              <li>Limited data warning: wait for stronger context before acting.</li>
+            {% if card.draw_risk %}
+              <li>Draw pressure is part of the risk profile, but the side still grades ahead.</li>
+            {% endif %}
+            {% if card.data_confidence.state == 'limited' %}
+              <li>Limited data lowers the strength tier while keeping the matchup analyzable.</li>
             {% endif %}
           </ul>
+        </div>
+      </section>
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2>Visual Read</h2>
+          {{ ui.probability_bar(card) }}
+          {{ ui.comparison_bars(card.comparison_metrics) }}
         </div>
       </section>
     </div>
 
     <aside class="sp-info-card">
       <h2>Trust Check</h2>
-      {{ ui.data_badge(card.data_badge) }}
+      {{ ui.data_badge(card.data_confidence) }}
       <p class="sp-muted" style="margin-top:.75rem">{{ (scorpred.data_completeness or {}).summary or card.support_text }}</p>
       {% if selected_fixture %}
         <div class="sp-why-list">
@@ -45,6 +55,7 @@
           {% if selected_fixture.round %}<li>{{ selected_fixture.round }}</li>{% endif %}
         </div>
       {% endif %}
+      {{ ui.form_strip(card.form_strip) }}
       <div class="sp-page-actions" style="margin-top:1rem">
         <a class="btn btn-secondary btn-sm" href="/soccer">Back to Soccer</a>
         <a class="btn btn-secondary btn-sm" href="/results">Results</a>

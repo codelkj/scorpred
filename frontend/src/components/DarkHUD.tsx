@@ -3,9 +3,9 @@ import HudCorners from './HudCorners';
 import { Hexagon } from 'lucide-react';
 
 const TICKER_ITEMS = [
-  'BET - Arsenal - 68% - Strong Data',
-  'CONSIDER - Celtics - 56% - Partial Data',
-  'SKIP - No reliable edge - Limited Data',
+  'Best Bet - Arsenal - 68% - Strong Data',
+  'Strong Lean - Celtics - 59% - Partial Data',
+  'Risky - Inter Milan - 51% - Limited Data',
   'Results tracking updated after final scores',
 ];
 
@@ -60,17 +60,17 @@ export default function DarkHUD() {
             <span className="block text-emerald-300">and can I trust it?</span>
           </h1>
           <p className="max-w-xl text-base leading-7 text-slate-400">
-            ScorPred turns noisy matchday data into clean actions, confidence, reasons, and accountable results.
+            ScorPred turns noisy matchday data into ranked sides, confidence context, richer reasoning, and accountable results.
           </p>
           <div className="flex flex-wrap gap-4">
             <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-5 py-2 text-sm font-semibold text-emerald-200">
-              BET
+              Best Bet
             </span>
             <span className="rounded-full border border-amber-400/25 bg-amber-400/10 px-5 py-2 text-sm font-semibold text-amber-200">
-              CONSIDER
+              Strong Lean
             </span>
             <span className="rounded-full border border-slate-500/30 bg-slate-500/10 px-5 py-2 text-sm font-semibold text-slate-300">
-              SKIP
+              Risky
             </span>
           </div>
         </div>
@@ -83,7 +83,7 @@ export default function DarkHUD() {
           <div className="relative rounded-2xl border border-emerald-400/20 bg-black/35 p-6 backdrop-blur-sm">
             <HudCorners />
             <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Top opportunity</p>
-            <h2 className="mt-4 font-oswald text-4xl uppercase tracking-[0.08em] text-white">BET - Arsenal</h2>
+            <h2 className="mt-4 font-oswald text-4xl uppercase tracking-[0.08em] text-white">Best Bet - Arsenal</h2>
             <div className="mt-6">
               <div className="mb-2 flex justify-between text-sm text-slate-400">
                 <span>Confidence</span>

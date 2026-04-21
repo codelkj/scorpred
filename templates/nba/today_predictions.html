@@ -7,8 +7,8 @@
 {% block content %}
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">NBA decision plan</span>
-  <h1>Today's NBA slate, sorted by actionable edge.</h1>
-  <p>The strongest opportunities appear first. Limited-trust or thin matchups stay as skips.</p>
+  <h1>Today's NBA slate, ranked by playable edge.</h1>
+  <p>The strongest opportunities appear first, with every normal game receiving a side and strength tier.</p>
 </section>
 
 {{ ui.plan_strip(today_plan) }}
@@ -30,7 +30,7 @@
       {% endfor %}
     </div>
   {% else %}
-    {{ ui.empty_state('No NBA opportunities today', load_error or 'The slate is empty or most games are thin-edge.') }}
+    {{ ui.empty_state('No NBA slate available', load_error or 'ScorPred needs baseline game data before ranking this slate.') }}
   {% endif %}
 </section>
 
@@ -46,7 +46,7 @@
   <div class="sp-results-grid">
     {% for p in yesterday_results[:6] %}
       <article class="sp-result-card">
-        <small>{{ p.date }} · NBA</small>
+        <small>{{ p.date }} &middot; NBA</small>
         <strong>{{ p.team_a }} vs {{ p.team_b }}</strong>
         <span>{{ p.final_score_display or 'Final pending' }}</span>
         <span class="sp-status sp-status--{{ 'correct' if p.is_correct else 'incorrect' }}">{{ 'Correct' if p.is_correct else 'Incorrect' }}</span>

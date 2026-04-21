@@ -9,7 +9,7 @@
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">NBA matchup</span>
   <h1>{{ team_a.nickname or team_a.name }} vs {{ team_b.nickname or team_b.name }}</h1>
-  <p>Decision first, with form and availability context underneath.</p>
+  <p>Recommended side first, with form and availability context underneath.</p>
 </section>
 
 {% if card %}
@@ -29,14 +29,24 @@
             {% if h2h_summary.summary %}
               <li>{{ h2h_summary.summary }}</li>
             {% endif %}
+            {% if card.data_confidence.state == 'limited' %}
+              <li>Limited data lowers the tier while the side remains analyzable.</li>
+            {% endif %}
           </ul>
+        </div>
+      </section>
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2>Visual Read</h2>
+          {{ ui.probability_bar(card) }}
+          {{ ui.comparison_bars(card.comparison_metrics) }}
         </div>
       </section>
     </div>
 
     <aside class="sp-info-card">
       <h2>Data Confidence</h2>
-      {{ ui.data_badge(card.data_badge) }}
+      {{ ui.data_badge(card.data_confidence) }}
       <p class="sp-muted" style="margin-top:.75rem">{{ (scorpred.data_completeness or {}).summary or card.support_text }}</p>
       <ul class="sp-why-list">
         <li>{{ team_a.nickname or team_a.name }} recent form: {{ form_a|length }} games</li>

@@ -2,8 +2,8 @@ import { DecisionCard, PlanStrip, type Decision } from '../components/DecisionCa
 
 const games: Decision[] = [
   {
-    action: 'BET',
-    pick: 'Knicks',
+    tier: 'Best Bet',
+    side: 'Knicks',
     confidence: 64,
     reason: 'Home shot profile and recent defensive form create a clear edge.',
     data: 'Strong Data',
@@ -11,19 +11,19 @@ const games: Decision[] = [
     cta: 'Analyze Match',
   },
   {
-    action: 'CONSIDER',
-    pick: 'Celtics',
-    confidence: 56,
-    reason: 'Slight side edge, but spread value is thin.',
+    tier: 'Strong Lean',
+    side: 'Celtics',
+    confidence: 59,
+    reason: 'More stable two-way form with a cleaner late-game profile.',
     data: 'Partial Data',
     support: 'NBA | Lakers vs Celtics',
     cta: 'View Matchup',
   },
   {
-    action: 'SKIP',
-    pick: 'No reliable edge',
-    confidence: 48,
-    reason: 'Rotation uncertainty makes the matchup too fragile.',
+    tier: 'Risky',
+    side: 'Suns',
+    confidence: 52,
+    reason: 'Higher offensive upside, but rotation uncertainty keeps volatility live.',
     data: 'Limited Data',
     support: 'NBA | Suns vs Clippers',
     cta: 'View Matchup',
@@ -37,11 +37,11 @@ export default function NBAPage() {
         <p className="page-eyebrow">NBA</p>
         <h1 className="page-title">Tonight&apos;s NBA Plan</h1>
         <p className="mt-4 max-w-2xl text-slate-400">
-          The same decision-first workflow: action, side, confidence, reason, and trust signal.
+          The same strength-tier workflow: side, confidence, reason, and trust signal.
         </p>
       </section>
 
-      <PlanStrip bet={1} consider={1} skip={1} />
+      <PlanStrip bestBet={1} strongLean={1} lean={0} risky={1} />
 
       <section className="section">
         <div>
@@ -50,7 +50,7 @@ export default function NBAPage() {
         </div>
         <div className="grid-2">
           {games.slice(0, 2).map((decision) => (
-            <DecisionCard key={decision.pick} decision={decision} featured={decision.action === 'BET'} />
+            <DecisionCard key={decision.side} decision={decision} featured={decision.tier === 'Best Bet'} />
           ))}
         </div>
       </section>
@@ -59,7 +59,7 @@ export default function NBAPage() {
         <p className="section-label">Full Slate</p>
         <div className="grid-2">
           {games.map((decision) => (
-            <DecisionCard key={`${decision.action}-${decision.pick}`} decision={decision} />
+            <DecisionCard key={`${decision.tier}-${decision.side}`} decision={decision} />
           ))}
         </div>
       </section>

@@ -597,6 +597,8 @@ def _build_upcoming_prediction_card(game: dict, team_map: dict[str, dict], nba_o
         data_completeness=data_completeness,
         team_a_name=home_team.get("nickname") or home_team["name"],
         team_b_name=away_team.get("nickname") or away_team["name"],
+        team_a_logo=home_team.get("logo") or "",
+        team_b_logo=away_team.get("logo") or "",
     )
     if prediction.get("decision_card"):
         prediction["decision_card"].update(
@@ -723,18 +725,18 @@ def _nba_prediction_edge_state(prediction: dict) -> dict[str, str]:
 
     if gap < 4:
         return {
-            "title": "No clear advantage detected",
-            "summary": "The teams project closely enough that the safer read is to treat this as a high-uncertainty matchup.",
+            "title": "Narrow matchup profile",
+            "summary": "The side edge is playable but tight, so confidence depends more on form, rest, and rotation context.",
         }
     if gap < 8:
         return {
-            "title": "Small edge",
+            "title": "Playable lean",
             "summary": "One side grades better, but the separation is still modest.",
         }
     if gap < 14:
         return {
             "title": "Clear edge",
-            "summary": "The model sees a meaningful pre-game gap between the two teams.",
+            "summary": "The pre-game profile shows meaningful separation between the two teams.",
         }
     return {
         "title": "Strong edge",
@@ -790,10 +792,7 @@ def _build_nba_prediction_explainer(
         "reliability_label": data_completeness.get("label") or "Match context",
         "reliability_note": data_completeness.get("summary") or "The prediction is using the available pre-game context.",
         "tags": _nba_reason_tags(prediction, data_completeness),
-        "raw_score_note": (
-            f"Internal rating: {team_a_name} {prediction.get('team_a_score', 0)} - "
-            f"{prediction.get('team_b_score', 0)} {team_b_name}"
-        ),
+        "raw_score_note": "",
     }
 
 
@@ -803,26 +802,11 @@ def _apply_nba_product_presentation(
     data_completeness: dict,
     team_a_name: str,
     team_b_name: str,
+    team_a_logo: str = "",
+    team_b_logo: str = "",
 ) -> dict:
     if not isinstance(prediction, dict):
         return prediction
-
-    best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
-    confidence = str(best_pick.get("confidence") or "")
-    win_probs = prediction.get("win_probabilities") or {}
-    prob_a = float(win_probs.get("a", 50.0) or 50.0)
-    prob_b = float(win_probs.get("b", 50.0) or 50.0)
-    prob_gap = abs(prob_a - prob_b)
-
-    if data_completeness.get("tier") == "limited" or confidence in {"Low", "Limited Data"} or prob_gap < 4:
-        play_type = "SKIP"
-        risk_label = "Elevated"
-    elif confidence == "High" and prob_gap >= 14:
-        play_type = "BET"
-        risk_label = "Controlled"
-    else:
-        play_type = "CONSIDER"
-        risk_label = "Balanced"
 
     prediction["data_completeness"] = data_completeness
     decision_card = dui.build_decision_card(
@@ -831,10 +815,19 @@ def _apply_nba_product_presentation(
         team_b=team_b_name,
         prediction=prediction,
         competition="NBA",
+        team_a_logo=team_a_logo,
+        team_b_logo=team_b_logo,
         cta_url="/nba/prediction",
         cta_label="View Matchup",
     )
-    prediction["play_type"] = decision_card["action"]
+    tier = decision_card.get("strength_tier") or "Risky"
+    if tier in {"Best Bet", "Strong Lean"}:
+        risk_label = "Controlled"
+    elif tier == "Lean":
+        risk_label = "Balanced"
+    else:
+        risk_label = "Elevated"
+    prediction["play_type"] = tier
     prediction["confidence_pct"] = decision_card["confidence_pct"]
     prediction["risk_label"] = risk_label
     prediction["data_completeness"] = data_completeness
@@ -1200,6 +1193,7 @@ def _index_inner():
         for game in upcoming_games_with_predictions
         if (game.get("prediction") or {}).get("decision_card")
     ]
+    dui.assign_opportunity_ranks(decision_cards)
 
     return render_template(
         "nba/index.html",
@@ -1487,6 +1481,8 @@ def _matchup_inner():
             data_completeness=data_completeness,
             team_a_name=team_a.get("nickname") or team_a["name"],
             team_b_name=team_b.get("nickname") or team_b["name"],
+            team_a_logo=team_a.get("logo") or "",
+            team_b_logo=team_b.get("logo") or "",
         )
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
@@ -1826,6 +1822,8 @@ def _prediction_inner():
             data_completeness=data_completeness,
             team_a_name=team_a.get("nickname") or team_a["name"],
             team_b_name=team_b.get("nickname") or team_b["name"],
+            team_a_logo=team_a.get("logo") or "",
+            team_b_logo=team_b.get("logo") or "",
         )
 
     # Track this prediction
@@ -2008,6 +2006,8 @@ def _build_today_prediction_card(
         data_completeness=data_completeness,
         team_a_name=home_team.get("nickname") or home_team.get("name") or "Home",
         team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
+        team_a_logo=home_team.get("logo") or "",
+        team_b_logo=away_team.get("logo") or "",
     )
     if prediction.get("decision_card"):
         prediction["decision_card"].update(
@@ -2146,11 +2146,10 @@ def _today_predictions_inner():
         len(predictions_for_games), len(today_games),
     )
 
-    # Sort by action strength, then displayed confidence.
-    action_order = {"BET": 0, "CONSIDER": 1, "SKIP": 2}
+    # Sort by strength tier, then displayed confidence.
     predictions_for_games.sort(
         key=lambda x: (
-            action_order.get(((x.get("decision_card") or {}).get("action") or "SKIP"), 3),
+            dui.TIER_ORDER.get(((x.get("decision_card") or {}).get("strength_tier") or "No Pick"), 5),
             -float(((x.get("decision_card") or {}).get("confidence_pct") or 0)),
         )
     )
@@ -2171,6 +2170,7 @@ def _today_predictions_inner():
         yesterday_results = []
 
     decision_cards = [item.get("decision_card") for item in predictions_for_games if item.get("decision_card")]
+    dui.assign_opportunity_ranks(decision_cards)
 
     return render_template(
         "nba/today_predictions.html",

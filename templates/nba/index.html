@@ -7,7 +7,7 @@
 {% block content %}
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">NBA decision workspace</span>
-  <h1>NBA slate, same action-first ScorPred system.</h1>
+  <h1>NBA slate, ranked by strength and trust.</h1>
   <p>Review the plan, scan top opportunities, then open a focused matchup when a game deserves more context.</p>
   <div class="sp-page-actions">
     <a class="btn btn-primary" href="{{ url_for('nba.today_predictions') }}">Today's NBA Plan</a>
@@ -26,7 +26,7 @@
   <div class="sp-section__header">
     <div>
       <h2>Full Slate</h2>
-      <p>Upcoming games with action, confidence, reason, and data confidence.</p>
+      <p>Upcoming games with side, strength tier, confidence, reason, and data confidence.</p>
     </div>
   </div>
 
@@ -40,7 +40,7 @@
       {% endfor %}
     </div>
   {% else %}
-    {{ ui.empty_state('No NBA opportunities today', load_error or 'The current NBA slate is empty or thin-edge.') }}
+    {{ ui.empty_state('No NBA slate available', load_error or 'ScorPred needs baseline game data before ranking opportunities.') }}
   {% endif %}
 </section>
 

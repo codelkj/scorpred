@@ -1,8 +1,8 @@
 import { DataBadge, DecisionCard, type Decision } from '../components/DecisionCard';
 
 const decision: Decision = {
-  action: 'BET',
-  pick: 'Arsenal',
+  tier: 'Best Bet',
+  side: 'Arsenal',
   confidence: 68,
   reason: 'Strong attacking form plus home advantage.',
   data: 'Strong Data',
@@ -55,6 +55,24 @@ export default function MatchAnalysisPage() {
             Recent form, venue context, and side-level matchup data all support the same direction.
           </p>
           <div className="mt-5 space-y-3">
+            <div>
+              <div className="mb-2 flex justify-between text-xs uppercase tracking-[0.12em] text-slate-500">
+                <span>Win probability</span>
+                <span>68%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                <div className="h-full rounded-full bg-emerald-300" style={{ width: '68%' }} />
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 flex justify-between text-xs uppercase tracking-[0.12em] text-slate-500">
+                <span>Attack edge</span>
+                <span>72 / 100</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                <div className="h-full rounded-full bg-cyan-300" style={{ width: '72%' }} />
+              </div>
+            </div>
             {context.map((item) => (
               <div key={item.label} className="flex justify-between gap-4 border-b border-white/[0.05] pb-3 text-sm">
                 <span className="text-slate-500">{item.label}</span>

@@ -2103,7 +2103,7 @@ class TestNbaFailureHandling:
             rv = client.get("/nba/")
 
         assert rv.status_code == 200
-        assert b"BET" in rv.data
+        assert b"Best Bet" in rv.data
         assert b"Celtics" in rv.data
         assert b"Game tied" not in rv.data
 

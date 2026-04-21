@@ -9,7 +9,7 @@
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">{{ selected_fixture.league_name or 'Soccer' }}</span>
   <h1>{{ team_a.name }} vs {{ team_b.name }}</h1>
-  <p>The matchup view keeps the decision first, then shows the context behind the call.</p>
+  <p>The matchup view keeps the recommended side first, then shows the context behind the strength tier.</p>
 </section>
 
 {% if card %}
@@ -29,17 +29,27 @@
             {% if h2h_rec %}
               <li>Recent head-to-head context is included where available.</li>
             {% endif %}
-            {% if card.action == 'SKIP' %}
-              <li>No reliable edge is stronger than forcing a play.</li>
+            {% if card.draw_risk %}
+              <li>Draw pressure keeps the tier honest while still leaving the side playable.</li>
+            {% endif %}
+            {% if card.data_confidence.state == 'limited' %}
+              <li>Limited data lowers the tier, not the ability to analyze the match.</li>
             {% endif %}
           </ul>
+        </div>
+      </section>
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2>Visual Read</h2>
+          {{ ui.probability_bar(card) }}
+          {{ ui.comparison_bars(card.comparison_metrics) }}
         </div>
       </section>
     </div>
 
     <aside class="sp-info-card">
       <h2>Data Confidence</h2>
-      {{ ui.data_badge(card.data_badge) }}
+      {{ ui.data_badge(card.data_confidence) }}
       <p class="sp-muted" style="margin-top:.75rem">{{ (scorpred.data_completeness or {}).summary or card.support_text }}</p>
 
       <div class="sp-why-list">
@@ -47,6 +57,7 @@
         <li>{{ team_b.name }} recent form: {{ form_b|length }} matches</li>
         <li>Head-to-head sample: {{ h2h|length if h2h else 0 }} matches</li>
       </div>
+      {{ ui.form_strip(card.form_strip) }}
 
       <div class="sp-page-actions" style="margin-top:1rem">
         <a class="btn btn-primary btn-sm" href="/prediction">Full Analysis</a>

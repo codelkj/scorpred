@@ -16,8 +16,8 @@
 {% block content %}
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">Soccer decision plan</span>
-  <h1>Today's soccer predictions, sorted by action.</h1>
-  <p>Start with the strongest opportunities. If the edge is thin, ScorPred says so.</p>
+  <h1>Today's soccer predictions, ranked by playable edge.</h1>
+  <p>Start with the strongest opportunities, then scan the rest by strength tier and confidence.</p>
 </section>
 
 {{ ui.plan_strip(today_plan) }}
@@ -38,7 +38,7 @@
         {% endfor %}
       </div>
     {% else %}
-      {{ ui.empty_state('No strong data for this competition', 'Most matches are thin-edge or unavailable right now.') }}
+      {{ ui.empty_state('No baseline data for this competition', 'ScorPred needs usable fixture data before ranking this group.') }}
     {% endif %}
   </section>
 {% endfor %}

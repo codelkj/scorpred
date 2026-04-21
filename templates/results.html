@@ -11,11 +11,12 @@
         <option value="{{ league }}" {% if league_filter == league %}selected{% endif %}>{{ league }}</option>
       {% endfor %}
     </select>
-    <select class="sp-filter-control" name="action" aria-label="Action">
-      <option value="all" {% if action_filter == 'all' %}selected{% endif %}>All actions</option>
-      <option value="bet" {% if action_filter == 'bet' %}selected{% endif %}>BET</option>
-      <option value="consider" {% if action_filter == 'consider' %}selected{% endif %}>CONSIDER</option>
-      <option value="skip" {% if action_filter == 'skip' %}selected{% endif %}>SKIP</option>
+    <select class="sp-filter-control" name="tier" aria-label="Strength tier">
+      <option value="all" {% if tier_filter == 'all' %}selected{% endif %}>All tiers</option>
+      <option value="best-bet" {% if tier_filter == 'best-bet' %}selected{% endif %}>Best Bet</option>
+      <option value="strong-lean" {% if tier_filter == 'strong-lean' %}selected{% endif %}>Strong Lean</option>
+      <option value="lean" {% if tier_filter == 'lean' %}selected{% endif %}>Lean</option>
+      <option value="risky" {% if tier_filter == 'risky' %}selected{% endif %}>Risky</option>
     </select>
     <select class="sp-filter-control" name="range" aria-label="Range">
       <option value="all" {% if range_filter == 'all' %}selected{% endif %}>All time</option>
@@ -30,17 +31,29 @@
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">Accountability</span>
   <h1>Results that make every decision easy to verify.</h1>
-  <p>Track the action ScorPred recommended, the side, the final score, and whether the pick was correct.</p>
+  <p>Track the strength tier, recommended side, final score, and whether the pick was correct.</p>
 </section>
 
 <section class="sp-section">
   <div class="sp-card-grid">
     <article class="sp-info-card"><small>Total graded picks</small><strong>{{ summary.total_graded }}</strong></article>
-    <article class="sp-info-card"><small>Win rate</small><strong>{{ summary.win_rate }}%</strong></article>
+    <article class="sp-info-card"><small>Overall win rate</small><strong>{{ summary.win_rate }}%</strong></article>
+    <article class="sp-info-card"><small>Recent win rate</small><strong>{{ summary.recent_win_rate }}%</strong></article>
     <article class="sp-info-card"><small>Correct picks</small><strong>{{ summary.correct }}</strong></article>
     <article class="sp-info-card"><small>Incorrect picks</small><strong>{{ summary.incorrect }}</strong></article>
     <article class="sp-info-card"><small>Pushes</small><strong>{{ summary.pushes }}</strong></article>
-    <article class="sp-info-card"><small>Skips</small><strong>{{ summary.skips }}</strong></article>
+  </div>
+</section>
+
+<section class="sp-section">
+  <div class="sp-breakdown-grid">
+    {% for sport, item in summary.by_sport.items() %}
+      <article class="sp-breakdown-card">
+        <small>{{ sport|upper }} breakdown</small>
+        <strong>{{ item.win_rate }}%</strong>
+        <span>{{ item.count }} graded picks</span>
+      </article>
+    {% endfor %}
   </div>
 </section>
 
@@ -65,25 +78,50 @@
 
 <section class="sp-section">
   <div class="sp-breakdown-grid">
-    <article class="sp-breakdown-card">
-      <small>BET win rate</small>
-      {% set bet = breakdowns.actions | selectattr('name', 'equalto', 'BET') | list | first %}
-      <strong>{{ bet.win_rate if bet else 0 }}%</strong>
-      <span>{{ bet.count if bet else 0 }} decisions</span>
-    </article>
-    <article class="sp-breakdown-card">
-      <small>CONSIDER win rate</small>
-      {% set consider = breakdowns.actions | selectattr('name', 'equalto', 'CONSIDER') | list | first %}
-      <strong>{{ consider.win_rate if consider else 0 }}%</strong>
-      <span>{{ consider.count if consider else 0 }} decisions</span>
-    </article>
-    <article class="sp-breakdown-card">
-      <small>SKIP usage</small>
-      {% set skip = breakdowns.actions | selectattr('name', 'equalto', 'SKIP') | list | first %}
-      <strong>{{ skip.usage if skip else 0 }}</strong>
-      <span>thin-edge matches avoided</span>
-    </article>
+    {% for tier in breakdowns.tiers %}
+      <article class="sp-breakdown-card">
+        <small>{{ tier.name }} win rate</small>
+        <strong>{{ tier.win_rate }}%</strong>
+        <span>{{ tier.count }} graded picks</span>
+      </article>
+    {% endfor %}
   </div>
+</section>
+
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Recent Soccer Outcomes</h2>
+      <p>Previous tracked soccer picks, sorted most recent first.</p>
+    </div>
+  </div>
+  {% if breakdowns.recent_soccer %}
+    <div class="sp-result-list">
+      {% for row in breakdowns.recent_soccer %}
+        {{ ui.result_row(row) }}
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('No recent soccer results yet', 'Completed soccer picks will appear here after grading.') }}
+  {% endif %}
+</section>
+
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>Recent NBA Outcomes</h2>
+      <p>Previous tracked NBA picks, sorted most recent first.</p>
+    </div>
+  </div>
+  {% if breakdowns.recent_nba %}
+    <div class="sp-result-list">
+      {% for row in breakdowns.recent_nba %}
+        {{ ui.result_row(row) }}
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('No recent NBA results yet', 'Completed NBA picks will appear here after grading.') }}
+  {% endif %}
 </section>
 
 <section class="sp-section">
@@ -103,8 +141,9 @@
             <th>Competition</th>
             <th>Match</th>
             <th>Final</th>
-            <th>Action</th>
+            <th>Tier</th>
             <th>Side</th>
+            <th>Confidence</th>
             <th>Result</th>
           </tr>
         </thead>
@@ -115,8 +154,9 @@
             <td>{{ row.competition }}</td>
             <td>{{ row.matchup }}</td>
             <td>{{ row.final_score }}</td>
-            <td><span class="sp-plan-pill sp-plan-pill--{{ row.action_class }}">{{ row.action }}</span></td>
-            <td>{{ row.predicted_side }}</td>
+            <td><span class="sp-plan-pill sp-plan-pill--{{ row.strength_class }}">{{ row.strength_tier }}</span></td>
+            <td>{{ row.recommended_side }}</td>
+            <td>{{ row.confidence_pct }}%</td>
             <td><span class="sp-status sp-status--{{ row.result }}">{{ row.result_label }}</span></td>
           </tr>
           {% endfor %}
@@ -124,7 +164,7 @@
       </table>
     </div>
   {% else %}
-    {{ ui.empty_state('No results match these filters', 'Try a broader league, action, or time range.') }}
+    {{ ui.empty_state('No results match these filters', 'Try a broader league, tier, or time range.') }}
   {% endif %}
 </section>
 
