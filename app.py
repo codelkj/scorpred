@@ -1,82 +1,6 @@
-
+"""Flask application for the ScorPred football and NBA predictor."""
 
 from __future__ import annotations
-# ...existing code...
-"""Flask application for the ScorPred football and NBA predictor."""
-######################################################################
-# Place all route decorators and helpers AFTER app initialization
-######################################################################
-
-# ── Results Page ─────────────────────────────────────────────────────────────
-@app.route("/results")
-def results():
-    # Fetch completed predictions
-    completed = mt.get_completed_predictions(limit=100)
-    results = []
-    win_count = 0
-    total_bets = 0
-    profit_loss = 0.0
-    reliability_score = 0
-    for pred in completed:
-        # Action: BET/CONSIDER/SKIP
-        action = pred.get("action_label") or _map_confidence_to_action(pred.get("confidence"))
-        confidence = float(pred.get("confidence_pct") or pred.get("confidence") or 0)
-        result = "Win" if pred.get("is_correct") else "Loss"
-        if result == "Win":
-            win_count += 1
-            profit_loss += 1  # Assume +1 unit for win
-        else:
-            profit_loss -= 1  # Assume -1 unit for loss
-        total_bets += 1
-        reliability = pred.get("reliability_badge") or _calc_reliability_badge(pred)
-        reliability_score += 1 if reliability == "High" else 0.5 if reliability == "Medium" else 0
-        results.append({
-            "date": _format_prediction_date(pred.get("game_date") or pred.get("date")),
-            "matchup": f"{pred.get('team_a', 'A')} vs {pred.get('team_b', 'B')}",
-            "pick": pred.get("predicted_pick_label") or pred.get("predicted_winner"),
-            "action": action,
-            "confidence": int(confidence),
-            "result": result,
-            "reasoning": pred.get("reasoning") or pred.get("decision_explainer") or "",
-            "reliability": reliability,
-        })
-    win_pct = round((win_count / total_bets) * 100, 1) if total_bets else 0
-    avg_reliability = reliability_score / total_bets if total_bets else 0
-    reliability_label = "High" if avg_reliability > 0.75 else "Medium" if avg_reliability > 0.4 else "Low"
-    summary = {
-        "total_bets": total_bets,
-        "win_pct": win_pct,
-        "profit_loss": f"{profit_loss:+.0f}",
-        "reliability": reliability_label,
-    }
-    return render_template(
-        "results.html",
-        results=results,
-        summary=summary,
-    )
-
-# Helper: Map confidence to action
-def _map_confidence_to_action(confidence):
-    try:
-        c = float(confidence)
-        if c >= 70:
-            return "BET"
-        elif c >= 55:
-            return "CONSIDER"
-        else:
-            return "SKIP"
-    except Exception:
-        return "SKIP"
-
-# Helper: Calculate reliability badge
-def _calc_reliability_badge(pred):
-    # Simple: use data_completeness or fallback to confidence
-    comp = pred.get("data_completeness") or {}
-    if comp.get("all_data_available"):
-        return "High"
-    if comp.get("partial_data"):
-        return "Medium"
-    return "Low"
 
 import importlib
 import os
@@ -283,107 +207,55 @@ def _fixture_context_from_form():
     """
     Wrapper for fixture_context_from_form using Flask's request.form or request.args.
     """
+    from flask import request
+    # Prefer form data, fallback to args
+    form_data = request.form if request.method == "POST" else request.args
+    return fixture_context_from_form(form_data)
+def _summarize_form_compare(form_compare: dict, actual_winner: str | None = None) -> str | None:
+    """
+    Summarize recent form comparison for both teams, optionally referencing the actual winner.
+    """
+    if not form_compare or not isinstance(form_compare, dict):
+        return None
+    segments = []
+    for team, stats in (form_compare or {}).items():
+        if not stats:
+            continue
+        wins = stats.get("wins")
+        losses = stats.get("losses")
+        avg_for = stats.get("avg_goals_for") or stats.get("avg_points_for")
+        avg_against = stats.get("avg_goals_against") or stats.get("avg_points_against")
+        seg = f"{team}: {wins}W-{losses}L"
+        if avg_for is not None and avg_against is not None:
+            seg += f" ({avg_for} for, {avg_against} against)"
+        segments.append(seg)
+    if not segments:
+        return None
+    joined = "; ".join(segments)
+    if actual_winner and actual_winner != "Unknown":
+        return f"Recent form: {joined}. {actual_winner} had the edge in recent results." if actual_winner in form_compare else f"Recent form: {joined}."
+    return f"Recent form: {joined}."
 
 
-    import importlib
-    import os
-
-    import re
-    import unicodedata
-    from concurrent.futures import ThreadPoolExecutor
-    from datetime import date, datetime, timedelta, timezone
-    from typing import Any, Callable
-    from urllib.parse import urlparse
-
-    try:
-        from dotenv import load_dotenv
-    except ImportError:  # pragma: no cover
-        def load_dotenv(*_args, **_kwargs):
-            return False
-    from flask import Flask, jsonify, redirect, render_template, request, session, url_for, g
-    from werkzeug.middleware.proxy_fix import ProxyFix
+def _reality_sentence(record: dict) -> str:
+    """
+    Generate a short sentence summarizing the actual result for a prediction record.
+    """
+    actual_winner = record.get("actual_winner") or "Unknown"
+    final_score = record.get("final_score_display") or "Unknown"
+    total_scored = record.get("total_scored")
+    if total_scored is not None:
+        unit = "goal" if str(record.get("sport") or "").lower() == "soccer" else "point"
+        label = unit if total_scored == 1 else f"{unit}s"
+        return f"{actual_winner}, {final_score}, {total_scored} {label}"
+    return f"{actual_winner}, {final_score}"
 
 
-    import api_client as ac
-    import predictor as pred
-    import props_engine as pe
-    import scorpred_engine as se
-    import model_tracker as mt
-    import user_auth
-    import odds_fetcher
-    import result_updater as ru
-    from runtime_paths import (
-        auth_db_path,
-        auth_storage_diagnostics,
-        data_root,
-        ensure_runtime_dirs,
-        ml_report_path,
-        walk_forward_report_path,
-    )
-    from security import check_chat_rate_limit, configure_security, sanitize_error
-    from services import analysis_assistant as assistant_services
-    from db_models import db
-
-    try:
-        import nba_live_client as nc
-        import nba_predictor as np_nba
-    except ImportError:  # pragma: no cover
-        nc = None  # type: ignore[assignment]
-        np_nba = None  # type: ignore[assignment]
-    from services import evidence as evidence_services
-    from services import tracking_bootstrap as bootstrap_services
-    from services.tracking_bootstrap import fixture_context_from_form
-    from league_config import (
-        CURRENT_SEASON,
-        DEFAULT_LEAGUE_ID,
-        LEAGUE_BY_ID,
-        SUPPORTED_LEAGUES,
-        SUPPORTED_LEAGUE_IDS,
-    )
-    from nba_routes import nba_bp
-
-    try:
-        import anthropic
-    except ImportError:  # pragma: no cover
-        anthropic = None
-
-    load_dotenv()
-    ensure_runtime_dirs()
-
-    import logging as _logging
-    _logger = _logging.getLogger(__name__)
-    _RELEASE_TAG = "2026-04-20-d53ddbe"
-
-
-    class _LazyModuleProxy:
-        """Lazy-load heavyweight modules to keep cold starts leaner."""
-
-        def __init__(self, module_name: str):
-            self._module_name = module_name
-            self._module = None
-
-        def _load(self):
-            if self._module is None:
-                self._module = importlib.import_module(self._module_name)
-            return self._module
-
-        def __getattr__(self, name: str):
-            return getattr(self._load(), name)
-
-    sm = _LazyModuleProxy("scormastermind")
-    strategy_lab_services = _LazyModuleProxy("services.strategy_lab")
-    _EMPTY_METRICS = {
-        "total_predictions": 0,
-        "finalized_predictions": 0,
-        "wins": 0,
-        "losses": 0,
-        "overall_accuracy": None,
-        "by_confidence": {},
-        "by_sport": {},
-        "recent_predictions": [],
-    }
-
-
+def _prediction_sentence(record: dict) -> str:
+    """
+    Generate a short sentence summarizing the model's prediction for a record.
+    """
+    pick = _prediction_pick_display(record)
     prob = _predicted_outcome_probability(record)
     prob_text = _format_percent_value(prob)
     if pick and prob_text:
@@ -391,73 +263,6 @@ def _fixture_context_from_form():
     if pick:
         return f"Model pick: {pick}"
     return "Model pick unavailable"
-
-    # ── Production startup guard ───────────────────────────────────────────────────
-    _secret_key = os.environ.get("SECRET_KEY", "").strip()
-    _is_production = bool(os.environ.get("RENDER") or os.environ.get("FLASK_ENV") == "production")
-    if _is_production and not _secret_key:
-        raise RuntimeError(
-            "SECRET_KEY environment variable must be set in production. "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-        )
-    if not _secret_key:
-        _logger.warning("SECRET_KEY not set — using an insecure default. Set SECRET_KEY for production.")
-        _secret_key = "dev-insecure-key-change-me"
-
-    # --- Persistent session config ---
-    app = Flask(__name__)
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
-    configure_security(app, _secret_key)
-    _database_url = (os.getenv("DATABASE_URL") or "").strip()
-
-    # ── Results Page ─────────────────────────────────────────────────────────────
-
-    @app.route("/results")
-    def results():
-        # Fetch completed predictions
-        completed = mt.get_completed_predictions(limit=100)
-        results = []
-        win_count = 0
-        total_bets = 0
-        profit_loss = 0.0
-        reliability_score = 0
-        for pred in completed:
-            # Action: BET/CONSIDER/SKIP
-            action = pred.get("action_label") or _map_confidence_to_action(pred.get("confidence"))
-            confidence = float(pred.get("confidence_pct") or pred.get("confidence") or 0)
-            result = "Win" if pred.get("is_correct") else "Loss"
-            if result == "Win":
-                win_count += 1
-                profit_loss += 1  # Assume +1 unit for win
-            else:
-                profit_loss -= 1  # Assume -1 unit for loss
-            total_bets += 1
-            reliability = pred.get("reliability_badge") or _calc_reliability_badge(pred)
-            reliability_score += 1 if reliability == "High" else 0.5 if reliability == "Medium" else 0
-            results.append({
-                "date": _format_prediction_date(pred.get("game_date") or pred.get("date")),
-                "matchup": f"{pred.get('team_a', 'A')} vs {pred.get('team_b', 'B')}",
-                "pick": pred.get("predicted_pick_label") or pred.get("predicted_winner"),
-                "action": action,
-                "confidence": int(confidence),
-                "result": result,
-                "reasoning": pred.get("reasoning") or pred.get("decision_explainer") or "",
-                "reliability": reliability,
-            })
-        win_pct = round((win_count / total_bets) * 100, 1) if total_bets else 0
-        avg_reliability = reliability_score / total_bets if total_bets else 0
-        reliability_label = "High" if avg_reliability > 0.75 else "Medium" if avg_reliability > 0.4 else "Low"
-        summary = {
-            "total_bets": total_bets,
-            "win_pct": win_pct,
-            "profit_loss": f"{profit_loss:+.0f}",
-            "reliability": reliability_label,
-        }
-        return render_template(
-            "results.html",
-            results=results,
-            summary=summary,
-        )
 
 
 def _filter_useful_injury_context(injuries: dict) -> dict:
@@ -2745,6 +2550,11 @@ def _build_home_dashboard_context() -> dict[str, Any]:
     metrics = mt.get_summary_metrics()
     pending = mt.get_pending_predictions(limit=40)
     completed = mt.get_completed_predictions(limit=8)
+    try:
+        walk_forward = strategy_lab_services.walk_forward_summary()
+    except Exception:
+        walk_forward = {}
+
     conf_rank = {"High": 3, "Medium": 2, "Low": 1}
     candidates = [
         pred for pred in pending
@@ -2783,10 +2593,11 @@ def _build_home_dashboard_context() -> dict[str, Any]:
         for pred in completed[:6]
     ]
 
-    return {
-        "top_picks": top_picks,
-        "performance_preview": performance_preview,
-    }
+    primary_metric = _build_walk_forward_metric_summary(walk_forward)
+    live_metric = _build_live_metric_summary(
+        metrics.get("overall_accuracy"),
+        metrics.get("finalized_predictions"),
+    )
     trust_cards = [
         primary_metric,
         live_metric,
@@ -3188,6 +2999,70 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
+
+def _map_confidence_to_action(confidence):
+    try:
+        c = float(confidence)
+        if c >= 70:
+            return "BET"
+        elif c >= 55:
+            return "CONSIDER"
+        else:
+            return "SKIP"
+    except Exception:
+        return "SKIP"
+
+
+def _calc_reliability_badge(pred):
+    comp = pred.get("data_completeness") or {}
+    if comp.get("all_data_available"):
+        return "High"
+    if comp.get("partial_data"):
+        return "Medium"
+    return "Low"
+
+
+@app.route("/results")
+def results():
+    completed = mt.get_completed_predictions(limit=100)
+    results_list = []
+    win_count = 0
+    total_bets = 0
+    profit_loss = 0.0
+    reliability_score = 0
+    for pred_item in completed:
+        action = pred_item.get("action_label") or _map_confidence_to_action(pred_item.get("confidence"))
+        confidence = float(pred_item.get("confidence_pct") or pred_item.get("confidence") or 0)
+        result = "Win" if pred_item.get("is_correct") else "Loss"
+        if result == "Win":
+            win_count += 1
+            profit_loss += 1
+        else:
+            profit_loss -= 1
+        total_bets += 1
+        reliability = pred_item.get("reliability_badge") or _calc_reliability_badge(pred_item)
+        reliability_score += 1 if reliability == "High" else 0.5 if reliability == "Medium" else 0
+        results_list.append({
+            "date": _format_prediction_date(pred_item.get("game_date") or pred_item.get("date")),
+            "matchup": f"{pred_item.get('team_a', 'A')} vs {pred_item.get('team_b', 'B')}",
+            "pick": pred_item.get("predicted_pick_label") or pred_item.get("predicted_winner"),
+            "action": action,
+            "confidence": int(confidence),
+            "result": result,
+            "reasoning": pred_item.get("reasoning") or pred_item.get("decision_explainer") or "",
+            "reliability": reliability,
+        })
+    win_pct = round((win_count / total_bets) * 100, 1) if total_bets else 0
+    avg_reliability = reliability_score / total_bets if total_bets else 0
+    reliability_label = "High" if avg_reliability > 0.75 else "Medium" if avg_reliability > 0.4 else "Low"
+    summary = {
+        "total_bets": total_bets,
+        "win_pct": win_pct,
+        "profit_loss": f"{profit_loss:+.0f}",
+        "reliability": reliability_label,
+    }
+    return render_template("results.html", results=results_list, summary=summary)
+
 
 @app.route("/", methods=["GET"])
 def index():
@@ -4504,7 +4379,117 @@ def top_picks_today():
     )
 
 
+@app.route("/model-performance")
+def model_performance():
+    """Display model evaluation dashboard with trends, calibration, and strategy analytics."""
+    sport_filter = request.args.get('sport', '').lower()
+    rolling_window = request.args.get('window', default=10, type=int) or 10
+    exclude_seeded = request.args.get('include_seeded', '0') != '1'
+    try:
+        metrics = mt.get_summary_metrics(exclude_seeded=exclude_seeded)
+        completed_predictions = mt.get_completed_predictions()
+        pending_predictions = mt.get_pending_predictions()
 
+        strategy_context = strategy_lab_services.build_strategy_lab_context()
+        performance_comparison = strategy_context.get("performance_comparison") or {}
+        ml_comparison = strategy_context.get("ml_comparison") or {}
+        walk_forward_context = strategy_context.get("walk_forward") or strategy_lab_services.walk_forward_summary()
+        evaluation = mt.get_evaluation_dashboard(
+            rolling_window=max(1, min(rolling_window, 50)),
+            strategy_reference=performance_comparison,
+            exclude_seeded=exclude_seeded,
+        )
+        
+        # Filter completed predictions by sport if specified
+        if sport_filter in ['soccer', 'nba']:
+            completed_predictions = [p for p in completed_predictions if p.get('sport', '').lower() == sport_filter]
+            evaluation["failure_rows"] = [
+                row for row in evaluation.get("failure_rows", [])
+                if row.get("sport", "").lower() == sport_filter
+            ]
+            evaluation["pass_rows"] = [
+                row for row in evaluation.get("pass_rows", [])
+                if row.get("sport", "").lower() == sport_filter
+            ]
+        
+        # Guarantee every key the template expects is present
+        metrics.setdefault("finalized_predictions", 0)
+        metrics.setdefault("by_confidence", {})
+        metrics.setdefault("by_sport", {})
+        metrics.setdefault("by_league", {})
+        metrics.setdefault("recent_predictions", [])
+    except Exception as exc:
+        app.logger.error("model_performance: get_summary_metrics failed — %s", exc, exc_info=True)
+        metrics = dict(_EMPTY_METRICS)
+        completed_predictions = []
+        pending_predictions = []
+        evaluation = {
+            "kpis": {
+                "overall_accuracy": None,
+                "rolling_win_rate": None,
+                "total_tracked_predictions": 0,
+                "finalized_predictions": 0,
+                "avoids_skipped": 0,
+                "current_best_strategy": "Awaiting sample",
+                "roi_or_points": 0,
+            },
+            "rolling_window": rolling_window,
+            "series": {
+                "rolling_by_match": [],
+                "rolling_by_day": [],
+                "cumulative_points": [],
+            },
+            "confidence_calibration": [],
+            "strategy_comparison": [],
+            "breakdowns": {
+                "by_sport": [],
+                "by_confidence_tier": [],
+                "by_predicted_outcome": [],
+                "recent_form": {"last_10": {"count": 0, "accuracy": None}, "last_20": {"count": 0, "accuracy": None}},
+            },
+            "failure_rows": [],
+            "pass_rows": [],
+        }
+        performance_comparison = {}
+        ml_comparison = {}
+        walk_forward_context = {}
+
+    primary_metric = _build_walk_forward_metric_summary(walk_forward_context)
+    live_metric = _build_live_metric_summary(
+        metrics.get("overall_accuracy"),
+        metrics.get("finalized_predictions"),
+    )
+    offline_metric = _build_offline_metric_summary(
+        performance_comparison.get("combined_accuracy") or ml_comparison.get("ensemble_accuracy"),
+        performance_comparison.get("evaluation_matches") or ml_comparison.get("evaluation_matches"),
+        title="Offline model evaluation",
+        summary="Use this to compare model variants. It is more trustworthy than a tiny live sample, but the walk-forward number should still be the main headline metric.",
+    )
+    reading_guide = [
+        "~50% is realistic for a noisy sports prediction model.",
+        "55%+ is a strong edge if the sample behind it is large enough.",
+        "Small live samples should be treated as early signals, not headline proof.",
+    ]
+
+    _assistant_store_model_performance_context(metrics, sport_filter)
+
+    return render_template(
+        "model_performance.html",
+        **_page_context(
+            metrics=metrics,
+            completed_predictions=completed_predictions,
+            pending_predictions=pending_predictions,
+            sport_filter=sport_filter,
+            evaluation=evaluation,
+            performance_comparison=performance_comparison,
+            ml_comparison=ml_comparison,
+            walk_forward=walk_forward_context,
+            primary_metric=primary_metric,
+            live_metric=live_metric,
+            offline_metric=offline_metric,
+            reading_guide=reading_guide,
+        ),
+    )
 
 
 @app.route("/pass-analysis")
@@ -4573,7 +4558,51 @@ def prediction_result_detail(prediction_id: str):
     )
 
 
+@app.route("/strategy-lab")
+def strategy_lab():
+    """Display product-facing strategy and ML comparison context."""
+    exclude_seeded = request.args.get('include_seeded', '0') != '1'
+    try:
+        context = strategy_lab_services.build_strategy_lab_context()
+    except Exception as exc:
+        app.logger.error("strategy_lab: failed to build context - %s", exc, exc_info=True)
+        context = strategy_lab_services.empty_strategy_lab_context()
 
+    # Add calibration data from tracker
+    try:
+        _metrics = mt.get_summary_metrics(exclude_seeded=exclude_seeded)
+        context["calibration"] = _metrics.get("calibration") or {}
+        context["seeded_count"] = _metrics.get("seeded_count", 0) if exclude_seeded else 0
+        context["real_prediction_count"] = _metrics.get("total_predictions", 0)
+        context["exclude_seeded"] = exclude_seeded
+    except Exception:
+        context.setdefault("calibration", {})
+        context.setdefault("seeded_count", 0)
+        context.setdefault("real_prediction_count", 0)
+        context.setdefault("exclude_seeded", exclude_seeded)
+
+    context["primary_metric"] = _build_walk_forward_metric_summary(context.get("walk_forward"))
+    context["live_metric"] = _build_live_metric_summary(
+        context.get("live_hit_rate"),
+        context.get("live_sample_size"),
+    )
+    context["offline_metric"] = _build_offline_metric_summary(
+        context.get("offline_accuracy"),
+        (context.get("performance_comparison") or {}).get("evaluation_matches")
+        or (context.get("ml_comparison") or {}).get("evaluation_matches"),
+        title="Offline model evaluation",
+        summary="This is the cleaner number for comparing models. The walk-forward result still matters most when you want the fairest end-to-end test.",
+    )
+    context["reading_guide"] = [
+        "Lead with walk-forward accuracy when you want the fairest performance read.",
+        "Use offline model evaluation to compare variants, not to overpromise production results.",
+        "Treat live tracking as early evidence until the graded sample is large enough.",
+    ]
+
+    return render_template(
+        "strategy_lab.html",
+        **_page_context(**context),
+    )
 
 
 @app.route("/update-prediction-results", methods=["GET", "POST"])
