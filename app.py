@@ -1,7 +1,13 @@
 
-from __future__ import annotations
-# ── Results Page ─────────────────────────────────────────────────────────────
 
+from __future__ import annotations
+# ...existing code...
+"""Flask application for the ScorPred football and NBA predictor."""
+######################################################################
+# Place all route decorators and helpers AFTER app initialization
+######################################################################
+
+# ── Results Page ─────────────────────────────────────────────────────────────
 @app.route("/results")
 def results():
     # Fetch completed predictions
@@ -71,7 +77,6 @@ def _calc_reliability_badge(pred):
     if comp.get("partial_data"):
         return "Medium"
     return "Low"
-"""Flask application for the ScorPred football and NBA predictor."""
 
 import importlib
 import os
