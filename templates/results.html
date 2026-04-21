@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Results | ScorPred{% endblock %}
+{% block content %}
+<div class="results-page">
+  <h1 class="sp-title">Results</h1>
+  <div class="results-summary">
+    <div class="summary-card">
+      <span class="summary-label">Total Bets</span>
+      <span class="summary-value">{{ summary.total_bets }}</span>
+    </div>
+    <div class="summary-card">
+      <span class="summary-label">Win %</span>
+      <span class="summary-value">{{ summary.win_pct }}%</span>
+    </div>
+    <div class="summary-card">
+      <span class="summary-label">Profit/Loss</span>
+      <span class="summary-value">{{ summary.profit_loss }}</span>
+    </div>
+    <div class="summary-card">
+      <span class="summary-label">Reliability</span>
+      <span class="summary-value reliability-badge reliability-{{ summary.reliability|lower }}">{{ summary.reliability }}</span>
+    </div>
+  </div>
+  <div class="results-table-wrapper">
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Matchup</th>
+          <th>Pick</th>
+          <th>Action</th>
+          <th>Confidence</th>
+          <th>Result</th>
+          <th>Reasoning</th>
+          <th>Reliability</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td>{{ r.date }}</td>
+          <td>{{ r.matchup }}</td>
+          <td>{{ r.pick }}</td>
+          <td><span class="action-badge action-{{ r.action|lower }}">{{ r.action }}</span></td>
+          <td>{{ r.confidence }}%</td>
+          <td><span class="result-badge result-{{ r.result|lower }}">{{ r.result }}</span></td>
+          <td>{{ r.reasoning }}</td>
+          <td><span class="reliability-badge reliability-{{ r.reliability|lower }}">{{ r.reliability }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

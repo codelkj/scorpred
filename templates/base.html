@@ -77,8 +77,7 @@
         <a href="/soccer" class="{% if request.path == '/soccer' or request.path in ['/today-soccer-predictions', '/fixtures', '/worldcup'] %}active{% endif %}"><span class="sp-nav__icon">⚽</span> Soccer</a>
         <a href="/nba/" class="{% if request.path.startswith('/nba') %}active{% endif %}"><span class="sp-nav__icon">🏀</span> NBA</a>
         <a href="{{ match_analysis_href }}" class="{% if match_analysis_active %}active{% endif %}"><span class="sp-nav__icon">▣</span> Match Analysis</a>
-        <a href="/model-performance" class="{% if request.path == '/model-performance' %}active{% endif %}"><span class="sp-nav__icon">◎</span> Performance</a>
-        <a href="/strategy-lab" class="{% if request.path == '/strategy-lab' %}active{% endif %}"><span class="sp-nav__icon">▲</span> Strategy Lab</a>
+        <a href="/results" class="{% if request.path == '/results' %}active{% endif %}"><span class="sp-nav__icon">★</span> Results</a>
       </nav>
       <div class="sp-sidebar__footer">
         Explainable analytics &amp; decision signals.<br>

@@ -16,7 +16,7 @@
   </p>
   <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem">
     <a href="{{ url_for('soccer') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Soccer Hub</a>
-    <a href="{{ url_for('model_performance') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Performance</a>
+
   </div>
 </section>
 
@@ -50,7 +50,7 @@
         {% if item.fixture.fixture.date %}{{ item.fixture.fixture.date[:10] }}{% if item.fixture.fixture.date|length > 10 %} &middot; {{ item.fixture.fixture.date[11:16] }} UTC{% endif %}{% else %}TBD{% endif %}
         {% if item.fixture.league %} &middot; {{ item.fixture.league.name }}{% endif %}
       </div>
-      <span class="sp-badge sp-badge--{{ 'strong' if item.confidence == 'High' else ('caution' if item.confidence == 'Medium' else 'muted') }}">{{ item.confidence }}</span>
+      <span class="action-badge action-{{ item.action|lower }}">{{ item.action }}</span>
     </div>
 
     <div style="display:flex; align-items:center; justify-content:center; gap:.6rem; margin-bottom:.5rem">
@@ -79,9 +79,10 @@
 
     <div style="display:flex; justify-content:space-between; align-items:center">
       <div><span style="font-size:.72rem; color:var(--text-3)">Pick</span><br><strong style="color:var(--c-strong)">{{ item.predicted_winner }}</strong></div>
-      {% if item.score_gap %}<span style="font-size:.75rem; color:var(--text-3)">Gap {{ "%.1f"|format(item.score_gap) }}/10</span>{% endif %}
+      <span class="confidence-badge">{{ item.confidence_pct or item.confidence }}%</span>
+      <span class="reliability-badge reliability-{{ item.reliability|lower }}">{{ item.reliability }}</span>
     </div>
-    {% if item.reasoning %}<p style="font-size:.78rem; color:var(--text-2); margin-top:.4rem; border-top:1px solid var(--border); padding-top:.4rem">{{ item.reasoning }}</p>{% endif %}
+    {% if item.reasoning %}<p class="reasoning-text">{{ item.reasoning }}</p>{% endif %}
   </article>
   {% endfor %}
 
@@ -149,6 +150,6 @@
 <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-top:1.5rem">
   <a href="{{ url_for('index') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Home</a>
   <a href="{{ url_for('nba.today_predictions') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Today NBA</a>
-  <a href="{{ url_for('model_performance') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Performance</a>
+
 </div>
 {% endblock %}

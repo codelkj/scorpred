@@ -1,3 +1,74 @@
+# ── Results Page ─────────────────────────────────────────────────────────────
+
+@app.route("/results")
+def results():
+    # Fetch completed predictions
+    completed = mt.get_completed_predictions(limit=100)
+    results = []
+    win_count = 0
+    total_bets = 0
+    profit_loss = 0.0
+    reliability_score = 0
+    for pred in completed:
+        # Action: BET/CONSIDER/SKIP
+        action = pred.get("action_label") or _map_confidence_to_action(pred.get("confidence"))
+        confidence = float(pred.get("confidence_pct") or pred.get("confidence") or 0)
+        result = "Win" if pred.get("is_correct") else "Loss"
+        if result == "Win":
+            win_count += 1
+            profit_loss += 1  # Assume +1 unit for win
+        else:
+            profit_loss -= 1  # Assume -1 unit for loss
+        total_bets += 1
+        reliability = pred.get("reliability_badge") or _calc_reliability_badge(pred)
+        reliability_score += 1 if reliability == "High" else 0.5 if reliability == "Medium" else 0
+        results.append({
+            "date": _format_prediction_date(pred.get("game_date") or pred.get("date")),
+            "matchup": f"{pred.get('team_a', 'A')} vs {pred.get('team_b', 'B')}",
+            "pick": pred.get("predicted_pick_label") or pred.get("predicted_winner"),
+            "action": action,
+            "confidence": int(confidence),
+            "result": result,
+            "reasoning": pred.get("reasoning") or pred.get("decision_explainer") or "",
+            "reliability": reliability,
+        })
+    win_pct = round((win_count / total_bets) * 100, 1) if total_bets else 0
+    avg_reliability = reliability_score / total_bets if total_bets else 0
+    reliability_label = "High" if avg_reliability > 0.75 else "Medium" if avg_reliability > 0.4 else "Low"
+    summary = {
+        "total_bets": total_bets,
+        "win_pct": win_pct,
+        "profit_loss": f"{profit_loss:+.0f}",
+        "reliability": reliability_label,
+    }
+    return render_template(
+        "results.html",
+        results=results,
+        summary=summary,
+    )
+
+# Helper: Map confidence to action
+def _map_confidence_to_action(confidence):
+    try:
+        c = float(confidence)
+        if c >= 70:
+            return "BET"
+        elif c >= 55:
+            return "CONSIDER"
+        else:
+            return "SKIP"
+    except Exception:
+        return "SKIP"
+
+# Helper: Calculate reliability badge
+def _calc_reliability_badge(pred):
+    # Simple: use data_completeness or fallback to confidence
+    comp = pred.get("data_completeness") or {}
+    if comp.get("all_data_available"):
+        return "High"
+    if comp.get("partial_data"):
+        return "Medium"
+    return "Low"
 """Flask application for the ScorPred football and NBA predictor."""
 
 from __future__ import annotations
@@ -2550,11 +2621,6 @@ def _build_home_dashboard_context() -> dict[str, Any]:
     metrics = mt.get_summary_metrics()
     pending = mt.get_pending_predictions(limit=40)
     completed = mt.get_completed_predictions(limit=8)
-    try:
-        walk_forward = strategy_lab_services.walk_forward_summary()
-    except Exception:
-        walk_forward = {}
-
     conf_rank = {"High": 3, "Medium": 2, "Low": 1}
     candidates = [
         pred for pred in pending
@@ -2593,11 +2659,10 @@ def _build_home_dashboard_context() -> dict[str, Any]:
         for pred in completed[:6]
     ]
 
-    primary_metric = _build_walk_forward_metric_summary(walk_forward)
-    live_metric = _build_live_metric_summary(
-        metrics.get("overall_accuracy"),
-        metrics.get("finalized_predictions"),
-    )
+    return {
+        "top_picks": top_picks,
+        "performance_preview": performance_preview,
+    }
     trust_cards = [
         primary_metric,
         live_metric,
@@ -4315,117 +4380,7 @@ def top_picks_today():
     )
 
 
-@app.route("/model-performance")
-def model_performance():
-    """Display model evaluation dashboard with trends, calibration, and strategy analytics."""
-    sport_filter = request.args.get('sport', '').lower()
-    rolling_window = request.args.get('window', default=10, type=int) or 10
-    exclude_seeded = request.args.get('include_seeded', '0') != '1'
-    try:
-        metrics = mt.get_summary_metrics(exclude_seeded=exclude_seeded)
-        completed_predictions = mt.get_completed_predictions()
-        pending_predictions = mt.get_pending_predictions()
 
-        strategy_context = strategy_lab_services.build_strategy_lab_context()
-        performance_comparison = strategy_context.get("performance_comparison") or {}
-        ml_comparison = strategy_context.get("ml_comparison") or {}
-        walk_forward_context = strategy_context.get("walk_forward") or strategy_lab_services.walk_forward_summary()
-        evaluation = mt.get_evaluation_dashboard(
-            rolling_window=max(1, min(rolling_window, 50)),
-            strategy_reference=performance_comparison,
-            exclude_seeded=exclude_seeded,
-        )
-        
-        # Filter completed predictions by sport if specified
-        if sport_filter in ['soccer', 'nba']:
-            completed_predictions = [p for p in completed_predictions if p.get('sport', '').lower() == sport_filter]
-            evaluation["failure_rows"] = [
-                row for row in evaluation.get("failure_rows", [])
-                if row.get("sport", "").lower() == sport_filter
-            ]
-            evaluation["pass_rows"] = [
-                row for row in evaluation.get("pass_rows", [])
-                if row.get("sport", "").lower() == sport_filter
-            ]
-        
-        # Guarantee every key the template expects is present
-        metrics.setdefault("finalized_predictions", 0)
-        metrics.setdefault("by_confidence", {})
-        metrics.setdefault("by_sport", {})
-        metrics.setdefault("by_league", {})
-        metrics.setdefault("recent_predictions", [])
-    except Exception as exc:
-        app.logger.error("model_performance: get_summary_metrics failed — %s", exc, exc_info=True)
-        metrics = dict(_EMPTY_METRICS)
-        completed_predictions = []
-        pending_predictions = []
-        evaluation = {
-            "kpis": {
-                "overall_accuracy": None,
-                "rolling_win_rate": None,
-                "total_tracked_predictions": 0,
-                "finalized_predictions": 0,
-                "avoids_skipped": 0,
-                "current_best_strategy": "Awaiting sample",
-                "roi_or_points": 0,
-            },
-            "rolling_window": rolling_window,
-            "series": {
-                "rolling_by_match": [],
-                "rolling_by_day": [],
-                "cumulative_points": [],
-            },
-            "confidence_calibration": [],
-            "strategy_comparison": [],
-            "breakdowns": {
-                "by_sport": [],
-                "by_confidence_tier": [],
-                "by_predicted_outcome": [],
-                "recent_form": {"last_10": {"count": 0, "accuracy": None}, "last_20": {"count": 0, "accuracy": None}},
-            },
-            "failure_rows": [],
-            "pass_rows": [],
-        }
-        performance_comparison = {}
-        ml_comparison = {}
-        walk_forward_context = {}
-
-    primary_metric = _build_walk_forward_metric_summary(walk_forward_context)
-    live_metric = _build_live_metric_summary(
-        metrics.get("overall_accuracy"),
-        metrics.get("finalized_predictions"),
-    )
-    offline_metric = _build_offline_metric_summary(
-        performance_comparison.get("combined_accuracy") or ml_comparison.get("ensemble_accuracy"),
-        performance_comparison.get("evaluation_matches") or ml_comparison.get("evaluation_matches"),
-        title="Offline model evaluation",
-        summary="Use this to compare model variants. It is more trustworthy than a tiny live sample, but the walk-forward number should still be the main headline metric.",
-    )
-    reading_guide = [
-        "~50% is realistic for a noisy sports prediction model.",
-        "55%+ is a strong edge if the sample behind it is large enough.",
-        "Small live samples should be treated as early signals, not headline proof.",
-    ]
-
-    _assistant_store_model_performance_context(metrics, sport_filter)
-
-    return render_template(
-        "model_performance.html",
-        **_page_context(
-            metrics=metrics,
-            completed_predictions=completed_predictions,
-            pending_predictions=pending_predictions,
-            sport_filter=sport_filter,
-            evaluation=evaluation,
-            performance_comparison=performance_comparison,
-            ml_comparison=ml_comparison,
-            walk_forward=walk_forward_context,
-            primary_metric=primary_metric,
-            live_metric=live_metric,
-            offline_metric=offline_metric,
-            reading_guide=reading_guide,
-        ),
-    )
 
 
 @app.route("/pass-analysis")
@@ -4494,51 +4449,7 @@ def prediction_result_detail(prediction_id: str):
     )
 
 
-@app.route("/strategy-lab")
-def strategy_lab():
-    """Display product-facing strategy and ML comparison context."""
-    exclude_seeded = request.args.get('include_seeded', '0') != '1'
-    try:
-        context = strategy_lab_services.build_strategy_lab_context()
-    except Exception as exc:
-        app.logger.error("strategy_lab: failed to build context - %s", exc, exc_info=True)
-        context = strategy_lab_services.empty_strategy_lab_context()
 
-    # Add calibration data from tracker
-    try:
-        _metrics = mt.get_summary_metrics(exclude_seeded=exclude_seeded)
-        context["calibration"] = _metrics.get("calibration") or {}
-        context["seeded_count"] = _metrics.get("seeded_count", 0) if exclude_seeded else 0
-        context["real_prediction_count"] = _metrics.get("total_predictions", 0)
-        context["exclude_seeded"] = exclude_seeded
-    except Exception:
-        context.setdefault("calibration", {})
-        context.setdefault("seeded_count", 0)
-        context.setdefault("real_prediction_count", 0)
-        context.setdefault("exclude_seeded", exclude_seeded)
-
-    context["primary_metric"] = _build_walk_forward_metric_summary(context.get("walk_forward"))
-    context["live_metric"] = _build_live_metric_summary(
-        context.get("live_hit_rate"),
-        context.get("live_sample_size"),
-    )
-    context["offline_metric"] = _build_offline_metric_summary(
-        context.get("offline_accuracy"),
-        (context.get("performance_comparison") or {}).get("evaluation_matches")
-        or (context.get("ml_comparison") or {}).get("evaluation_matches"),
-        title="Offline model evaluation",
-        summary="This is the cleaner number for comparing models. The walk-forward result still matters most when you want the fairest end-to-end test.",
-    )
-    context["reading_guide"] = [
-        "Lead with walk-forward accuracy when you want the fairest performance read.",
-        "Use offline model evaluation to compare variants, not to overpromise production results.",
-        "Treat live tracking as early evidence until the graded sample is large enough.",
-    ]
-
-    return render_template(
-        "strategy_lab.html",
-        **_page_context(**context),
-    )
 
 
 @app.route("/update-prediction-results", methods=["GET", "POST"])

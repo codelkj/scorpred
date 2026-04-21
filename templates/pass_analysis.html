@@ -15,7 +15,7 @@
       <span style="font-size:.78rem; color:var(--text-3); display:block">Rolling window: {{ evaluation.rolling_window or 10 }}{% if sport_filter %} &middot; Sport: {{ sport_filter|upper }}{% endif %}</span>
     </div>
     <div style="display:flex; gap:.4rem; flex-wrap:wrap">
-      <a href="{{ url_for('model_performance') }}" class="sp-badge sp-badge--muted" style="text-decoration:none">Performance</a>
+
       <a href="{{ url_for('pass_analysis') }}" class="sp-badge sp-badge--{{ '' if not sport_filter else 'muted' }}" style="text-decoration:none">All</a>
       <a href="{{ url_for('pass_analysis', sport='soccer') }}" class="sp-badge sp-badge--{{ 'strong' if sport_filter == 'soccer' else 'muted' }}" style="text-decoration:none">Soccer</a>
       <a href="{{ url_for('pass_analysis', sport='nba') }}" class="sp-badge sp-badge--{{ 'caution' if sport_filter == 'nba' else 'muted' }}" style="text-decoration:none">NBA</a>

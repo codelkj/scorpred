@@ -8,16 +8,16 @@
     <span class="sp-kicker">ScorPred</span>
     <h1 class="sp-display">Sports Decision<br>Intelligence Platform</h1>
     <p class="sp-home-hero__copy">
-      Clear match decisions with honest confidence, simple reasoning, and performance you can understand without reading a developer dashboard.
+      Decision-first sports intelligence. Every pick comes with a clear action (BET, CONSIDER, SKIP), confidence %, reasoning, and a reliability badge—no technical dashboard required.
     </p>
     <div class="sp-home-hero__actions">
       <a href="{{ home_match_analysis_href }}" class="btn btn-primary btn-lg">Analyze Match</a>
-      <a href="/strategy-lab" class="btn btn-secondary btn-lg">Strategy Lab</a>
+      <a href="/results" class="btn btn-secondary btn-lg">Results</a>
     </div>
     <div class="sp-home-hero__badges">
-      <span class="sp-badge sp-badge--strong">Decision-first</span>
-      <span class="sp-badge sp-badge--active">Honest uncertainty</span>
-      <span class="sp-badge sp-badge--muted">Tracked performance</span>
+      <span class="sp-badge sp-badge--strong">BET/CONSIDER/SKIP</span>
+      <span class="sp-badge sp-badge--active">Confidence %</span>
+      <span class="sp-badge sp-badge--muted">Reliability badge</span>
     </div>
   </section>
 
@@ -38,46 +38,17 @@
       </div>
       <span class="sp-action-card__arrow">-></span>
     </a>
-    <a href="/strategy-lab" class="sp-action-card">
-      <span class="sp-action-card__icon">Lab</span>
+    <a href="/results" class="sp-action-card">
+      <span class="sp-action-card__icon">Results</span>
       <div class="sp-action-card__body">
-        <div class="sp-action-card__title">Strategy Lab</div>
-        <div class="sp-action-card__desc">Compare live tracking, offline validation, and selector behavior.</div>
-      </div>
-      <span class="sp-action-card__arrow">-></span>
-    </a>
-    <a href="/model-performance" class="sp-action-card">
-      <span class="sp-action-card__icon">Trust</span>
-      <div class="sp-action-card__body">
-        <div class="sp-action-card__title">Performance</div>
-        <div class="sp-action-card__desc">Read the model honestly without the dev-dashboard noise.</div>
+        <div class="sp-action-card__title">Results</div>
+        <div class="sp-action-card__desc">See all completed picks, win %, and reliability in one place.</div>
       </div>
       <span class="sp-action-card__arrow">-></span>
     </a>
   </div>
 
-  <section class="sp-panel">
-    <div class="sp-panel-head">
-      <div class="sp-panel-head__left">
-        <span class="sp-kicker">Trust Layer</span>
-        <h2 class="sp-panel-title">How to read ScorPred</h2>
-      </div>
-    </div>
-    <div class="sp-kpi-strip">
-      {% for card in trust_cards %}
-      <div class="sp-kpi {% if loop.first %}sp-kpi--strong{% endif %}">
-        <span class="sp-kpi__label">{{ card.title }}</span>
-        <span class="sp-kpi__value" style="font-size:1.05rem">{{ card.value }}</span>
-        <span class="sp-badge sp-badge--{{ 'strong' if card.badge == 'Most reliable' else ('active' if card.badge == 'Product guide' else 'muted') }}" style="margin:.35rem 0 .45rem; display:inline-block">{{ card.badge }}</span>
-        <span style="font-size:.76rem; color:var(--text-2); display:block; line-height:1.5">{{ card.sample_label }}</span>
-        <span style="font-size:.74rem; color:var(--text-3); display:block; margin-top:.35rem; line-height:1.5">{{ card.summary }}</span>
-      </div>
-      {% endfor %}
-    </div>
-    <p class="sp-muted" style="font-size:.8rem; margin-top:.6rem">
-      Tracked predictions: {{ system_snapshot.tracked_predictions }} total. Walk-forward performance should lead the story when you want the most honest accuracy read.
-    </p>
-  </section>
+
 
   {% if top_picks %}
   <section class="sp-panel">
