@@ -16,6 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="icon" href="{{ url_for('static', filename='media/kneeslide-mark.svg') }}" type="image/svg+xml" />
   <link rel="stylesheet" href="{{ url_for('static', filename='design.css') }}" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
@@ -35,12 +36,12 @@
           <source src="{{ url_for('static', filename='media/scorpred-loader.mp4') }}" type="video/mp4">
           <img src="{{ url_for('static', filename='media/scorpred-loader.gif') }}" alt="ScorPred intro animation" loading="eager" decoding="async" />
         </video>
-        <div class="sp-intro-loader__fallback" aria-hidden="true"><span>SP</span></div>
+        <div class="sp-intro-loader__fallback" aria-hidden="true"><img src="{{ url_for('static', filename='media/kneeslide-mark.svg') }}" alt=""></div>
       </div>
       <div class="sp-intro-loader__brand">
         <span class="sp-intro-loader__kicker">Decision Intelligence</span>
         <strong>ScorPred</strong>
-        <small>Premium strength tiers for every slate.</small>
+        <small>Clear actions, confidence, and trust signals.</small>
       </div>
     </div>
   </div>
@@ -48,7 +49,7 @@
   <div class="sp-shell">
     <aside class="sp-sidebar" id="sidebar">
       <a href="/" class="sp-brand">
-        <span class="sp-brand__icon">SP</span>
+        <span class="sp-brand__icon"><img src="{{ url_for('static', filename='media/kneeslide-mark.svg') }}" alt=""></span>
         <span class="sp-brand__text">
           <strong>ScorPred</strong>
           <small>Decision Intelligence</small>
@@ -56,14 +57,14 @@
       </a>
       <p class="sp-nav-label">Navigation</p>
       <nav class="sp-nav" role="navigation" aria-label="Primary">
-        <a href="/" class="{% if request.path == '/' %}active{% endif %}"><span class="sp-nav__icon">H</span> Home</a>
-        <a href="/soccer" class="{% if request.path == '/soccer' or request.path in ['/today-soccer-predictions', '/fixtures'] %}active{% endif %}"><span class="sp-nav__icon">S</span> Soccer</a>
-        <a href="/nba/" class="{% if request.path.startswith('/nba') %}active{% endif %}"><span class="sp-nav__icon">N</span> NBA</a>
-        <a href="{{ match_analysis_href }}" class="{% if match_analysis_active %}active{% endif %}"><span class="sp-nav__icon">M</span> Match Analysis</a>
-        <a href="/results" class="{% if request.path == '/results' %}active{% endif %}"><span class="sp-nav__icon">R</span> Results</a>
+        <a href="/" class="{% if request.path == '/' %}active{% endif %}"><span class="sp-nav__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10.5V20h5v-5h4v5h5v-9.5"/></svg></span> Home</a>
+        <a href="/soccer" class="{% if request.path == '/soccer' or request.path in ['/today-soccer-predictions', '/fixtures'] %}active{% endif %}"><span class="sp-nav__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m9 8 3-2 3 2 1 4-4 3-4-3 1-4Z"/><path d="m4.5 13.5 3.5-1.5M16 12l3.5 1.5M12 15v4"/></svg></span> Soccer</a>
+        <a href="/nba/" class="{% if request.path.startswith('/nba') %}active{% endif %}"><span class="sp-nav__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.5 12h17"/><path d="M12 3c2.2 2.3 3.3 5.3 3.3 9S14.2 18.7 12 21"/><path d="M12 3C9.8 5.3 8.7 8.3 8.7 12S9.8 18.7 12 21"/></svg></span> NBA</a>
+        <a href="{{ match_analysis_href }}" class="{% if match_analysis_active %}active{% endif %}"><span class="sp-nav__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 3 5-7"/><path d="M17 7h2v2"/></svg></span> Match Analysis</a>
+        <a href="/results" class="{% if request.path == '/results' %}active{% endif %}"><span class="sp-nav__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h7"/><path d="m15 18 2 2 4-5"/></svg></span> Results</a>
       </nav>
       <div class="sp-sidebar__footer">
-        Strength tiers, confidence, and trust signals.
+        Actions, confidence, and trust signals.
         <br>
         {% if is_guest %}
           <span class="sp-badge sp-badge--muted" style="margin-top:.5rem;display:inline-block">Guest Mode</span>

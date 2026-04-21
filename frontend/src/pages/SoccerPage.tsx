@@ -2,8 +2,9 @@ import { DecisionCard, EmptyState, PlanStrip, type Decision } from '../component
 
 const slate: Decision[] = [
   {
-    tier: 'Best Bet',
+    action: 'BET',
     side: 'Arsenal',
+    matchup: 'Arsenal vs Bournemouth',
     confidence: 68,
     reason: 'Strong attacking form plus home edge.',
     data: 'Strong Data',
@@ -11,8 +12,9 @@ const slate: Decision[] = [
     cta: 'Analyze Match',
   },
   {
-    tier: 'Strong Lean',
+    action: 'CONSIDER',
     side: 'Barcelona',
+    matchup: 'Barcelona vs Real Madrid',
     confidence: 58,
     reason: 'Attacking edge, but opponent chance quality is live.',
     data: 'Partial Data',
@@ -20,8 +22,9 @@ const slate: Decision[] = [
     cta: 'View Matchup',
   },
   {
-    tier: 'Risky',
+    action: 'CONSIDER',
     side: 'Inter Milan',
+    matchup: 'Inter Milan vs AC Milan',
     confidence: 51,
     reason: 'Narrow venue-led edge with elevated derby volatility.',
     data: 'Limited Data',
@@ -31,7 +34,7 @@ const slate: Decision[] = [
 ];
 
 export default function SoccerPage() {
-  const top = slate.filter((item) => item.tier === 'Best Bet' || item.tier === 'Strong Lean');
+  const top = slate.filter((item) => item.action === 'BET' || item.action === 'CONSIDER');
 
   return (
     <div className="page-stack">
@@ -39,11 +42,11 @@ export default function SoccerPage() {
         <p className="page-eyebrow">EPL, La Liga, Bundesliga, Serie A</p>
         <h1 className="page-title">Today&apos;s Soccer Plan</h1>
         <p className="mt-4 max-w-2xl text-slate-400">
-          Start with the strongest tiers, scan the full slate, then open a focused matchup when more context is needed.
+          Start with the strongest actions, scan the full slate, then open a focused matchup when more context is needed.
         </p>
       </section>
 
-      <PlanStrip bestBet={1} strongLean={1} lean={0} risky={1} />
+      <PlanStrip bet={1} consider={2} skip={0} />
 
       <section className="section">
         <div>
@@ -65,7 +68,7 @@ export default function SoccerPage() {
         <p className="section-label">Full Slate</p>
         <div className="grid-2">
           {slate.map((decision) => (
-            <DecisionCard key={`${decision.tier}-${decision.side}`} decision={decision} />
+            <DecisionCard key={`${decision.action}-${decision.side}`} decision={decision} />
           ))}
         </div>
       </section>

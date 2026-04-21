@@ -2583,10 +2583,41 @@ h3 { font-size: 1.05rem; }
   color: var(--text);
 }
 
+.sp-result-card .sp-action-label {
+  font-size: 1.25rem;
+}
+
 .sp-result-card small {
   display: block;
   color: var(--text-3);
   margin-top: .15rem;
+}
+
+.sp-brand__icon img,
+.sp-auth-brand__icon img,
+.sp-intro-loader__fallback img,
+.sp-empty-state__mark img {
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
+}
+
+.sp-brand__icon {
+  overflow: hidden;
+}
+
+.sp-nav__icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sp-intro-loader__fallback {
+  place-items: center;
 }
 
 @media (max-width: 760px) {

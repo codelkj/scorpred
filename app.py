@@ -1,4 +1,4 @@
-﻿"""Flask application for the ScorPred football and NBA predictor."""
+"""Flask application for the ScorPred football and NBA predictor."""
 
 from __future__ import annotations
 
@@ -716,7 +716,7 @@ def _prediction_edge_state(prediction: dict[str, Any]) -> dict[str, str]:
     if play_type == "AVOID":
         return {
             "title": "Volatile matchup",
-            "summary": "The matchup still has a side, but volatility is high enough to keep the strength tier conservative.",
+            "summary": "The matchup still has a side, but volatility is high enough to keep the public action conservative.",
         }
     if gap < 1.0:
         return {
@@ -2565,6 +2565,8 @@ def _build_home_dashboard_context() -> dict[str, Any]:
     cards: list[dict[str, Any]] = []
     for record in pending:
         sport = str(record.get("sport") or "soccer").lower()
+        team_a = record.get("team_a") or record.get("home_team") or "Team A"
+        team_b = record.get("team_b") or record.get("away_team") or "Team B"
         prediction_payload = {
             "best_pick": {
                 "prediction": record.get("predicted_pick_label") or record.get("predicted_winner"),
@@ -2580,30 +2582,76 @@ def _build_home_dashboard_context() -> dict[str, Any]:
             "confidence_pct": record.get("confidence_pct"),
             "data_completeness": record.get("data_completeness") or {},
         }
-        cards.append(
-            dui.build_decision_card(
-                sport=sport,
-                team_a=record.get("team_a") or "Team A",
-                team_b=record.get("team_b") or "Team B",
-                prediction=prediction_payload,
-                competition=record.get("league_name") or sport.upper(),
-                match_date=record.get("game_date") or record.get("date") or record.get("created_at"),
-                cta_url="/nba/prediction" if sport == "nba" else "/prediction",
-                cta_label="View Matchup",
-            )
+        card = dui.build_decision_card(
+            sport=sport,
+            team_a=team_a,
+            team_b=team_b,
+            prediction=prediction_payload,
+            competition=record.get("league_name") or record.get("competition") or sport.upper(),
+            match_date=record.get("game_date") or record.get("date") or record.get("created_at"),
+            team_a_logo=record.get("team_a_logo") or record.get("home_logo") or "",
+            team_b_logo=record.get("team_b_logo") or record.get("away_logo") or "",
+            league_logo=record.get("league_logo") or "",
+            cta_label="View Matchup",
         )
+        if sport == "nba" and record.get("team_a_id") and record.get("team_b_id"):
+            card.update(
+                {
+                    "cta_url": "/nba/select-game",
+                    "cta_method": "post",
+                    "cta_payload": {
+                        "team_a": record.get("team_a_id"),
+                        "team_b": record.get("team_b_id"),
+                        "team_a_name": team_a,
+                        "team_b_name": team_b,
+                        "team_a_logo": record.get("team_a_logo") or record.get("home_logo") or "",
+                        "team_b_logo": record.get("team_b_logo") or record.get("away_logo") or "",
+                        "event_id": record.get("fixture_id") or record.get("game_id") or "",
+                        "event_date": record.get("game_date") or record.get("date") or "",
+                        "short_name": f"{team_b} @ {team_a}",
+                    },
+                }
+            )
+        elif sport == "nba":
+            card["cta_url"] = "/nba/"
+        elif record.get("team_a_id") and record.get("team_b_id"):
+            card.update(
+                {
+                    "cta_url": "/select",
+                    "cta_method": "post",
+                    "cta_payload": {
+                        "team_a": record.get("team_a_id"),
+                        "team_b": record.get("team_b_id"),
+                        "team_a_name": team_a,
+                        "team_b_name": team_b,
+                        "team_a_logo": record.get("team_a_logo") or record.get("home_logo") or "",
+                        "team_b_logo": record.get("team_b_logo") or record.get("away_logo") or "",
+                        "fixture_id": record.get("fixture_id") or "",
+                        "fixture_date": record.get("game_date") or record.get("date") or "",
+                        "league_id": record.get("league_id") or _active_league_id(),
+                        "league_name": record.get("league_name") or "",
+                    },
+                }
+            )
+        else:
+            card["cta_url"] = "/soccer"
+        cards.append(card)
 
     cards = dui.sort_cards(cards)
+    soccer_cards = dui.sort_cards([card for card in cards if card.get("sport") != "nba"])
+    nba_cards = dui.sort_cards([card for card in cards if card.get("sport") == "nba"])
     today_plan = dui.plan_summary(cards)
+    soccer_plan = dui.plan_summary(soccer_cards)
+    nba_plan = dui.plan_summary(nba_cards)
     accuracy = metrics.get("overall_accuracy")
     recent_results = [dui.normalize_result_record(item) for item in completed[:6]]
     trust_cards = [
         {
-            "title": "Strength board",
-            "value": f"{today_plan['best_bet']} Best Bet",
+            "title": "Action board",
+            "value": f"{today_plan['bet']} BET",
             "badge": "Today",
-            "sample_label": "Side, strength tier, confidence, and data trust in one scan.",
-            "summary": "ScorPred ranks playable matchups without erasing useful analysis.",
+            "sample_label": "Side, action, confidence, and data trust in one scan.",
+            "summary": "ScorPred keeps matchups analyzable while highlighting the strongest plays.",
             "tone": "strong",
         },
         {
@@ -2620,8 +2668,12 @@ def _build_home_dashboard_context() -> dict[str, Any]:
         "system_snapshot": {"tracked_predictions": int(metrics.get("total_predictions") or 0)},
         "trust_cards": trust_cards,
         "top_picks": dui.top_opportunities(cards, limit=5),
+        "soccer_picks": dui.top_opportunities(soccer_cards, limit=3),
+        "nba_picks": dui.top_opportunities(nba_cards, limit=3),
         "recent_results": recent_results,
         "today_plan": today_plan,
+        "soccer_plan": soccer_plan,
+        "nba_plan": nba_plan,
     }
 
 
@@ -3009,13 +3061,13 @@ def results():
     league_options = sorted({row["competition"] for row in rows if row.get("competition")})
 
     league_filter = (request.args.get("league") or "all").strip()
-    tier_filter = (request.args.get("tier") or request.args.get("action") or "all").strip()
+    action_filter = (request.args.get("action") or request.args.get("tier") or "all").strip().upper()
     range_filter = (request.args.get("range") or "all").strip().lower()
 
     if league_filter and league_filter != "all":
         rows = [row for row in rows if row["competition"] == league_filter]
-    if tier_filter != "all":
-        rows = [row for row in rows if row["strength_tier"].lower().replace(" ", "-") == tier_filter.lower().replace(" ", "-")]
+    if action_filter != "ALL":
+        rows = [row for row in rows if str(row.get("action") or "").upper() == action_filter]
     if range_filter in {"10", "20"}:
         rows = rows[: int(range_filter)]
 
@@ -3028,10 +3080,27 @@ def results():
             summary=summary,
             breakdowns=breakdowns,
             league_filter=league_filter or "all",
-            tier_filter=tier_filter.lower().replace(" ", "-") if tier_filter != "all" else "all",
+            action_filter=action_filter if action_filter != "ALL" else "all",
             range_filter=range_filter,
             league_options=league_options,
         ),
+    )
+
+
+@app.route("/api/results/live")
+def api_results_live():
+    completed = mt.get_completed_predictions(limit=200)
+    rows = [dui.normalize_result_record(item) for item in completed]
+    summary = dui.results_summary(rows)
+    breakdowns = dui.results_breakdowns(rows)
+    return jsonify(
+        {
+            "summary": summary,
+            "recent_soccer": breakdowns.get("recent_soccer", [])[:50],
+            "recent_nba": breakdowns.get("recent_nba", [])[:10],
+            "results": rows,
+            "breakdowns": breakdowns,
+        }
     )
 
 
@@ -3389,6 +3458,7 @@ def matchup():
         team_a_logo=team_a.get("logo") or (selected_fixture or {}).get("home_logo") or "",
         team_b_logo=team_b.get("logo") or (selected_fixture or {}).get("away_logo") or "",
         league_logo=(selected_fixture or {}).get("league_logo") or "",
+        form_strip=form_a,
         cta_url="/prediction",
         cta_label="View Matchup",
     )
@@ -3914,6 +3984,7 @@ def prediction():
         team_a_logo=team_a.get("logo") or (selected_fixture or {}).get("home_logo") or "",
         team_b_logo=team_b.get("logo") or (selected_fixture or {}).get("away_logo") or "",
         league_logo=(selected_fixture or {}).get("league_logo") or "",
+        form_strip=form_a,
         cta_url="/prediction",
         cta_label="View Matchup",
     )

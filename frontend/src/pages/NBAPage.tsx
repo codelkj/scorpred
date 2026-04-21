@@ -2,8 +2,9 @@ import { DecisionCard, PlanStrip, type Decision } from '../components/DecisionCa
 
 const games: Decision[] = [
   {
-    tier: 'Best Bet',
+    action: 'BET',
     side: 'Knicks',
+    matchup: 'Knicks vs Nets',
     confidence: 64,
     reason: 'Home shot profile and recent defensive form create a clear edge.',
     data: 'Strong Data',
@@ -11,8 +12,9 @@ const games: Decision[] = [
     cta: 'Analyze Match',
   },
   {
-    tier: 'Strong Lean',
+    action: 'CONSIDER',
     side: 'Celtics',
+    matchup: 'Lakers vs Celtics',
     confidence: 59,
     reason: 'More stable two-way form with a cleaner late-game profile.',
     data: 'Partial Data',
@@ -20,8 +22,9 @@ const games: Decision[] = [
     cta: 'View Matchup',
   },
   {
-    tier: 'Risky',
+    action: 'CONSIDER',
     side: 'Suns',
+    matchup: 'Suns vs Clippers',
     confidence: 52,
     reason: 'Higher offensive upside, but rotation uncertainty keeps volatility live.',
     data: 'Limited Data',
@@ -37,11 +40,11 @@ export default function NBAPage() {
         <p className="page-eyebrow">NBA</p>
         <h1 className="page-title">Tonight&apos;s NBA Plan</h1>
         <p className="mt-4 max-w-2xl text-slate-400">
-          The same strength-tier workflow: side, confidence, reason, and trust signal.
+          The same action-first workflow: side, confidence, reason, and trust signal.
         </p>
       </section>
 
-      <PlanStrip bestBet={1} strongLean={1} lean={0} risky={1} />
+      <PlanStrip bet={1} consider={2} skip={0} />
 
       <section className="section">
         <div>
@@ -50,7 +53,7 @@ export default function NBAPage() {
         </div>
         <div className="grid-2">
           {games.slice(0, 2).map((decision) => (
-            <DecisionCard key={decision.side} decision={decision} featured={decision.tier === 'Best Bet'} />
+            <DecisionCard key={decision.side} decision={decision} featured={decision.action === 'BET'} />
           ))}
         </div>
       </section>
@@ -59,7 +62,7 @@ export default function NBAPage() {
         <p className="section-label">Full Slate</p>
         <div className="grid-2">
           {games.map((decision) => (
-            <DecisionCard key={`${decision.tier}-${decision.side}`} decision={decision} />
+            <DecisionCard key={`${decision.action}-${decision.side}`} decision={decision} />
           ))}
         </div>
       </section>

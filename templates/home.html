@@ -7,16 +7,69 @@
 {% block content %}
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">Decision intelligence for matchday</span>
-  <h1>Strength-tier picks, honest confidence, and trust signals before you act.</h1>
-  <p>ScorPred turns every playable slate into side recommendations ranked by Best Bet, Strong Lean, Lean, and Risky.</p>
+  <h1>Clear actions, richer matchup evidence, and results you can verify.</h1>
+  <p>ScorPred keeps every normal matchup analyzable: a side, an action, confidence, visual support, and the data quality behind the read.</p>
   <div class="sp-page-actions">
     <a class="btn btn-primary" href="/soccer">Open Soccer</a>
+    <a class="btn btn-secondary" href="/nba/">Open NBA</a>
     <a class="btn btn-secondary" href="/results">View Results</a>
   </div>
 </section>
 
-{{ ui.plan_strip(today_plan) }}
-{{ ui.top_opportunities(top_picks) }}
+{% if trust_cards %}
+<section class="sp-section">
+  <div class="sp-card-grid">
+    {% for card in trust_cards %}
+      <article class="sp-info-card">
+        <small>{{ card.badge }}</small>
+        <strong>{{ card.value }}</strong>
+        <span>{{ card.sample_label }}</span>
+        <p>{{ card.summary }}</p>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="sp-section sp-section--opportunities">
+  <div class="sp-section__header">
+    <div>
+      <h2>Today's Soccer Picks</h2>
+      <p>Top football opportunities with team identity, confidence, and trust context.</p>
+    </div>
+    <a class="btn btn-secondary btn-sm" href="/soccer">Full Soccer Slate</a>
+  </div>
+  {{ ui.plan_strip(soccer_plan, 'Soccer Action Mix') }}
+  {% if soccer_picks %}
+    <div class="sp-opportunity-grid">
+      {% for card in soccer_picks %}
+        {{ ui.decision_card(card, 'featured') }}
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('Soccer picks are loading', 'When the daily slate is available, the strongest football reads appear here.') }}
+  {% endif %}
+</section>
+
+<section class="sp-section sp-section--opportunities">
+  <div class="sp-section__header">
+    <div>
+      <h2>Today's NBA Picks</h2>
+      <p>NBA matchups separated from soccer so each sport has its own clean decision surface.</p>
+    </div>
+    <a class="btn btn-secondary btn-sm" href="/nba/">Full NBA Slate</a>
+  </div>
+  {{ ui.plan_strip(nba_plan, 'NBA Action Mix') }}
+  {% if nba_picks %}
+    <div class="sp-opportunity-grid">
+      {% for card in nba_picks %}
+        {{ ui.decision_card(card, 'featured') }}
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('NBA picks are loading', 'When NBA matchups are available, the strongest reads appear here with working matchup links.') }}
+  {% endif %}
+</section>
 
 <section class="sp-section">
   <div class="sp-section__header">
@@ -28,17 +81,9 @@
   </div>
 
   {% if recent_results %}
-    <div class="sp-results-grid">
+    <div class="sp-result-list">
       {% for row in recent_results %}
-        <article class="sp-result-card">
-          <small>{{ row.date }} &middot; {{ row.competition }}</small>
-          <strong>{{ row.matchup }}</strong>
-          <span>{{ row.final_score }}</span>
-          <div class="sp-page-actions">
-            <span class="sp-status sp-status--{{ row.result }}">{{ row.result_label }}</span>
-            <span class="sp-plan-pill sp-plan-pill--{{ row.strength_class }}">{{ row.strength_tier }}</span>
-          </div>
-        </article>
+        {{ ui.result_row(row) }}
       {% endfor %}
     </div>
   {% else %}
@@ -49,15 +94,15 @@
 <section class="sp-section">
   <div class="sp-section__header">
     <div>
-      <h2>Quick Actions</h2>
+      <h2>Quick Access</h2>
       <p>Jump into the workflows that matter.</p>
     </div>
   </div>
   <div class="sp-quick-grid">
-    {{ ui.quick_link('/soccer', 'Soccer', 'Today\'s plan and full slate') }}
+    {{ ui.quick_link('/soccer', 'Soccer', 'Today plan, top opportunities, and full slate') }}
     {{ ui.quick_link('/nba/', 'NBA', 'Daily card with the same decision system') }}
     {{ ui.quick_link(match_analysis_href, 'Match Analysis', 'Focused breakdown for a selected matchup') }}
-    {{ ui.quick_link('/results', 'Results', 'Win rate, streaks, and graded picks') }}
+    {{ ui.quick_link('/results', 'Results', 'Win rate, recent form, and graded picks') }}
   </div>
 </section>
 {% endblock %}

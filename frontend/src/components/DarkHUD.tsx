@@ -1,11 +1,11 @@
 import { motion } from 'framer-motion';
 import HudCorners from './HudCorners';
-import { Hexagon } from 'lucide-react';
+import kneeslide from '../assets/kneeslide.svg';
 
 const TICKER_ITEMS = [
-  'Best Bet - Arsenal - 68% - Strong Data',
-  'Strong Lean - Celtics - 59% - Partial Data',
-  'Risky - Inter Milan - 51% - Limited Data',
+  'BET - Arsenal - 68% - Strong Data',
+  'CONSIDER - Celtics - 59% - Partial Data',
+  'CONSIDER - Inter Milan - 55% - Limited Data',
   'Results tracking updated after final scores',
 ];
 
@@ -37,9 +37,9 @@ export default function DarkHUD() {
 
       <nav className="relative z-10 flex items-center justify-between border-b border-emerald-400/10 px-8 py-5">
         <div className="flex items-center gap-3">
-          <Hexagon className="h-7 w-7 text-emerald-300" strokeWidth={1.5} />
+          <img src={kneeslide} alt="Knee Slide Mark" className="h-7 w-7" />
           <div>
-            <p className="font-oswald text-xl uppercase tracking-[0.2em]">ScorPred</p>
+            <p className="font-oswald text-xl uppercase tracking-normal">ScorPred</p>
             <p className="text-xs text-slate-500">Decision Intelligence</p>
           </div>
         </div>
@@ -64,13 +64,13 @@ export default function DarkHUD() {
           </p>
           <div className="flex flex-wrap gap-4">
             <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-5 py-2 text-sm font-semibold text-emerald-200">
-              Best Bet
+              BET
             </span>
             <span className="rounded-full border border-amber-400/25 bg-amber-400/10 px-5 py-2 text-sm font-semibold text-amber-200">
-              Strong Lean
+              CONSIDER
             </span>
             <span className="rounded-full border border-slate-500/30 bg-slate-500/10 px-5 py-2 text-sm font-semibold text-slate-300">
-              Risky
+              SKIP
             </span>
           </div>
         </div>
@@ -83,7 +83,7 @@ export default function DarkHUD() {
           <div className="relative rounded-2xl border border-emerald-400/20 bg-black/35 p-6 backdrop-blur-sm">
             <HudCorners />
             <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Top opportunity</p>
-            <h2 className="mt-4 font-oswald text-4xl uppercase tracking-[0.08em] text-white">Best Bet - Arsenal</h2>
+            <h2 className="mt-4 font-oswald text-4xl uppercase tracking-normal text-white">BET - Arsenal</h2>
             <div className="mt-6">
               <div className="mb-2 flex justify-between text-sm text-slate-400">
                 <span>Confidence</span>

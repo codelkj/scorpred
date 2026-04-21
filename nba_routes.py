@@ -343,7 +343,27 @@ def _require_nba_teams():
 
 
 def _selected_nba_game():
-    return session.get("nba_selected_game")
+    # Patch: Robust NBA matchup routing - prefer session, fallback to query args if present
+    selected = session.get("nba_selected_game")
+    if not selected:
+        # Try to build from query args if present
+        event_id = request.args.get("event_id")
+        if event_id:
+            selected = {
+                "event_id": event_id,
+                "date": request.args.get("event_date", "").strip(),
+                "status": request.args.get("event_status", "").strip(),
+                "venue_name": request.args.get("venue_name", "").strip(),
+                "short_name": request.args.get("short_name", "").strip(),
+                "home_name": request.args.get("team_a_name", "").strip(),
+                "home_logo": request.args.get("team_a_logo", "").strip(),
+                "away_name": request.args.get("team_b_name", "").strip(),
+                "away_logo": request.args.get("team_b_logo", "").strip(),
+                "sport": "nba",
+                "league_name": "NBA",
+            }
+            session["nba_selected_game"] = selected
+    return selected
 
 
 def _selection_error_redirect(message: str):
@@ -599,6 +619,7 @@ def _build_upcoming_prediction_card(game: dict, team_map: dict[str, dict], nba_o
         team_b_name=away_team.get("nickname") or away_team["name"],
         team_a_logo=home_team.get("logo") or "",
         team_b_logo=away_team.get("logo") or "",
+        form_strip=form_home,
     )
     if prediction.get("decision_card"):
         prediction["decision_card"].update(
@@ -804,6 +825,7 @@ def _apply_nba_product_presentation(
     team_b_name: str,
     team_a_logo: str = "",
     team_b_logo: str = "",
+    form_strip: list[Any] | None = None,
 ) -> dict:
     if not isinstance(prediction, dict):
         return prediction
@@ -817,17 +839,18 @@ def _apply_nba_product_presentation(
         competition="NBA",
         team_a_logo=team_a_logo,
         team_b_logo=team_b_logo,
+        form_strip=form_strip or [],
         cta_url="/nba/prediction",
         cta_label="View Matchup",
     )
-    tier = decision_card.get("strength_tier") or "Risky"
-    if tier in {"Best Bet", "Strong Lean"}:
+    action = decision_card.get("action") or "CONSIDER"
+    if action == "BET":
         risk_label = "Controlled"
-    elif tier == "Lean":
+    elif action == "CONSIDER":
         risk_label = "Balanced"
     else:
         risk_label = "Elevated"
-    prediction["play_type"] = tier
+    prediction["play_type"] = action
     prediction["confidence_pct"] = decision_card["confidence_pct"]
     prediction["risk_label"] = risk_label
     prediction["data_completeness"] = data_completeness
@@ -1483,6 +1506,7 @@ def _matchup_inner():
             team_b_name=team_b.get("nickname") or team_b["name"],
             team_a_logo=team_a.get("logo") or "",
             team_b_logo=team_b.get("logo") or "",
+            form_strip=recent_form_a,
         )
     except Exception as e:
         _log_err("Scorpred NBA engine", e)
@@ -1824,6 +1848,7 @@ def _prediction_inner():
             team_b_name=team_b.get("nickname") or team_b["name"],
             team_a_logo=team_a.get("logo") or "",
             team_b_logo=team_b.get("logo") or "",
+            form_strip=nba_form_a,
         )
 
     # Track this prediction
@@ -2008,6 +2033,7 @@ def _build_today_prediction_card(
         team_b_name=away_team.get("nickname") or away_team.get("name") or "Away",
         team_a_logo=home_team.get("logo") or "",
         team_b_logo=away_team.get("logo") or "",
+        form_strip=form_home,
     )
     if prediction.get("decision_card"):
         prediction["decision_card"].update(

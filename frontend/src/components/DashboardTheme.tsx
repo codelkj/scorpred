@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Activity, CheckCircle2, Dumbbell, Hexagon, Home, Search, Trophy } from 'lucide-react';
+import { Activity, CheckCircle2, Home, Search } from 'lucide-react';
+import kneeslide from '../assets/kneeslide.svg';
 
 interface NavItem {
   label: string;
@@ -8,11 +9,29 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Home', icon: <Home className="h-4 w-4" /> },
-  { label: 'Soccer', icon: <Trophy className="h-4 w-4" /> },
-  { label: 'NBA', icon: <Dumbbell className="h-4 w-4" /> },
+  { label: 'Soccer', icon: <SoccerIcon /> },
+  { label: 'NBA', icon: <BasketballIcon /> },
   { label: 'Match Analysis', icon: <Search className="h-4 w-4" /> },
   { label: 'Results', icon: <CheckCircle2 className="h-4 w-4" /> },
 ];
+
+function SoccerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m9 8 3-2 3 2 1 4-4 3-4-3 1-4Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function BasketballIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M3.5 12h17M12 3c2.2 2.3 3.3 5.3 3.3 9S14.2 18.7 12 21M12 3C9.8 5.3 8.7 8.3 8.7 12S9.8 18.7 12 21" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function LiveClock() {
   const [time, setTime] = useState(() => new Date());
@@ -43,9 +62,9 @@ export default function DashboardLayout({
       <aside className="sidebar hidden flex-col border-r border-white/[0.07] bg-[#0c1424] md:flex">
         <div className="border-b border-white/[0.07] px-5 py-6">
           <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/25 bg-emerald-400/10">
-            <Hexagon className="h-5 w-5 text-emerald-300" strokeWidth={1.6} />
+            <img src={kneeslide} alt="Knee Slide Mark" className="h-7 w-7" />
           </div>
-          <p className="font-oswald text-xl uppercase tracking-[0.18em] text-white">ScorPred</p>
+          <p className="font-oswald text-xl uppercase tracking-normal text-white">ScorPred</p>
           <p className="mt-1 text-xs text-slate-500">Decision Intelligence</p>
         </div>
 

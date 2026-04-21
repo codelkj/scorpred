@@ -6,10 +6,11 @@
 
 {% block content %}
 {% set card = scorpred.decision_card if scorpred else none %}
+{% if card %}{% set _ = card.update({'hide_cta': True}) %}{% endif %}
 <section class="sp-page-hero">
   <span class="sp-page-hero__eyebrow">{{ selected_fixture.league_name or 'Soccer' }}</span>
   <h1>{{ team_a.name }} vs {{ team_b.name }}</h1>
-  <p>The matchup view keeps the recommended side first, then shows the context behind the strength tier.</p>
+  <p>The matchup view keeps the recommended side first, then shows the evidence behind the action.</p>
 </section>
 
 {% if card %}
@@ -19,30 +20,37 @@
 
       <section class="sp-section">
         <div class="sp-info-card">
-          <h2>Why This Pick</h2>
-          {% set explainer = scorpred.decision_explainer or {} %}
+          <h2>Why this side can win</h2>
           <ul class="sp-why-list">
-            <li>{{ card.reason }}</li>
-            {% for tag in explainer.tags or [] %}
-              <li>{{ tag }}</li>
+            {% for point in card.why_win or [] %}
+              <li>{{ point }}</li>
             {% endfor %}
-            {% if h2h_rec %}
-              <li>Recent head-to-head context is included where available.</li>
-            {% endif %}
-            {% if card.draw_risk %}
-              <li>Draw pressure keeps the tier honest while still leaving the side playable.</li>
-            {% endif %}
-            {% if card.data_confidence.state == 'limited' %}
-              <li>Limited data lowers the tier, not the ability to analyze the match.</li>
-            {% endif %}
           </ul>
         </div>
       </section>
       <section class="sp-section">
         <div class="sp-info-card">
-          <h2>Visual Read</h2>
+          <h2>Why this side could lose</h2>
+          <ul class="sp-why-list">
+            {% for point in card.why_lose or [] %}
+              <li>{{ point }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2>Key swing factor</h2>
+          <p>{{ card.key_swing_factor }}</p>
+        </div>
+      </section>
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2>Visual Support</h2>
+          {{ ui.confidence_bar(card) }}
           {{ ui.probability_bar(card) }}
           {{ ui.comparison_bars(card.comparison_metrics) }}
+          {{ ui.form_strip(card.form_strip or form_a) }}
         </div>
       </section>
     </div>
@@ -57,7 +65,7 @@
         <li>{{ team_b.name }} recent form: {{ form_b|length }} matches</li>
         <li>Head-to-head sample: {{ h2h|length if h2h else 0 }} matches</li>
       </div>
-      {{ ui.form_strip(card.form_strip) }}
+      {{ ui.form_strip(card.form_strip or form_a) }}
 
       <div class="sp-page-actions" style="margin-top:1rem">
         <a class="btn btn-primary btn-sm" href="/prediction">Full Analysis</a>

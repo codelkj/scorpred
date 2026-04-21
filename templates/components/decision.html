@@ -1,7 +1,8 @@
 {% macro logo_mark(src, name, initials) -%}
   <span class="sp-logo-mark" aria-label="{{ name }}">
     {% if src %}
-      <img src="{{ src }}" alt="{{ name }} logo" loading="lazy">
+      <img src="{{ src }}" alt="{{ name }} logo" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">
+      <span hidden>{{ initials }}</span>
     {% else %}
       <span>{{ initials }}</span>
     {% endif %}
@@ -95,7 +96,7 @@
 
     <div class="sp-decision-card__top">
       <div>
-        <div class="sp-strength-label sp-strength-label--{{ card.strength_class }}">{{ card.strength_tier }}</div>
+        <div class="sp-action-label sp-action-label--{{ card.action_class }}">{{ card.action_label or card.action }}</div>
         <h3 class="sp-pick-side">{{ card.recommended_side }}</h3>
       </div>
       {{ data_badge(card.data_confidence) }}
@@ -109,7 +110,7 @@
       <p class="sp-decision-card__support">{{ card.support_note }}</p>
     {% endif %}
 
-    {% if card.cta_url %}
+    {% if card.cta_url and not card.hide_cta %}
       {% if card.cta_method == 'post' %}
         <form class="sp-card-cta" method="post" action="{{ card.cta_url }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
@@ -129,13 +130,12 @@
   <section class="sp-plan-strip">
     <div>
       <span class="sp-kicker">{{ title }}</span>
-      <p>Strength tiers for every playable matchup.</p>
+      <p>Action counts for the current slate.</p>
     </div>
     <div class="sp-plan-strip__items">
-      <span class="sp-plan-pill sp-plan-pill--best-bet"><strong>{{ summary.best_bet or 0 }}</strong> Best Bet</span>
-      <span class="sp-plan-pill sp-plan-pill--strong-lean"><strong>{{ summary.strong_lean or 0 }}</strong> Strong Lean</span>
-      <span class="sp-plan-pill sp-plan-pill--lean"><strong>{{ summary.lean or 0 }}</strong> Lean</span>
-      <span class="sp-plan-pill sp-plan-pill--risky"><strong>{{ summary.risky or 0 }}</strong> Risky</span>
+      <span class="sp-plan-pill sp-plan-pill--bet"><strong>{{ summary.bet or 0 }}</strong> BET</span>
+      <span class="sp-plan-pill sp-plan-pill--consider"><strong>{{ summary.consider or 0 }}</strong> CONSIDER</span>
+      <span class="sp-plan-pill sp-plan-pill--skip"><strong>{{ summary.skip or 0 }}</strong> SKIP</span>
     </div>
   </section>
 {%- endmacro %}
@@ -171,7 +171,7 @@
       <small>{{ row.date }} &middot; {{ row.competition }} &middot; {{ row.final_score }}</small>
     </div>
     <div>
-      <span class="sp-strength-label sp-strength-label--{{ row.strength_class }}">{{ row.strength_tier }}</span>
+      <span class="sp-action-label sp-action-label--{{ row.action_class }}">{{ row.action }}</span>
       <small>{{ row.recommended_side }} &middot; {{ row.confidence_pct }}%</small>
     </div>
     <span class="sp-status sp-status--{{ row.result }}">{{ row.result_label }}</span>
@@ -180,7 +180,7 @@
 
 {% macro empty_state(title, body='') -%}
   <div class="sp-empty-state">
-    <div class="sp-empty-state__mark">SP</div>
+    <div class="sp-empty-state__mark"><img src="{{ url_for('static', filename='media/kneeslide-mark.svg') }}" alt="" loading="lazy"></div>
     <h3>{{ title }}</h3>
     {% if body %}<p>{{ body }}</p>{% endif %}
   </div>

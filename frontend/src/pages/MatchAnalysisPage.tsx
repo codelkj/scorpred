@@ -1,8 +1,9 @@
 import { DataBadge, DecisionCard, type Decision } from '../components/DecisionCard';
 
 const decision: Decision = {
-  tier: 'Best Bet',
+  action: 'BET',
   side: 'Arsenal',
+  matchup: 'Arsenal vs Bournemouth',
   confidence: 68,
   reason: 'Strong attacking form plus home advantage.',
   data: 'Strong Data',

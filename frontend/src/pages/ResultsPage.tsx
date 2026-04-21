@@ -1,144 +1,109 @@
-const summary = [
-  { label: 'Total graded picks', value: '126' },
-  { label: 'Overall win rate', value: '61.9%' },
-  { label: 'Recent win rate', value: '64.0%' },
-  { label: 'Correct picks', value: '78' },
-  { label: 'Incorrect picks', value: '43' },
-  { label: 'Pushes', value: '5' },
-];
-
-const recentForm = ['W', 'W', 'L', 'P', 'W', 'W', 'W', 'L', 'W', 'W'];
-
-const rows = [
-  {
-    date: '2026-04-20',
-    competition: 'Premier League',
-    match: 'Arsenal vs Bournemouth',
-    score: '1-2',
-    tier: 'Best Bet',
-    side: 'Arsenal',
-    confidence: '68%',
-    status: 'Incorrect',
-  },
-  {
-    date: '2026-04-20',
-    competition: 'NBA',
-    match: 'Celtics vs Heat',
-    score: '112-108',
-    tier: 'Strong Lean',
-    side: 'Celtics',
-    confidence: '59%',
-    status: 'Correct',
-  },
-  {
-    date: '2026-04-19',
-    competition: 'Premier League',
-    match: 'Inter Milan vs AC Milan',
-    score: '1-1',
-    tier: 'Risky',
-    side: 'Inter Milan',
-    confidence: '51%',
-    status: 'Push',
-  },
-];
-
-const breakdown = [
-  { label: 'Best Bet win rate', value: '64.4%' },
-  { label: 'Strong Lean win rate', value: '58.8%' },
-  { label: 'Lean win rate', value: '54.2%' },
-  { label: 'Risky win rate', value: '49.7%' },
-  { label: 'Current streak', value: 'W2' },
-  { label: 'Best league', value: 'Premier League' },
-];
+import { useEffect, useState } from 'react';
 
 function statusClass(status: string) {
-  if (status === 'Correct') return 'text-emerald-300';
-  if (status === 'Incorrect') return 'text-rose-300';
+  if (status === 'correct') return 'text-emerald-300';
+  if (status === 'incorrect') return 'text-rose-300';
   return 'text-amber-300';
 }
 
+type LiveResult = {
+  date: string;
+  competition: string;
+  matchup: string;
+  final_score: string;
+  action_label: string;
+  recommended_side: string;
+  result: string;
+  result_label: string;
+  confidence_pct: number;
+  team_a_logo?: string;
+  team_b_logo?: string;
+};
+
+type LivePayload = {
+  recent_nba?: LiveResult[];
+  recent_soccer?: LiveResult[];
+  summary?: {
+    total_graded?: number;
+    win_rate?: number;
+    recent_win_rate?: number;
+    correct?: number;
+    incorrect?: number;
+    pushes?: number;
+  };
+};
+
+function ResultTable({ title, rows }: { title: string; rows: LiveResult[] }) {
+  return (
+    <section className="section">
+      <p className="section-label">{title}</p>
+      <div className="overflow-x-auto">
+        <table className="results-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Competition</th>
+              <th>Match</th>
+              <th>Final</th>
+              <th>Action</th>
+              <th>Side</th>
+              <th>Confidence</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${row.date}-${row.matchup}-${index}`}>
+                <td>{row.date}</td>
+                <td>{row.competition}</td>
+                <td className="text-slate-200">{row.matchup}</td>
+                <td>{row.final_score}</td>
+                <td>{row.action_label}</td>
+                <td>{row.recommended_side}</td>
+                <td>{row.confidence_pct}%</td>
+                <td className={statusClass(row.result)}>{row.result_label}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export default function ResultsPage() {
+  const [payload, setPayload] = useState<LivePayload>({});
+
+  useEffect(() => {
+    fetch('/api/results/live')
+      .then((response) => response.json())
+      .then((data) => setPayload(data))
+      .catch(() => setPayload({}));
+  }, []);
+
+  const summary = payload.summary || {};
+  const nba = payload.recent_nba || [];
+  const soccer = payload.recent_soccer || [];
+
   return (
     <div className="page-stack">
       <section className="hero-card">
-        <p className="page-eyebrow">Accountability</p>
-        <h1 className="page-title">Results</h1>
+        <p className="page-eyebrow">Results</p>
+        <h1 className="page-title">Live Recent Results</h1>
         <p className="mt-4 max-w-2xl text-slate-400">
-          A transparent record of what ScorPred recommended and what happened after the final whistle.
+          Transparent tracking for every action, side, confidence score, and final outcome.
         </p>
       </section>
 
       <section className="kpi-grid">
-        {summary.map((item) => (
-          <article key={item.label} className="card">
-            <p className="section-label">{item.label}</p>
-            <strong className="font-oswald text-3xl text-white">{item.value}</strong>
-          </article>
-        ))}
+        <article className="card"><p className="section-label">Total graded</p><strong className="font-oswald text-3xl text-white">{summary.total_graded || 0}</strong></article>
+        <article className="card"><p className="section-label">Win rate</p><strong className="font-oswald text-3xl text-white">{summary.win_rate || 0}%</strong></article>
+        <article className="card"><p className="section-label">Recent win rate</p><strong className="font-oswald text-3xl text-white">{summary.recent_win_rate || 0}%</strong></article>
+        <article className="card"><p className="section-label">Correct / Incorrect</p><strong className="font-oswald text-3xl text-white">{summary.correct || 0} / {summary.incorrect || 0}</strong></article>
       </section>
 
-      <section className="card">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="section-label">Recent Form</p>
-            <h2 className="font-oswald text-xl uppercase tracking-[0.08em] text-white">Last 10 graded picks</h2>
-          </div>
-          <div className="form-strip">
-            {recentForm.map((item, index) => (
-              <span key={`${item}-${index}`} className={`form-dot form-dot-${item}`}>{item}</span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="mb-5 flex flex-wrap gap-3">
-          {['All leagues', 'Last 30 days', 'All tiers'].map((filter) => (
-            <button key={filter} type="button" className="rounded-full border border-white/[0.1] px-4 py-2 text-sm text-slate-300">
-              {filter}
-            </button>
-          ))}
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead>
-              <tr className="border-b border-white/[0.06] text-left text-xs uppercase tracking-[0.12em] text-slate-500">
-                <th className="pb-3 font-medium">Date</th>
-                <th className="pb-3 font-medium">Competition</th>
-                <th className="pb-3 font-medium">Match</th>
-                <th className="pb-3 font-medium">Final score</th>
-                <th className="pb-3 font-medium">Tier</th>
-                <th className="pb-3 font-medium">Side</th>
-                <th className="pb-3 font-medium">Confidence</th>
-                <th className="pb-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.05]">
-              {rows.map((row) => (
-                <tr key={`${row.date}-${row.match}`}>
-                  <td className="py-3 text-slate-500">{row.date}</td>
-                  <td className="py-3 text-slate-400">{row.competition}</td>
-                  <td className="py-3 text-slate-200">{row.match}</td>
-                  <td className="py-3 text-slate-400">{row.score}</td>
-                  <td className="py-3 text-slate-300">{row.tier}</td>
-                  <td className="py-3 text-slate-400">{row.side}</td>
-                  <td className="py-3 text-slate-400">{row.confidence}</td>
-                  <td className={`py-3 font-semibold ${statusClass(row.status)}`}>{row.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="grid-2">
-        {breakdown.map((item) => (
-          <article key={item.label} className="card">
-            <p className="section-label">{item.label}</p>
-            <strong className="font-oswald text-2xl text-white">{item.value}</strong>
-          </article>
-        ))}
-      </section>
+      <ResultTable title="NBA (Last 10)" rows={nba} />
+      <ResultTable title="Soccer (Last 50)" rows={soccer} />
     </div>
   );
 }
