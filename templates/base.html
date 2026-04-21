@@ -4,6 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}ScorPred{% endblock %}</title>
+  <script>
+    try {
+      if (sessionStorage.getItem('scorpredIntroSeen') === '1') {
+        document.documentElement.classList.add('sp-loader-seen');
+      }
+    } catch (error) {
+      document.documentElement.classList.add('sp-loader-seen');
+    }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -20,6 +29,28 @@
 {% set match_analysis_href = '/prediction' if session.get('team_a_id') else '/nba/prediction' if session.get('nba_team_a_id') else '/soccer' %}
 {% set match_analysis_active = request.path in ['/matchup', '/prediction'] or request.path.startswith('/nba/matchup') or request.path.startswith('/nba/prediction') %}
 <body class="{% block body_class %}{% endblock %}">
+  <div id="scorpredIntroLoader" class="sp-intro-loader" role="status" aria-live="polite" aria-label="Loading ScorPred">
+    <div class="sp-intro-loader__glow" aria-hidden="true"></div>
+    <div class="sp-intro-loader__card">
+      <div class="sp-intro-loader__media-wrap">
+        <img
+          class="sp-intro-loader__media"
+          src="{{ url_for('static', filename='media/scorpred-loader.gif') }}"
+          alt="Soccer player slide celebration silhouette animation"
+          loading="eager"
+          decoding="async"
+        />
+        <div class="sp-intro-loader__fallback" aria-hidden="true">
+          <span>SP</span>
+        </div>
+      </div>
+      <div class="sp-intro-loader__brand">
+        <span class="sp-intro-loader__kicker">Decision Intelligence</span>
+        <strong>ScorPred</strong>
+        <small>Finding the clearest edge in the slate.</small>
+      </div>
+    </div>
+  </div>
   <div class="sp-shell">
     <aside class="sp-sidebar" id="sidebar">
       <a href="/" class="sp-brand">

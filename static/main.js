@@ -1,5 +1,58 @@
 /* ── ScorPred — UI Interactions ─────────────────────────────────────────────── */
 
+/* Premium once-per-session intro loader */
+(function initScorPredIntroLoader() {
+  const loader = document.getElementById('scorpredIntroLoader');
+  if (!loader) return;
+
+  const storageKey = 'scorpredIntroSeen';
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+  function setSeen() {
+    try {
+      sessionStorage.setItem(storageKey, '1');
+    } catch (error) {
+      /* Ignore private-mode storage failures; the loader will still close. */
+    }
+  }
+
+  function removeLoader(delay = 0) {
+    window.setTimeout(() => {
+      loader.classList.add('is-hiding');
+      setSeen();
+      window.setTimeout(() => {
+        loader.remove();
+        document.documentElement.classList.add('sp-loader-seen');
+      }, reducedMotion ? 0 : 650);
+    }, delay);
+  }
+
+  try {
+    if (sessionStorage.getItem(storageKey) === '1') {
+      loader.remove();
+      document.documentElement.classList.add('sp-loader-seen');
+      return;
+    }
+  } catch (error) {
+    removeLoader(0);
+    return;
+  }
+
+  const media = loader.querySelector('.sp-intro-loader__media');
+  if (media) {
+    media.addEventListener('error', () => {
+      loader.classList.add('sp-intro-loader--asset-missing');
+    }, { once: true });
+  }
+
+  const delay = reducedMotion ? 120 : 1800;
+  if (document.readyState === 'complete') {
+    removeLoader(delay);
+  } else {
+    window.addEventListener('load', () => removeLoader(delay), { once: true });
+  }
+})();
+
 /* ── Universal tab system ──────────────────────────────────────────────────── */
 document.querySelectorAll('[data-sp-tabs]').forEach(tabGroup => {
   const tabs   = tabGroup.querySelectorAll('.sp-tab');
