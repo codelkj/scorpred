@@ -78,10 +78,15 @@
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:center">
-      <div><span style="font-size:.72rem; color:var(--text-3)">Pick</span><br><strong style="color:var(--c-strong)">{{ item.predicted_winner }}</strong></div>
-      {% if item.score_gap %}<span style="font-size:.75rem; color:var(--text-3)">Gap {{ "%.1f"|format(item.score_gap) }}/10</span>{% endif %}
+      <div><span style="font-size:.72rem; color:var(--text-3)">Pick</span><br><strong style="color:var(--c-strong)">{{ item.recommended_side }}</strong></div>
+      <span style="font-size:.75rem; color:var(--text-3)">{{ item.action }}</span>
     </div>
-    {% if item.reasoning %}<p style="font-size:.78rem; color:var(--text-2); margin-top:.4rem; border-top:1px solid var(--border); padding-top:.4rem">{{ item.reasoning }}</p>{% endif %}
+    {% if item.reason %}<p style="font-size:.78rem; color:var(--text-2); margin-top:.4rem; border-top:1px solid var(--border); padding-top:.4rem">{{ item.reason }}</p>{% endif %}
+    <p style="font-size:.72rem; color:var(--text-3); margin-top:.35rem">
+      Visual Read:
+      Home form {{ item.metric_breakdown.home.form if item.metric_breakdown and item.metric_breakdown.home and item.metric_breakdown.home.form is not none else 'Data unavailable' }}
+      · Away form {{ item.metric_breakdown.away.form if item.metric_breakdown and item.metric_breakdown.away and item.metric_breakdown.away.form is not none else 'Data unavailable' }}
+    </p>
   </article>
   {% endfor %}
 

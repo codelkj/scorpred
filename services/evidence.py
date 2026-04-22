@@ -164,7 +164,6 @@ def _limited_prediction(engine, *, team_a_name: str, team_b_name: str, opp_stren
         pred.setdefault("h2h_form_a", [])
         pred.setdefault("h2h_form_b", [])
         pred["data_quality"] = "Limited"
-        pred["fallback_reason"] = reason
     return pred
 
 
@@ -517,16 +516,16 @@ def load_upcoming_fixtures(
             injuries_home = (data.get("inj_home") or []) if include_injuries else []
             injuries_away = (data.get("inj_away") or []) if include_injuries else []
 
-            fallback_reason = None
+            downgraded_reason = None
             if not form_home or not form_away:
                 reason_bits = []
                 if not form_home:
                     reason_bits.append(f"home form empty (team_id={home_id}, fixtures={len(fixtures_home)})")
                 if not form_away:
                     reason_bits.append(f"away form empty (team_id={away_id}, fixtures={len(fixtures_away)})")
-                fallback_reason = "; ".join(reason_bits)
+                downgraded_reason = "; ".join(reason_bits)
                 logger.warning("[EVIDENCE] prediction_context downgraded fixture_id=%s reason=%s",
-                               (fixture.get("fixture") or {}).get("id"), fallback_reason)
+                               (fixture.get("fixture") or {}).get("id"), downgraded_reason)
 
             prediction = engine.scorpred_predict(
                 form_a=form_home, form_b=form_away,
@@ -540,9 +539,8 @@ def load_upcoming_fixtures(
                 prediction["form_b"] = form_away
                 prediction["h2h_form_a"] = h2h_home
                 prediction["h2h_form_b"] = h2h_away
-                if fallback_reason:
+                if downgraded_reason:
                     prediction["data_quality"] = "Limited"
-                    prediction["fallback_reason"] = fallback_reason
         except Exception as exc:
             logger.warning("[EVIDENCE] prediction_context failed fixture_id=%s reason=%s",
                            (fixture.get("fixture") or {}).get("id"), exc)
