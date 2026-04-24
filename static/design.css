@@ -3263,6 +3263,7 @@ h3 { font-size: 1.05rem; }
 
 /* Action button cell */
 .sp-match-row__action { display: flex; align-items: center; gap: .4rem; }
+.sp-match-row__action form { margin: 0; }
 .sp-action-btn {
   display: inline-flex;
   align-items: center;
@@ -3296,6 +3297,16 @@ h3 { font-size: 1.05rem; }
   background: transparent;
   color: var(--text-3);
   border-color: var(--border);
+}
+.sp-action-btn--track {
+  background: linear-gradient(135deg, var(--c-strong), #2bb57a);
+  color: #040d07;
+  box-shadow: 0 2px 12px rgba(var(--c-strong-rgb),.22);
+}
+.sp-action-btn--analyze {
+  background: transparent;
+  color: var(--c-active);
+  border-color: rgba(var(--c-active-rgb), .45);
 }
 .sp-match-row__expand {
   background: none; border: none;

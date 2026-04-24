@@ -624,7 +624,8 @@ def build_decision_card(
     team_b = team_b or "Team B"
 
     confidence = analysis["confidence"]
-    action = analysis["action"]
+    raw_action = str(analysis.get("action") or "CONSIDER").upper()
+    action = "CONSIDER" if raw_action in {"SKIP", "AVOID", "NO PICK", "NOPICK"} else raw_action
     probabilities = analysis["probabilities"]
     sport = str(_.get("sport") or "soccer").lower()
     prob_a = normalize_percent(probabilities.get("a"), 0)
