@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 
@@ -113,6 +114,7 @@ def client(monkeypatch):
         ("/alerts", 200, "Alerts"),
         ("/watchlist", 200, "Watchlist"),
         ("/settings", 200, "Settings"),
+        ("/health", 200, ""),
     ],
 )
 def test_smoke_routes(client, path, expected_status, needle):
@@ -124,6 +126,46 @@ def test_smoke_routes(client, path, expected_status, needle):
     assert "Traceback" not in text
     assert "Internal Server Error" not in text
     assert "jinja2.exceptions" not in text
+
+
+def test_system_intelligence_route_smoke(client):
+    payload = {
+        "model_metrics": {"trust_score": 68, "calibration_score": 65, "win_rate": 55},
+        "calibration": {"buckets": []},
+        "system_health": {
+            "api_status": "ok",
+            "last_refresh_time": None,
+            "data_freshness": None,
+            "error_count": 0,
+            "degraded_mode": False,
+        },
+        "drift": {"drift_detected": False, "severity": "LOW", "reason": "stable performance", "short_window_metrics": {}, "long_window_metrics": {}},
+        "decision_quality": {"bet_count": 0, "consider_count": 0, "skip_count": 0, "high_confidence_accuracy": None},
+        "safeguards": {"fallback_data_used": False, "stale_data_served": False, "trust_downgraded": False},
+    }
+    with patch.object(flask_app_module, "_MATCH_BRAIN") as brain:
+        brain.get_system_intelligence.return_value = payload
+        brain.refresh_cycle.return_value = None
+        response = client.get("/system-intelligence", follow_redirects=True)
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "System Intelligence" in text
+    assert "Traceback" not in text
+    assert "Internal Server Error" not in text
+
+
+def test_health_route_returns_structured_status(client):
+    with patch.object(flask_app_module, "_MATCH_BRAIN") as brain:
+        brain.get_system_health.return_value = {
+            "degraded_mode": False,
+            "last_refresh_time": "2026-04-24T12:00:00Z",
+            "error_count": 2,
+        }
+        response = client.get("/health")
+    assert response.status_code == 200
+    payload = response.get_json()
+    for key in ("status", "app", "db", "cache", "api", "degraded_mode", "last_refresh", "error_count", "timestamp"):
+        assert key in payload
 
 
 @pytest.mark.parametrize(
@@ -142,6 +184,7 @@ def test_smoke_routes(client, path, expected_status, needle):
         "/alerts",
         "/watchlist",
         "/settings",
+        "/system-intelligence",
     ],
 )
 def test_pages_do_not_render_fake_fallback_values(client, path):

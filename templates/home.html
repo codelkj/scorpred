@@ -101,9 +101,13 @@
             <div class="sp-match-row">
               {# Match identity #}
               <div class="sp-match-row__identity sp-match-cell">
-                <button class="sp-match-row__star" aria-label="Add to watchlist">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                </button>
+                <form method="post" action="/watchlist/team">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <input type="hidden" name="team" value="{{ card.team_a }}" />
+                  <button class="sp-match-row__star" aria-label="Add {{ card.team_a }} to watchlist" type="submit">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  </button>
+                </form>
                 <div class="sp-match-row__teams">
                   {% if card.team_a_logo %}
                     <img src="{{ card.team_a_logo }}" alt="{{ card.team_a }}" class="sp-match-row__logo" onerror="this.style.display='none'">

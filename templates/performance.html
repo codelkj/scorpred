@@ -24,8 +24,13 @@
   <div class="sp-kpi-card sp-kpi-card--roi"><span class="sp-kpi-card__label">ROI</span><span class="sp-kpi-card__value">{{ roi or 'N/A' }}</span><span class="sp-kpi-card__meta">Analysis mode</span></div>
   <div class="sp-kpi-card sp-kpi-card--accuracy"><span class="sp-kpi-card__label">Win Rate</span><span class="sp-kpi-card__value">{{ win_rate or 'N/A' }}</span><span class="sp-kpi-card__meta">Settled predictions</span></div>
   <div class="sp-kpi-card sp-kpi-card--bet"><span class="sp-kpi-card__label">Tracked Matches</span><span class="sp-kpi-card__value">{{ total_bets or 0 }}</span><span class="sp-kpi-card__meta">Open + completed</span></div>
-  <div class="sp-kpi-card"><span class="sp-kpi-card__label">Record</span><span class="sp-kpi-card__value" style="font-size:1.3rem">{{ record or '0W - 0L - 0O' }}</span><span class="sp-kpi-card__meta">Correct - Incorrect - Open</span></div>
+  <div class="sp-kpi-card"><span class="sp-kpi-card__label">Record</span><span class="sp-kpi-card__value" style="font-size:1.3rem">{{ record or '0W - 0L - 0P' }}</span><span class="sp-kpi-card__meta">Correct - Incorrect - Push</span></div>
   <div class="sp-kpi-card"><span class="sp-kpi-card__label">Avg. Odds</span><span class="sp-kpi-card__value">N/A</span><span class="sp-kpi-card__meta">No betting fields stored</span></div>
+</div>
+<div class="sp-kpi-row" style="grid-template-columns:repeat(3,1fr);margin-top:.75rem">
+  <div class="sp-kpi-card"><span class="sp-kpi-card__label">Model Trust Score</span><span class="sp-kpi-card__value">{{ trust_score if trust_score is not none else 'N/A' }}</span><span class="sp-kpi-card__meta">{{ trust_label or 'Insufficient Data' }}</span></div>
+  <div class="sp-kpi-card"><span class="sp-kpi-card__label">Calibration Score</span><span class="sp-kpi-card__value">{{ format_percent_decimal(calibration_score, plus=False, empty='N/A') }}</span><span class="sp-kpi-card__meta">Evaluated: {{ evaluated_sample_size or 0 }}</span></div>
+  <div class="sp-kpi-card"><span class="sp-kpi-card__label">Calibration Error</span><span class="sp-kpi-card__value">{{ calibration_error if calibration_error is not none else 'N/A' }}</span><span class="sp-kpi-card__meta">Lower is better</span></div>
 </div>
 
 <div class="sp-perf-panel" style="margin:1rem 0 1.25rem">
@@ -54,6 +59,28 @@
     </div>
   {% else %}
     {{ ui.empty_state('No matches in this window', 'Try switching to another date range tab.') }}
+  {% endif %}
+</section>
+
+<section class="sp-section">
+  <div class="sp-section__header"><div><h2>Calibration</h2><p>Confidence buckets vs actual evaluated win rates.</p></div></div>
+  {% if calibration_rows %}
+    <div class="sp-bets-table">
+      <div class="sp-bets-table__head" style="grid-template-columns:140px 120px 160px 160px 120px">
+        <span>Bucket</span><span>Sample</span><span>Avg Confidence</span><span>Actual Win Rate</span><span>Error</span>
+      </div>
+      {% for row in calibration_rows %}
+      <div class="sp-bets-row" style="grid-template-columns:140px 120px 160px 160px 120px">
+        <span>{{ row.bucket }}</span>
+        <span>{{ row.sample_size }}</span>
+        <span>{{ row.avg_confidence }}%</span>
+        <span>{{ row.actual_win_rate }}%</span>
+        <span>{{ row.error }}%</span>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('Calibration unavailable', 'Not enough evaluated matches yet.') }}
   {% endif %}
 </section>
 {% endblock %}

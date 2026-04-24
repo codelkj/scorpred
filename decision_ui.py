@@ -631,6 +631,11 @@ def build_decision_card(
     prob_a = normalize_percent(probabilities.get("a"), 0)
     prob_b = normalize_percent(probabilities.get("b"), 0)
     prob_draw = normalize_percent(probabilities.get("draw"), 0) if sport == "soccer" else 0
+    recommended_side = str(analysis.get("recommended_side") or "").strip() or team_a
+    recommended_side_l = recommended_side.lower()
+    if " vs " in recommended_side_l or ("vs" in recommended_side_l and len(recommended_side) > 22):
+        recommended_side = team_a if prob_a >= prob_b else team_b
+
     card = {
         "matchup": matchup or f"{team_a} vs {team_b}",
         "team_a": team_a,
@@ -645,7 +650,7 @@ def build_decision_card(
         "confidence": confidence,
         "probabilities": probabilities,
         "action": action,
-        "recommended_side": analysis["recommended_side"],
+        "recommended_side": recommended_side,
         "reason": analysis["reason"],
         "data_quality": analysis["data_quality"],
         "metric_breakdown": analysis.get("metric_breakdown"),
@@ -655,14 +660,14 @@ def build_decision_card(
         "action_class": str(action).lower(),
         "probability_rows": (
             [
-                {"label": team_a, "value": prob_a, "selected": analysis.get("recommended_side") == team_a},
+                {"label": team_a, "value": prob_a, "selected": recommended_side == team_a},
                 {"label": "Draw", "value": prob_draw, "selected": False},
-                {"label": team_b, "value": prob_b, "selected": analysis.get("recommended_side") == team_b},
+                {"label": team_b, "value": prob_b, "selected": recommended_side == team_b},
             ]
             if sport == "soccer"
             else [
-                {"label": team_a, "value": prob_a, "selected": analysis.get("recommended_side") == team_a},
-                {"label": team_b, "value": prob_b, "selected": analysis.get("recommended_side") == team_b},
+                {"label": team_a, "value": prob_a, "selected": recommended_side == team_a},
+                {"label": team_b, "value": prob_b, "selected": recommended_side == team_b},
             ]
         ),
         "data_confidence": {

@@ -49,8 +49,12 @@ from security import check_chat_rate_limit, configure_security, sanitize_error
 from services import analysis_assistant as assistant_services
 from services import bets_service
 from services import cache_service
+from services import calibration_service
+from services import model_trust_service
 from services import prediction_service
 from services import validators
+from services.decision_engine import DecisionEngine
+from services.match_brain import MatchBrain
 from db_models import db
 
 try:
@@ -120,6 +124,8 @@ _local_fixture_cache = TTLCache(maxsize=50, ttl=120)
 _local_league_cache = TTLCache(maxsize=20, ttl=300)
 _API_CIRCUIT: dict[str, dict[str, Any]] = {}
 _RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
+_DECISION_ENGINE = DecisionEngine()
+_MATCH_BRAIN: MatchBrain | None = None
 
 
 def _runtime_release_tag() -> str:
@@ -235,6 +241,8 @@ def inject_auth_context():
     return {
         "current_user": user_auth.current_user(),
         "is_guest": user_auth.current_user() is None,
+        "format_percent_decimal": format_percent_decimal,
+        "format_confidence": format_confidence,
     }
 
 
@@ -509,6 +517,74 @@ def _safe_float(value, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def format_percent_decimal(value: float | None, *, plus: bool = True, empty: str = "N/A") -> str:
+    if value is None:
+        return empty
+    try:
+        number = float(value) * 100.0
+    except (TypeError, ValueError):
+        return empty
+    sign = "+" if plus and number > 0 else ""
+    return f"{sign}{number:.1f}%"
+
+
+def format_confidence(value: float | int | None, *, empty: str = "N/A") -> str:
+    if value is None:
+        return empty
+    try:
+        number = int(round(float(value)))
+    except (TypeError, ValueError):
+        return empty
+    return f"{max(0, min(100, number))}%"
+
+
+def _data_quality_label(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return "Strong Data" if float(value) >= 75 else "Limited Data"
+    text = str(value or "").strip()
+    if not text:
+        return "Limited Data"
+    return text
+
+
+_TRACKING_REFRESH_LAST_RUN: datetime | None = None
+
+
+def _prediction_confidence_pct(row: dict[str, Any]) -> int:
+    explicit = row.get("confidence_pct")
+    if explicit not in (None, ""):
+        return int(round(_safe_float(explicit, 0)))
+    probs = [row.get("prob_a"), row.get("prob_b"), row.get("prob_draw")]
+    numeric = []
+    for value in probs:
+        if isinstance(value, (int, float)):
+            parsed = float(value)
+            numeric.append(parsed * 100 if 0 <= parsed <= 1 else parsed)
+    if numeric:
+        return int(round(max(0.0, min(100.0, max(numeric)))))
+    tier = str(row.get("confidence") or "").lower()
+    mapped = {"high": 72, "medium": 61, "low": 52}
+    return mapped.get(tier, 55)
+
+
+def _refresh_tracking_results_if_due(min_interval_seconds: int = 300) -> None:
+    global _TRACKING_REFRESH_LAST_RUN
+    now = datetime.now(timezone.utc)
+    if _TRACKING_REFRESH_LAST_RUN and (now - _TRACKING_REFRESH_LAST_RUN).total_seconds() < min_interval_seconds:
+        return
+    if _MATCH_BRAIN is not None:
+        try:
+            _MATCH_BRAIN.refresh_cycle(_active_league_id(), min_interval_seconds=min_interval_seconds)
+        except Exception:
+            app.logger.debug("MatchBrain refresh_cycle skipped due to provider error.", exc_info=True)
+    else:
+        try:
+            ru.update_pending_predictions()
+        except Exception:
+            app.logger.debug("Tracking auto-refresh skipped due to provider error.", exc_info=True)
+    _TRACKING_REFRESH_LAST_RUN = now
 
 
 def _normalize_probs(values: dict[str, Any] | None) -> dict[str, float]:
@@ -2223,37 +2299,46 @@ def load_fixtures_cached(league_id: int):
 
 
 def _analysis_from_fixture(fixture: dict[str, Any]) -> dict[str, Any] | None:
-    teams_block = fixture.get("teams") or {}
-    home = teams_block.get("home") or {}
-    away = teams_block.get("away") or {}
-    home_name = home.get("name")
-    away_name = away.get("name")
-    if not home_name or not away_name:
+    if _MATCH_BRAIN is None:
         return None
-    prediction, _ = _live_prediction_payload(
-        sport="soccer",
-        team_a=home_name,
-        team_b=away_name,
-        date_key=(fixture.get("fixture") or {}).get("date") or "",
-        league_key=str((fixture.get("fixture") or {}).get("id") or ""),
-        data_tier="partial",
-    )
-    best_pick = prediction.get("best_pick") or {}
-    probs = prediction.get("win_probabilities") or {}
+    canonical = _MATCH_BRAIN.canonical_from_fixture(fixture)
+    if not canonical:
+        return None
+    pred_block = canonical.get("prediction") or {}
+    metric_breakdown = canonical.get("metric_breakdown") or {}
     return {
-        "match_id": str((fixture.get("fixture") or {}).get("id") or ""),
-        "matchup": f"{home_name} vs {away_name}",
-        "confidence": prediction.get("confidence_pct"),
+        "match_id": canonical.get("match_id", ""),
+        "matchup": canonical.get("matchup", ""),
+        "league": canonical.get("league", ""),
+        "kickoff": canonical.get("kickoff", ""),
+        "status": canonical.get("status", "scheduled"),
+        "prediction": pred_block,
+        "recommended_side": canonical.get("recommended_side"),
+        "action": canonical.get("action", "SKIP"),
+        "confidence": canonical.get("confidence", 0),
         "probabilities": {
-            "a": probs.get("a"),
-            "draw": probs.get("draw"),
-            "b": probs.get("b"),
+            "a": (canonical.get("probabilities") or {}).get("home"),
+            "draw": (canonical.get("probabilities") or {}).get("draw"),
+            "b": (canonical.get("probabilities") or {}).get("away"),
         },
-        "action": "BET" if (prediction.get("confidence_pct") or 0) >= 60 else "CONSIDER",
-        "recommended_side": best_pick.get("prediction"),
-        "reason": best_pick.get("reasoning"),
-        "data_quality": ((prediction.get("data_completeness") or {}).get("tier") or "partial"),
-        "metric_breakdown": prediction.get("metric_breakdown"),
+        "data_quality": _data_quality_label(canonical.get("data_quality")),
+        "reason": canonical.get("reason") or "Decision generated from available model evidence.",
+        "metric_breakdown": {
+            "model_probability": metric_breakdown.get("model_probability"),
+            "implied_probability": metric_breakdown.get("implied_probability"),
+            "edge_score": metric_breakdown.get("edge_score"),
+            "expected_value": metric_breakdown.get("expected_value"),
+            "risk_score": metric_breakdown.get("risk_score"),
+            "risk_level": metric_breakdown.get("risk_level"),
+            "decision_grade": metric_breakdown.get("decision_grade"),
+        },
+        "model_probability": metric_breakdown.get("model_probability"),
+        "implied_probability": metric_breakdown.get("implied_probability"),
+        "edge_score": metric_breakdown.get("edge_score"),
+        "expected_value": metric_breakdown.get("expected_value"),
+        "risk_score": metric_breakdown.get("risk_score"),
+        "risk_level": metric_breakdown.get("risk_level"),
+        "decision_grade": metric_breakdown.get("decision_grade"),
     }
 
 
@@ -2275,22 +2360,50 @@ def _analysis_from_prediction_payload(
     probs = prediction.get("win_probabilities") or {}
     best_pick = prediction.get("best_pick") or {}
     data_block = prediction.get("data_completeness") if isinstance(prediction.get("data_completeness"), dict) else {}
-    tier = str(data_block.get("tier") or "").lower()
-    data_quality = "Strong Data" if tier == "strong" else "Limited Data"
+    decision = _DECISION_ENGINE.build_decision(
+        {
+            "home_name": (matchup.split(" vs ")[0] if " vs " in matchup else "Home"),
+            "away_name": (matchup.split(" vs ")[1] if " vs " in matchup else "Away"),
+            "probabilities": {
+                "home": probs.get("a") if probs.get("a") is not None else prediction.get("prob_a"),
+                "draw": probs.get("draw") if probs.get("draw") is not None else prediction.get("prob_draw"),
+                "away": probs.get("b") if probs.get("b") is not None else prediction.get("prob_b"),
+            },
+            "confidence": prediction.get("confidence_pct") or 0,
+            "recommended_side": best_pick.get("prediction") or best_pick.get("team"),
+            "data_completeness": data_block,
+            "odds": prediction.get("odds"),
+        }
+    )
     return {
         "match_id": match_id,
         "matchup": matchup,
-        "confidence": prediction.get("confidence_pct") or 0,
+        "confidence": decision.get("confidence") or 0,
         "probabilities": {
-            "a": probs.get("a") if probs.get("a") is not None else prediction.get("prob_a"),
-            "draw": probs.get("draw") if probs.get("draw") is not None else prediction.get("prob_draw"),
-            "b": probs.get("b") if probs.get("b") is not None else prediction.get("prob_b"),
+            "a": (decision.get("probabilities") or {}).get("home"),
+            "draw": (decision.get("probabilities") or {}).get("draw"),
+            "b": (decision.get("probabilities") or {}).get("away"),
         },
-        "action": prediction.get("play_type") or "CONSIDER",
-        "recommended_side": best_pick.get("prediction") or best_pick.get("team"),
-        "reason": best_pick.get("reasoning") or prediction.get("decision_summary"),
-        "data_quality": data_quality,
-        "metric_breakdown": prediction.get("metric_breakdown"),
+        "action": decision.get("action") or "CONSIDER",
+        "recommended_side": decision.get("side") or best_pick.get("prediction") or best_pick.get("team"),
+        "reason": " | ".join((decision.get("reasoning") or {}).get("strengths", [])) or best_pick.get("reasoning") or prediction.get("decision_summary"),
+        "data_quality": _data_quality_label(decision.get("data_quality")),
+        "metric_breakdown": {
+            "model_probability": decision.get("model_probability"),
+            "implied_probability": decision.get("implied_probability"),
+            "edge_score": decision.get("edge_score"),
+            "expected_value": decision.get("expected_value"),
+            "risk_score": decision.get("risk_score"),
+            "risk_level": decision.get("risk_level"),
+            "decision_grade": decision.get("decision_grade"),
+        },
+        "model_probability": decision.get("model_probability"),
+        "implied_probability": decision.get("implied_probability"),
+        "edge_score": decision.get("edge_score"),
+        "expected_value": decision.get("expected_value"),
+        "risk_score": decision.get("risk_score"),
+        "risk_level": decision.get("risk_level"),
+        "decision_grade": decision.get("decision_grade"),
     }
 
 
@@ -2465,20 +2578,9 @@ def _soccer_card_from_fixture_analysis(fixture: dict[str, Any], analysis: dict[s
             {"label": team_b, "value": probs.get("b"), "selected": card.get("recommended_side") == team_b},
         ]
         card["data_confidence"] = {"state": dq_state, "label": dq_text}
-        card["cta_url"] = "/select"
-        card["cta_method"] = "post"
-        card["cta_payload"] = {
-            "team_a": home.get("id") or "",
-            "team_b": away.get("id") or "",
-            "team_a_name": team_a,
-            "team_b_name": team_b,
-            "team_a_logo": home.get("logo") or "",
-            "team_b_logo": away.get("logo") or "",
-            "fixture_id": fixture_id,
-            "fixture_date": fixture_block.get("date") or "",
-            "league_id": league_block.get("id") or _active_league_id(),
-            "league_name": league_block.get("name") or "",
-        }
+        card["cta_url"] = f"/prediction?match_id={fixture_id}"
+        card["cta_method"] = "get"
+        card["cta_payload"] = {"match_id": fixture_id}
     return card
 
 
@@ -2492,6 +2594,20 @@ def _soccer_cards_from_fixtures(fixtures: list[dict[str, Any]]) -> list[dict[str
         except Exception as exc:
             app.logger.debug("Decision card build failed for soccer fixture: %s", exc)
     return cards
+
+
+def _fixture_by_id(match_id: str) -> dict[str, Any] | None:
+    return _FIXTURE_INDEX.get(str(match_id))
+
+
+_MATCH_BRAIN = MatchBrain(
+    load_fixtures=load_fixtures_cached,
+    get_fixture_by_id=_fixture_by_id,
+    decision_engine=_DECISION_ENGINE,
+    tracker_save=mt.save_prediction,
+    tracker_recent=mt.get_recent_predictions,
+    refresh_results=ru.update_pending_predictions,
+)
 
 
 prediction_service.configure(
@@ -4099,8 +4215,34 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 
 @app.route("/insights")
 def insights():
+    _refresh_tracking_results_if_due()
     league_id = _set_active_league(_active_league_id())
-    cards, *_ = prediction_service.get_fixture_cards(league_id)
+    if _MATCH_BRAIN is not None:
+        insights_payload = _MATCH_BRAIN.get_insights(league_id)
+        cards = []
+        for item in insights_payload.get("top_opportunities", []):
+            pred_block = item.get("prediction") or {}
+            probs = pred_block.get("probabilities") or {}
+            analysis = {
+                "match_id": item.get("match_id"),
+                "matchup": item.get("matchup"),
+                "confidence": pred_block.get("confidence"),
+                "probabilities": {"a": probs.get("home"), "draw": probs.get("draw"), "b": probs.get("away")},
+                "action": pred_block.get("action"),
+                "recommended_side": pred_block.get("side"),
+                "reason": " | ".join((pred_block.get("reasoning") or {}).get("strengths", [])),
+                "data_quality": pred_block.get("data_quality"),
+                "metric_breakdown": {
+                    "edge_score": pred_block.get("edge_score"),
+                    "risk_level": pred_block.get("risk_level"),
+                    "expected_value": pred_block.get("expected_value"),
+                },
+            }
+            card = dui.build_decision_card(analysis=analysis)
+            if card:
+                cards.append(card)
+    else:
+        cards, *_ = prediction_service.get_fixture_cards(league_id)
     all_cards = [_with_insight_metadata(card) for card in cards]
     home_context = {"all_cards": all_cards}
     sport_filter = (request.args.get("sport") or "all").strip().lower()
@@ -4186,6 +4328,7 @@ def api_results_live():
 
 @app.route("/", methods=["GET"])
 def index():
+    _refresh_tracking_results_if_due()
     home_context = _build_home_dashboard_context()
     home_context["now"] = datetime.now()
     return render_template("home.html", **_page_context(**home_context))
@@ -4195,6 +4338,7 @@ def index():
 def soccer():
     _logger.debug("Route /soccer hit")
     _set_data_refresh()
+    _refresh_tracking_results_if_due()
     league_id = _set_active_league(_active_league_id())
     teams = []
     teams = _safe_external_call(lambda: ac.get_teams(league_id, SEASON), label="soccer-teams-fetch") or []
@@ -4903,6 +5047,56 @@ def prediction():
     if retry_after:
         return _error_response(429, f"Rate limit exceeded. Retry in {retry_after}s.")
     _set_data_refresh()
+    match_id = (request.args.get("match_id") or "").strip()
+    if match_id and _MATCH_BRAIN is not None:
+        canonical = _MATCH_BRAIN.get_match_analysis(match_id)
+        if not canonical:
+            return _selection_error_redirect("soccer", "Match Analysis could not be loaded for the selected match.")
+        prediction_block = canonical.get("prediction") or {}
+        probs = prediction_block.get("probabilities") or {}
+        home_team = ((canonical.get("teams") or {}).get("home") or {})
+        away_team = ((canonical.get("teams") or {}).get("away") or {})
+        scorpred = {
+            "confidence_pct": prediction_block.get("confidence", 0),
+            "play_type": prediction_block.get("action", "SKIP"),
+            "win_probabilities": {
+                "a": probs.get("home"),
+                "draw": probs.get("draw"),
+                "b": probs.get("away"),
+            },
+            "best_pick": {
+                "prediction": prediction_block.get("side"),
+                "reasoning": " | ".join((prediction_block.get("reasoning") or {}).get("strengths", [])),
+            },
+            "decision_card": dui.build_decision_card(
+                analysis={
+                    "match_id": canonical.get("match_id"),
+                    "matchup": canonical.get("matchup"),
+                    "confidence": prediction_block.get("confidence"),
+                    "probabilities": {"a": probs.get("home"), "draw": probs.get("draw"), "b": probs.get("away")},
+                    "action": prediction_block.get("action"),
+                    "recommended_side": prediction_block.get("side"),
+                    "reason": " | ".join((prediction_block.get("reasoning") or {}).get("strengths", [])),
+                    "data_quality": prediction_block.get("data_quality"),
+                    "metric_breakdown": {
+                        "edge_score": prediction_block.get("edge_score"),
+                        "risk_level": prediction_block.get("risk_level"),
+                        "expected_value": prediction_block.get("expected_value"),
+                    },
+                }
+            ),
+        }
+        return render_template(
+            "prediction.html",
+            **_page_context(
+                team_a=home_team,
+                team_b=away_team,
+                prediction={"ui_prediction": scorpred},
+                scorpred=scorpred,
+                selected_fixture={"fixture_id": canonical.get("match_id"), "date": canonical.get("kickoff")},
+                **_league_context(_active_league_id()),
+            ),
+        )
     team_a, team_b = _require_teams()
     if not team_a:
         return _selection_error_redirect("soccer", "Match Analysis could not be opened because no soccer fixture is selected.")
@@ -5316,7 +5510,8 @@ def api_football_team_form():
 
 @app.route("/api/player-stats", methods=["GET"])
 def api_player_stats():
-    player_id = _safe_int(request.args.get("player_id", 0), 0)
+    raw_player_id = request.args.get("player_id", request.args.get("id", 0))
+    player_id = _safe_int(raw_player_id, 0)
     if not player_id:
         return jsonify({"error": "player_id is required"}), 400
     season = _safe_int(request.args.get("season", SEASON), SEASON)
@@ -5556,22 +5751,6 @@ def worldcup():
         ),
     )
 
-
-
-
-@app.route("/api/football/leagues")
-def football_leagues_api():
-    return jsonify(
-        {
-            "leagues": _football_supported_leagues(),
-            "default_league_id": LEAGUE,
-            "season": SEASON,
-            "data_source": _football_data_source(),
-            "last_updated": _now_stamp(),
-        }
-    )
-
-
 @app.route("/health")
 @app.route("/status")
 def health():
@@ -5582,102 +5761,29 @@ def health():
         db_status = "unavailable"
     cache_status = "redis" if cache_service._get_redis_client() is not None else "local"
     api_ok = _safe_external_call(lambda: ac.get_teams(_active_league_id(), SEASON), retries=1, label="health-api-check") is not None
+    brain_health = {}
+    if _MATCH_BRAIN is not None:
+        try:
+            brain_health = _MATCH_BRAIN.get_system_health() or {}
+        except Exception:
+            app.logger.warning("health: failed to read MatchBrain system health", exc_info=True)
+            brain_health = {}
+
+    degraded_mode = bool(brain_health.get("degraded_mode")) or db_status != "connected" or not api_ok
     return jsonify(
         {
-            "status": "ok" if db_status == "connected" else "degraded",
+            "status": "ok" if not degraded_mode else "degraded",
             "app": "ScorPred",
             "release": _runtime_release_tag(),
             "db": db_status,
             "cache": cache_status,
             "api": "reachable" if api_ok else "unreachable",
+            "degraded_mode": degraded_mode,
+            "last_refresh": brain_health.get("last_refresh_time"),
+            "error_count": int(brain_health.get("error_count") or 0),
             "timestamp": _now_stamp(),
         }
     )
-
-
-@app.route("/api/football/teams")
-def football_teams_api():
-    _set_data_refresh()
-    league_id = request.args.get("league", default=LEAGUE, type=int)
-    season = request.args.get("season", default=SEASON, type=int)
-    try:
-        teams = ac.get_teams(league_id, season)
-    except Exception as exc:
-        return jsonify({"teams": [], "league": LEAGUE_BY_ID.get(league_id, {}), "error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
-
-    payload = []
-    for entry in teams:
-        team = entry.get("team") or entry or {}
-        venue = entry.get("venue") or {}
-        if not team.get("id"):
-            continue
-        payload.append({
-            "id": team.get("id"),
-            "name": team.get("name"),
-            "logo": team.get("logo", ""),
-            "country": team.get("country", ""),
-            "league_id": league_id,
-            "venue_name": venue.get("name", ""),
-        })
-    payload.sort(key=lambda item: item["name"])
-    return jsonify({"teams": payload, "league": LEAGUE_BY_ID.get(league_id, {}), "data_source": _football_data_source(), "last_updated": _now_stamp()})
-
-
-@app.route("/api/football/team-form")
-def football_team_form_api():
-    _set_data_refresh()
-    team_id = request.args.get("team_id", type=int)
-    if not team_id:
-        return jsonify({"error": "team_id is required"}), 400
-    try:
-        payload = _team_form_payload(team_id)
-        payload["data_source"] = _football_data_source()
-        payload["last_updated"] = _now_stamp()
-        return jsonify(payload)
-    except Exception as exc:
-        return jsonify({"error": sanitize_error(exc), "form_string": "", "rows": [], "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
-
-
-@app.route("/api/football/squad")
-def football_squad_api():
-    _set_data_refresh()
-    team_id = request.args.get("team_id", type=int)
-    league_id = request.args.get("league", default=LEAGUE, type=int)
-    if not team_id:
-        return jsonify({"error": "team_id is required"}), 400
-
-    try:
-        squad = ac.get_squad(team_id, SEASON)
-    except Exception as exc:
-        return jsonify({"players": [], "league_id": league_id, "error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 200
-
-    payload = []
-    for entry in squad:
-        player = entry.get("player") or entry
-        position = (
-            player.get("pos")
-            or entry.get("position")
-            or entry.get("pos")
-            or ""
-        )
-        position_group = ac.normalize_position_group(position)
-        payload.append({
-            "id": player.get("id"),
-            "name": player.get("name") or player.get("firstname") or "",
-            "firstname": player.get("firstname", ""),
-            "lastname": player.get("lastname", ""),
-            "photo": player.get("photo", ""),
-            "number": player.get("number"),
-            "position": position,
-            "position_group": position_group,
-            "default_markets": ac.POSITION_DEFAULT_MARKETS.get(
-                position_group,
-                ac.POSITION_DEFAULT_MARKETS.get("", []),
-            ),
-        })
-    payload = [p for p in payload if p.get("id")]
-    payload.sort(key=lambda item: item["name"])
-    return jsonify({"players": payload, "league_id": league_id, "data_source": _football_data_source(), "last_updated": _now_stamp()})
 
 
 @app.route("/api/football/relevant-competitions")
@@ -5740,8 +5846,8 @@ def football_prefetch_competition_api():
 
 @app.route("/my-bets", methods=["GET"])
 def my_bets():
-    ru.update_pending_predictions()
-    tracked = mt.get_recent_predictions(limit=300)
+    _refresh_tracking_results_if_due()
+    tracked = _MATCH_BRAIN.refresh_tracked_matches() if _MATCH_BRAIN is not None else mt.get_recent_predictions(limit=300)
 
     status_filter = (request.args.get("status") or "all").strip().lower()
     if status_filter not in {"all", "open", "settled"}:
@@ -5779,7 +5885,7 @@ def my_bets():
                 "score": score_label,
                 "result_label": result_label,
                 "result_class": result_class,
-                "confidence": int(round(_safe_float(item.get("confidence_pct"), 0))),
+                "confidence": _prediction_confidence_pct(item),
             }
         )
 
@@ -5816,6 +5922,10 @@ def add_bet():
         data = validators.validate_bet_payload(data)
     except validators.ValidationError as exc:
         return {"status": "error", "error": str(exc)}, 400
+    if _MATCH_BRAIN is not None:
+        canonical = _MATCH_BRAIN.get_match_analysis(data.get("match_id"))
+        if canonical:
+            _MATCH_BRAIN.track_match(canonical)
     try:
         created = bets_service.create_bet(data)
     except bets_service.BetValidationError as exc:
@@ -5839,7 +5949,7 @@ def delete_bet(bet_id: int):
 
 @app.route("/performance", methods=["GET"])
 def performance():
-    ru.update_pending_predictions()
+    _refresh_tracking_results_if_due()
     window = (request.args.get("window") or "all").strip().lower()
     supported_windows = {"today", "tomorrow", "yesterday", "week", "month", "all"}
     if window not in supported_windows:
@@ -5913,7 +6023,7 @@ def performance():
                 "score": score_label,
                 "status": status,
                 "status_class": status_class,
-                "confidence": int(round(_safe_float(row.get("confidence_pct"), 0))),
+                "confidence": _prediction_confidence_pct(row),
             }
         )
 
@@ -5928,12 +6038,31 @@ def performance():
         profit_trend_values.append(cumulative)
 
     win_rate = "N/A" if settled_count == 0 else f"{win_rate_value:.1f}%"
+    calibration = calibration_service.get_calibration(completed_window)
+    recent_evaluated = completed_window[:30]
+    recent_accuracy = None
+    if recent_evaluated:
+        recent_accuracy = sum(1 for row in recent_evaluated if row.get("is_correct") is True) / len(recent_evaluated)
+    dq_values = []
+    for row in completed_window:
+        factors = row.get("model_factors") if isinstance(row.get("model_factors"), dict) else {}
+        snapshot = factors.get("canonical_snapshot") if isinstance(factors, dict) else {}
+        dq = (snapshot or {}).get("data_quality")
+        if isinstance(dq, (int, float)):
+            dq_values.append(float(dq))
+    average_data_quality = (sum(dq_values) / len(dq_values)) if dq_values else None
+    trust = model_trust_service.compute_trust_score(
+        calibration_score=calibration.get("calibration_score"),
+        recent_accuracy=recent_accuracy,
+        average_data_quality=average_data_quality,
+        sample_size=len(completed_window),
+    )
     ctx = _page_context()
     ctx.update({
         "roi": "N/A",
         "win_rate": win_rate,
         "total_profit": "N/A",
-        "record": f"{won_count}W - {lost_count}L - {open_count}O",
+        "record": f"{won_count}W-{lost_count}L-{max(0, settled_count - won_count - lost_count)}P",
         "avg_odds": "N/A",
         "won_count": won_count,
         "lost_count": lost_count,
@@ -5944,6 +6073,12 @@ def performance():
         "profit_trend_labels": profit_trend_labels,
         "profit_trend_values": profit_trend_values,
         "results_rows": scoreboard_rows,
+        "calibration_rows": calibration.get("rows") or [],
+        "calibration_error": calibration.get("calibration_error"),
+        "calibration_score": calibration.get("calibration_score"),
+        "trust_score": trust.get("trust_score"),
+        "trust_label": trust.get("label"),
+        "evaluated_sample_size": len(completed_window),
         "window": window,
         "window_counts": {
             "today": len([r for r in completed + pending if _in_window(_as_dt(r)) and (_as_dt(r) and (_as_dt(r).date() - base_date).days == 0)]),
@@ -5960,29 +6095,113 @@ def performance():
 @app.route("/alerts", methods=["GET"])
 def alerts():
     league_id = _active_league_id()
-    cards = prediction_service.get_top_opportunities(league_id) or []
-    active_alerts = []
-    for card in cards:
-        active_alerts.append(
+    if _MATCH_BRAIN is not None:
+        canonical_alerts = _MATCH_BRAIN.get_alerts(league_id)
+        active_alerts = [
             {
-                "level": "high" if str(card.get("action") or "").upper() == "BET" else "info",
-                "type": "Opportunity",
-                "title": card.get("matchup") or "Unavailable",
-                "description": f"Pick: {card.get('recommended_side') or 'Unavailable'} · Confidence: {int(_safe_float(card.get('confidence_pct'), 0))}%",
+                "level": "high" if row.get("type") == "high_confidence_opportunity" else "info",
+                "type": row.get("type", "Alert").replace("_", " ").title(),
+                "title": row.get("title") or "Alert",
+                "description": row.get("description") or "",
                 "time": "Live",
-                "match_url": "/soccer",
+                "match_url": f"/prediction?match_id={row.get('match_id')}" if row.get("match_id") else "/soccer",
             }
-        )
+            for row in canonical_alerts
+        ]
+    else:
+        cards = prediction_service.get_top_opportunities(league_id) or []
+        active_alerts = []
+        for card in cards:
+            active_alerts.append(
+                {
+                    "level": "high" if str(card.get("action") or "").upper() == "BET" else "info",
+                    "type": "Opportunity",
+                    "title": card.get("matchup") or "Unavailable",
+                    "description": f"Pick: {card.get('recommended_side') or 'Unavailable'} · Confidence: {int(_safe_float(card.get('confidence_pct'), 0))}%",
+                    "time": "Live",
+                    "match_url": "/soccer",
+                }
+            )
     ctx = _page_context()
     ctx.update({"active_alerts": active_alerts, "alert_count": len(active_alerts)})
     return render_template("alerts.html", **ctx)
 
 
+@app.route("/system-intelligence", methods=["GET"])
+def system_intelligence():
+    if _MATCH_BRAIN is None:
+        return render_template("system_intelligence.html", intelligence={}, **_page_context())
+    _MATCH_BRAIN.refresh_cycle(_active_league_id(), min_interval_seconds=60)
+    intelligence = _MATCH_BRAIN.get_system_intelligence()
+    return render_template("system_intelligence.html", intelligence=intelligence, **_page_context())
+
+
 @app.route("/watchlist", methods=["GET"])
 def watchlist():
+    watched_names = session.get("watchlist_teams") if isinstance(session.get("watchlist_teams"), list) else []
+    watched_names = [str(team).strip() for team in watched_names if str(team).strip()]
+    watched_set = {team.lower() for team in watched_names}
+
+    league_id = _active_league_id()
+    _, fixtures, _, _, _ = prediction_service.get_fixture_cards(league_id)
+    upcoming_matches = []
+    for fixture in fixtures or []:
+        teams_block = fixture.get("teams") or {}
+        home = (teams_block.get("home") or {}).get("name") or ""
+        away = (teams_block.get("away") or {}).get("name") or ""
+        if not home or not away:
+            continue
+        if home.lower() not in watched_set and away.lower() not in watched_set:
+            continue
+        upcoming_matches.append(
+            {
+                "matchup": f"{home} vs {away}",
+                "date": _format_prediction_date(((fixture.get("fixture") or {}).get("date") or "")),
+                "league": ((fixture.get("league") or {}).get("name") or f"League {league_id}"),
+            }
+        )
+    upcoming_matches = sorted(upcoming_matches, key=lambda row: row.get("date", ""))[:40]
+    watched_teams = []
+    for team_name in watched_names:
+        next_match = next((m["matchup"] for m in upcoming_matches if team_name.lower() in m["matchup"].lower()), "No upcoming match")
+        watched_teams.append(
+            {
+                "name": team_name,
+                "logo": "",
+                "league": "Tracked",
+                "next_match": next_match,
+                "recent_form": [],
+                "form_pct": None,
+            }
+        )
     ctx = _page_context()
-    ctx.update({"watched_teams": []})
+    ctx.update({"watched_teams": watched_teams, "watchlist_matches": upcoming_matches})
     return render_template("watchlist.html", **ctx)
+
+
+@app.route("/watchlist/team", methods=["POST"])
+def watchlist_team_add():
+    retry_after = _check_rate_limit("watchlist-team", limit=60, window_seconds=60)
+    if retry_after:
+        return {"status": "error", "message": "rate limit exceeded", "retry_after": retry_after}, 429
+    team = str(request.form.get("team") or request.args.get("team") or "").strip()
+    if not team:
+        return redirect(request.referrer or url_for("watchlist"))
+    watched = session.get("watchlist_teams") if isinstance(session.get("watchlist_teams"), list) else []
+    normalized = {str(name).strip().lower() for name in watched}
+    if team.lower() not in normalized:
+        watched.append(team)
+    session["watchlist_teams"] = watched
+    return redirect(request.referrer or url_for("watchlist"))
+
+
+@app.route("/watchlist/team/remove", methods=["POST"])
+def watchlist_team_remove():
+    team = str(request.form.get("team") or request.args.get("team") or "").strip().lower()
+    watched = session.get("watchlist_teams") if isinstance(session.get("watchlist_teams"), list) else []
+    watched = [name for name in watched if str(name).strip().lower() != team]
+    session["watchlist_teams"] = watched
+    return redirect(request.referrer or url_for("watchlist"))
 
 
 @app.route("/settings", methods=["GET"])

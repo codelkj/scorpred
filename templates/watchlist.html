@@ -41,9 +41,13 @@
               <div class="sp-watch-team-card__name">{{ team.name }}</div>
               <div class="sp-watch-team-card__league">{{ team.league or 'League' }}</div>
             </div>
-            <button class="sp-watch-team-card__star" aria-label="Starred">
-              <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:16px;height:16px;display:block"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            </button>
+            <form method="post" action="/watchlist/team/remove">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="team" value="{{ team.name }}" />
+              <button class="sp-watch-team-card__star" aria-label="Remove {{ team.name }} from watchlist" type="submit">
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:16px;height:16px;display:block"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              </button>
+            </form>
           </div>
           <div class="sp-watch-team-card__next">
             Next: {{ team.next_match or 'No upcoming match' }}
@@ -75,11 +79,22 @@
 
 {# ── Matches Tab ──────────────────────────────────────────────────────────────── #}
 <div id="watch-matches" style="display:none">
-  {{ ui.empty_state('No matches in watchlist', 'Add matches from the Soccer page to track them here.') }}
-  <div style="margin-top:1rem;display:flex;gap:.6rem">
-    <a href="/soccer" class="btn btn-primary btn-sm">Browse Soccer</a>
-    <a href="/nba/" class="btn btn-secondary btn-sm">Browse NBA</a>
-  </div>
+  {% if watchlist_matches %}
+    <div class="sp-bets-table">
+      <div class="sp-bets-table__head">
+        <span>Date</span><span>Match</span><span>League</span>
+      </div>
+      {% for row in watchlist_matches %}
+        <div class="sp-bets-row" style="grid-template-columns:180px 1fr 180px">
+          <span class="sp-bets-row__date">{{ row.date }}</span>
+          <span>{{ row.matchup }}</span>
+          <span>{{ row.league }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('No matches in watchlist', 'Add teams from Soccer/NBA and upcoming games will show here.') }}
+  {% endif %}
 </div>
 
 {% endblock %}

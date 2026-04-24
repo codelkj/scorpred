@@ -2268,8 +2268,47 @@ class TestNbaFailureHandling:
         assert "Spread" in analysis["alignment"]["weak_legs"]
         assert "Total Points" in analysis["alignment"]["weak_legs"]
 
-    def test_worldcup_same_team_shows_error(self, client):
-        with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
-            rv = client.post("/worldcup", data={"team_a": "Brazil", "team_b": "Brazil"})
+def test_worldcup_same_team_shows_error(client):
+    with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
+        rv = client.post("/worldcup", data={"team_a": "Brazil", "team_b": "Brazil"})
+    assert rv.status_code == 200
+    assert b"different" in rv.data.lower() or b"error" in rv.data.lower()
+
+
+class TestWatchlistAndTracking:
+    def test_watchlist_add_remove_team_flow(self, client):
+        add_resp = client.post("/watchlist/team", data={"team": "Arsenal"}, follow_redirects=True)
+        assert add_resp.status_code == 200
+        assert b"Arsenal" in add_resp.data
+
+        remove_resp = client.post("/watchlist/team/remove", data={"team": "Arsenal"}, follow_redirects=True)
+        assert remove_resp.status_code == 200
+        assert b"Arsenal" not in remove_resp.data
+
+    def test_performance_pending_rows_show_nonzero_confidence(self, client, monkeypatch):
+        monkeypatch.setattr(flask_app_module, "_refresh_tracking_results_if_due", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            flask_app_module.mt,
+            "get_completed_predictions",
+            lambda limit=2000: [],
+        )
+        monkeypatch.setattr(
+            flask_app_module.mt,
+            "get_pending_predictions",
+            lambda limit=2000: [
+                {
+                    "team_a": "Arsenal",
+                    "team_b": "Newcastle United",
+                    "sport": "soccer",
+                    "status": "pending",
+                    "prob_a": 0.61,
+                    "prob_b": 0.21,
+                    "prob_draw": 0.18,
+                    "predicted_pick_label": "Arsenal",
+                    "date": "2026-04-25T16:30:00+00:00",
+                }
+            ],
+        )
+        rv = client.get("/performance?window=all")
         assert rv.status_code == 200
-        assert b"different" in rv.data.lower() or b"error" in rv.data.lower()
+        assert b"61%" in rv.data
