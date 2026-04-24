@@ -90,14 +90,28 @@
     {% if card.probabilities %}
       <p>
         <strong>Probabilities:</strong>
-        H {{ card.probabilities.home if card.probabilities.home is not none else 'Unavailable' }} /
+        H {{ card.probabilities.a if card.probabilities.a is not none else 'Unavailable' }} /
         D {{ card.probabilities.draw if card.probabilities.draw is not none else 'Unavailable' }} /
-        A {{ card.probabilities.away if card.probabilities.away is not none else 'Unavailable' }}
+        A {{ card.probabilities.b if card.probabilities.b is not none else 'Unavailable' }}
       </p>
     {% endif %}
     <p class="sp-decision-card__reason">{{ card.reason }}</p>
     <p><strong>Visual Read:</strong> {{ card.metric_breakdown if card.metric_breakdown else "Unavailable" }}</p>
-    <button type="button" onclick="addBet('{{ card.match_id }}')">Add to Bets</button>
+    <button
+      type="button"
+      data-bet-button="1"
+      onclick='addBet(this, {{ {
+        "match_id": card.match_id,
+        "matchup": card.matchup,
+        "recommended_side": card.recommended_side,
+        "action": card.action,
+        "confidence": card.confidence,
+        "probabilities": card.probabilities
+      }|tojson }})'
+    >Add to Bets</button>
+    {% if card.cta_url %}
+      <a href="{{ card.cta_url }}" class="btn btn-primary btn-sm">Analyze Match</a>
+    {% endif %}
   </article>
 {%- endmacro %}
 

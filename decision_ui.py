@@ -11,9 +11,13 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from datetime import datetime
 import hashlib
+import logging
 import re
 from typing import Any
 
+from services.prediction_contract import validate_analysis_contract
+
+_logger = logging.getLogger(__name__)
 
 TIER_ORDER = {"Best Bet": 0, "Strong Lean": 1, "Lean": 2, "Risky": 3, "No Pick": 4}
 TIER_CLASS = {
@@ -63,7 +67,7 @@ def _probability_map(prediction: dict[str, Any] | None, *, sport: str = "soccer"
     return {"a": a, "b": b, "draw": draw}
 
 
-def _probabilities_look_placeholder(probs: dict[str, float], *, sport: str) -> bool:
+def _probabilities_signal_placeholder(probs: dict[str, float], *, sport: str) -> bool:
     a = probs.get("a", 0)
     b = probs.get("b", 0)
     draw = probs.get("draw", 0)
@@ -129,7 +133,7 @@ def probability_from_prediction(prediction: dict[str, Any] | None, *, sport: str
     if explicit not in (None, ""):
         return normalize_percent(explicit)
     probs = _probability_map(prediction, sport=sport)
-    if _probabilities_look_placeholder(probs, sport=sport):
+    if _probabilities_signal_placeholder(probs, sport=sport):
         signal = _evidence_signal(prediction)
         best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
         raw_conf = str(best_pick.get("confidence") or prediction.get("confidence") or "").strip().lower()
@@ -237,7 +241,7 @@ def pick_side(
             return side, side == "No Pick", side_key, True if sport == "soccer" else draw_risk
         return pick, False, "a" if pick.lower() == team_a.lower() else ("b" if pick.lower() == team_b.lower() else ""), False
 
-    if _probabilities_look_placeholder(probs, sport=sport):
+    if _probabilities_signal_placeholder(probs, sport=sport):
         side_key = _side_key_from_context(prediction, team_a=team_a, team_b=team_b, sport=sport)
         side = team_a if side_key == "a" else team_b
         return side, False, side_key, False
@@ -248,7 +252,7 @@ def pick_side(
 
 def edge_gap(prediction: dict[str, Any] | None, *, sport: str = "soccer") -> float:
     probs = _probability_map(prediction, sport=sport)
-    if _probabilities_look_placeholder(probs, sport=sport):
+    if _probabilities_signal_placeholder(probs, sport=sport):
         return round(4 + _evidence_signal(prediction) * 5, 1)
     return abs(probs["a"] - probs["b"])
 
@@ -349,7 +353,7 @@ def _friendly_probability_rows(
     values = [a, b] + ([draw] if sport == "soccer" else [])
     flat = bool(values) and (max(values) - min(values) <= 1.0)
     missing = a == 0 and b == 0 and (sport != "soccer" or draw == 0)
-    placeholder = _probabilities_look_placeholder(probs, sport=sport)
+    placeholder = _probabilities_signal_placeholder(probs, sport=sport)
     if not missing and not flat and not placeholder:
         return probs
 
@@ -576,18 +580,96 @@ def build_decision_card(
     analysis: dict[str, Any] | None = None,
     **_: Any,
 ) -> dict[str, Any]:
+    team_a = str(_.get("team_a") or "").strip()
+    team_b = str(_.get("team_b") or "").strip()
     if not analysis:
+        prediction = _.get("prediction") if isinstance(_.get("prediction"), dict) else {}
+        team_a = team_a or "Team A"
+        team_b = team_b or "Team B"
+        probs = prediction.get("win_probabilities") if isinstance(prediction.get("win_probabilities"), dict) else {}
+        if not probs:
+            probs = {
+                "a": prediction.get("prob_a") or prediction.get("team_a_probability"),
+                "draw": prediction.get("prob_draw"),
+                "b": prediction.get("prob_b") or prediction.get("team_b_probability"),
+            }
+        best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
+        conf = prediction.get("confidence_pct") or prediction.get("confidence") or 0
+        if isinstance(conf, str):
+            conf = 70 if conf.lower() == "high" else 60 if conf.lower() == "medium" else 52
+        data_block = prediction.get("data_completeness") if isinstance(prediction.get("data_completeness"), dict) else {}
+        tier = str(data_block.get("tier") or "").lower()
+        analysis = {
+            "matchup": f"{team_a} vs {team_b}",
+            "confidence": conf,
+            "probabilities": {"a": probs.get("a"), "draw": probs.get("draw"), "b": probs.get("b")},
+            "action": prediction.get("play_type") or ("BET" if safe_float(conf, 0) >= 62 else "CONSIDER"),
+            "recommended_side": best_pick.get("prediction") or best_pick.get("team") or team_a,
+            "reason": best_pick.get("reasoning") or prediction.get("decision_summary") or prediction.get("matchup_reading") or "",
+            "data_quality": "Strong Data" if tier == "strong" else "Limited Data",
+            "metric_breakdown": prediction.get("metric_breakdown"),
+            "match_id": _.get("match_id"),
+        }
+    contract_errors = validate_analysis_contract(analysis)
+    if contract_errors:
+        _logger.warning("Prediction contract validation failed: %s", "; ".join(contract_errors))
         return None
-    return {
-        "confidence": analysis["confidence"],
-        "probabilities": analysis["probabilities"],
-        "action": analysis["action"],
+
+    matchup = str(analysis.get("matchup") or "").strip()
+    if (not team_a or not team_b) and " vs " in matchup:
+        left, right = matchup.split(" vs ", 1)
+        team_a = team_a or left.strip() or "Team A"
+        team_b = team_b or right.strip() or "Team B"
+    team_a = team_a or "Team A"
+    team_b = team_b or "Team B"
+
+    confidence = analysis["confidence"]
+    action = analysis["action"]
+    probabilities = analysis["probabilities"]
+    sport = str(_.get("sport") or "soccer").lower()
+    prob_a = normalize_percent(probabilities.get("a"), 0)
+    prob_b = normalize_percent(probabilities.get("b"), 0)
+    prob_draw = normalize_percent(probabilities.get("draw"), 0) if sport == "soccer" else 0
+    card = {
+        "matchup": matchup or f"{team_a} vs {team_b}",
+        "team_a": team_a,
+        "team_b": team_b,
+        "team_a_logo": _.get("team_a_logo") or "",
+        "team_b_logo": _.get("team_b_logo") or "",
+        "team_a_initials": initials(team_a),
+        "team_b_initials": initials(team_b),
+        "sport": sport,
+        "competition": _.get("competition") or "",
+        "match_date": _.get("match_date") or "",
+        "confidence": confidence,
+        "probabilities": probabilities,
+        "action": action,
         "recommended_side": analysis["recommended_side"],
         "reason": analysis["reason"],
         "data_quality": analysis["data_quality"],
         "metric_breakdown": analysis.get("metric_breakdown"),
         "match_id": analysis.get("match_id"),
+        "confidence_pct": int(safe_float(confidence, 0)),
+        "action_label": action,
+        "action_class": str(action).lower(),
+        "probability_rows": (
+            [
+                {"label": team_a, "value": prob_a, "selected": analysis.get("recommended_side") == team_a},
+                {"label": "Draw", "value": prob_draw, "selected": False},
+                {"label": team_b, "value": prob_b, "selected": analysis.get("recommended_side") == team_b},
+            ]
+            if sport == "soccer"
+            else [
+                {"label": team_a, "value": prob_a, "selected": analysis.get("recommended_side") == team_a},
+                {"label": team_b, "value": prob_b, "selected": analysis.get("recommended_side") == team_b},
+            ]
+        ),
+        "data_confidence": {
+            "state": "strong" if "strong" in str(analysis["data_quality"]).lower() else ("limited" if "limited" in str(analysis["data_quality"]).lower() else "partial"),
+            "label": str(analysis["data_quality"] or "Partial Data"),
+        },
     }
+    return card
 
 
 def internal_confidence_tier(confidence_pct: float) -> str:

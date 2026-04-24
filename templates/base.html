@@ -109,7 +109,9 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
           </span>
           Alerts
-          <span class="sp-nav__badge">3</span>
+          {% if alert_count and alert_count > 0 %}
+            <span class="sp-nav__badge">{{ alert_count }}</span>
+          {% endif %}
         </a>
         <a href="/watchlist" class="{% if request.path == '/watchlist' %}active{% endif %}">
           <span class="sp-nav__icon">
@@ -229,11 +231,21 @@
   </section>
 
   <script>
-    function addBet(matchId) {
+    function addBet(button, payload) {
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || "";
       fetch("/add-bet", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({match_id: matchId})
+        body: JSON.stringify({...payload, csrf_token: csrfToken})
+      }).then((res) => {
+        if (!res.ok || !button) return;
+        const original = button.textContent;
+        button.textContent = "Added";
+        button.disabled = true;
+        setTimeout(() => {
+          button.textContent = original;
+          button.disabled = false;
+        }, 1200);
       });
     }
   </script>

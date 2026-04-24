@@ -311,7 +311,7 @@ def test_prediction_context_downgrades_when_form_is_empty():
 
     prediction = fixtures[0]["prediction"]
     assert prediction.get("data_quality") == "Limited"
-    assert "fallback_reason" in prediction
+    assert "fallback_reason" not in prediction
 
 
 def test_prediction_context_non_limited_when_form_available():
