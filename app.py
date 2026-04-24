@@ -12,6 +12,7 @@ import unicodedata
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -104,6 +105,9 @@ _EMPTY_METRICS = {
     "by_sport": {},
     "recent_predictions": [],
 }
+
+bets_store: list[dict[str, Any]] = []
+_FIXTURE_INDEX: dict[str, dict[str, Any]] = {}
 
 
 def _runtime_release_tag() -> str:
@@ -2079,6 +2083,68 @@ def _load_upcoming_fixtures(
         include_injuries=include_injuries,
         include_standings=include_standings,
     )
+
+
+@lru_cache(maxsize=20)
+def load_fixtures_cached(league_id: int):
+    fixtures, load_error, data_source, marker = _load_upcoming_fixtures(
+        next_n=12,
+        max_deep_predictions=0,
+        league=league_id,
+        include_injuries=False,
+        include_standings=False,
+    )
+    for fixture in fixtures or []:
+        fixture_id = (fixture.get("fixture") or {}).get("id")
+        if fixture_id is not None:
+            _FIXTURE_INDEX[str(fixture_id)] = fixture
+    return fixtures, load_error, data_source, marker
+
+
+def _analysis_from_fixture(fixture: dict[str, Any]) -> dict[str, Any] | None:
+    teams_block = fixture.get("teams") or {}
+    home = teams_block.get("home") or {}
+    away = teams_block.get("away") or {}
+    home_name = home.get("name")
+    away_name = away.get("name")
+    if not home_name or not away_name:
+        return None
+    prediction, _ = _live_prediction_payload(
+        sport="soccer",
+        team_a=home_name,
+        team_b=away_name,
+        date_key=(fixture.get("fixture") or {}).get("date") or "",
+        league_key=str((fixture.get("fixture") or {}).get("id") or ""),
+        data_tier="partial",
+    )
+    best_pick = prediction.get("best_pick") or {}
+    probs = prediction.get("win_probabilities") or {}
+    return {
+        "match_id": str((fixture.get("fixture") or {}).get("id") or ""),
+        "confidence": prediction.get("confidence_pct"),
+        "probabilities": {
+            "home": probs.get("a"),
+            "draw": probs.get("draw"),
+            "away": probs.get("b"),
+        },
+        "action": "BET" if (prediction.get("confidence_pct") or 0) >= 60 else "CONSIDER",
+        "recommended_side": best_pick.get("prediction"),
+        "reason": best_pick.get("reasoning"),
+        "data_quality": ((prediction.get("data_completeness") or {}).get("tier") or "partial"),
+        "metric_breakdown": prediction.get("metric_breakdown"),
+    }
+
+
+def analyze_match(match_id: str | int) -> dict[str, Any] | None:
+    fixture = _FIXTURE_INDEX.get(str(match_id))
+    if not fixture:
+        return None
+    return _analysis_from_fixture(fixture)
+
+
+@lru_cache(maxsize=500)
+def cached_analyze_match(match_id: str | int):
+    return analyze_match(match_id)
     fixtures_with_pred = []
     data_source = _football_data_source()
 
@@ -2191,50 +2257,16 @@ def _prediction_confidence_rank(item: dict) -> tuple[int, float]:
 
 
 def _soccer_decision_card_from_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
-    teams_block = fixture.get("teams") or {}
-    home = teams_block.get("home") or {}
-    away = teams_block.get("away") or {}
-    fixture_block = fixture.get("fixture") or {}
-    league_block = fixture.get("league") or {}
-    home_name = home.get("name") or "Home"
-    away_name = away.get("name") or "Away"
-    fixture_date = fixture_block.get("date") or ""
-    payload = {
-        "team_a": home.get("id") or "",
-        "team_b": away.get("id") or "",
-        "team_a_name": home_name,
-        "team_b_name": away_name,
-        "team_a_logo": home.get("logo") or "",
-        "team_b_logo": away.get("logo") or "",
-        "fixture_id": fixture_block.get("id") or "",
-        "fixture_date": fixture_date,
-        "league_id": league_block.get("id") or _active_league_id(),
-        "league_name": league_block.get("name") or "",
-        "round": league_block.get("round") or fixture.get("round") or "",
-        "venue_name": (fixture_block.get("venue") or {}).get("name") or "",
-        "data_source": fixture.get("data_source") or _football_data_source(),
-    }
-    card = dui.build_decision_card(
-        sport="soccer",
-        team_a=home_name,
-        team_b=away_name,
-        prediction=fixture.get("prediction") or {},
-        competition=league_block.get("name") or "",
-        match_date=fixture_date,
-        venue=payload["venue_name"],
-        team_a_logo=home.get("logo") or "",
-        team_b_logo=away.get("logo") or "",
-        league_logo=league_block.get("logo") or "",
-        cta_url="/select",
-        cta_label="Analyze Match",
-        cta_method="post",
-        cta_payload=payload,
-    )
-    fixture["decision_card"] = card
-    if isinstance(fixture.get("prediction"), dict):
-        fixture["prediction"]["decision_card"] = card
-        fixture["prediction"]["play_type"] = card["action"]
-        fixture["prediction"]["confidence_pct"] = card["confidence_pct"]
+    fixture_id = (fixture.get("fixture") or {}).get("id")
+    if fixture_id is None:
+        return None
+    _FIXTURE_INDEX[str(fixture_id)] = fixture
+    analysis = cached_analyze_match(str(fixture_id))
+    if not analysis:
+        return None
+    card = dui.build_decision_card(analysis=analysis)
+    if card is not None:
+        card["match_id"] = str(fixture_id)
     return card
 
 
@@ -2242,10 +2274,12 @@ def _soccer_cards_from_fixtures(fixtures: list[dict[str, Any]]) -> list[dict[str
     cards = []
     for fixture in fixtures or []:
         try:
-            cards.append(_soccer_decision_card_from_fixture(fixture))
+            card = _soccer_decision_card_from_fixture(fixture)
+            if card:
+                cards.append(card)
         except Exception as exc:
             app.logger.debug("Decision card build failed for soccer fixture: %s", exc)
-    return dui.assign_opportunity_ranks(cards)
+    return cards
 
 
 def _load_grouped_upcoming_fixtures_all_leagues(
@@ -3257,6 +3291,8 @@ def _build_home_dashboard_context() -> dict[str, Any]:
             league_logo=league_logo,
             cta_label="View Matchup",
         )
+        if not card:
+            continue
         if sport == "nba" and record.get("team_a_id") and record.get("team_b_id"):
             card.update(
                 {
@@ -3806,8 +3842,10 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 
 @app.route("/insights")
 def insights():
-    home_context = _build_home_dashboard_context()
-    all_cards = [_with_insight_metadata(card) for card in home_context.get("all_cards") or []]
+    league_id = _set_active_league(_active_league_id())
+    fixtures, _, _, _ = load_fixtures_cached(league_id)
+    all_cards = [_with_insight_metadata(card) for card in _soccer_cards_from_fixtures(fixtures)]
+    home_context = {"all_cards": all_cards}
     sport_filter = (request.args.get("sport") or "all").strip().lower()
     if sport_filter not in {"all", "soccer", "nba"}:
         sport_filter = "all"
@@ -3909,13 +3947,7 @@ def soccer():
                 "Soccer teams fetch failed",
             ),
             "fixtures": (
-                lambda: _load_upcoming_fixtures(
-                    next_n=12,
-                    max_deep_predictions=0,
-                    league=league_id,
-                    include_injuries=False,
-                    include_standings=False,
-                ),
+                lambda: load_fixtures_cached(league_id),
                 ([], "No upcoming fixtures available.", _football_data_source(), ""),
                 "Upcoming fixtures fetch failed",
             ),
@@ -3961,13 +3993,7 @@ def fixtures():
     load_error = None
     data_source = _football_data_source()
 
-    fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(
-        next_n=12,
-        max_deep_predictions=0,
-        league=league_id,
-        include_injuries=False,
-        include_standings=False,
-    )
+    fixtures_data, load_error, data_source, _ = load_fixtures_cached(league_id)
     decision_cards = _soccer_cards_from_fixtures(fixtures_data)
 
     return render_template(
@@ -4233,23 +4259,12 @@ def matchup():
         team_a_name=team_a["name"],
         team_b_name=team_b["name"],
     )
-    scorpred["decision_card"] = dui.build_decision_card(
-        sport="soccer",
-        team_a=team_a["name"],
-        team_b=team_b["name"],
-        prediction=scorpred,
-        competition=(selected_fixture or {}).get("league_name") or (LEAGUE_BY_ID.get(league_id, {}) or {}).get("name", ""),
-        match_date=(selected_fixture or {}).get("date") or "",
-        venue=(selected_fixture or {}).get("venue_name") or "",
-        team_a_logo=team_a.get("logo") or (selected_fixture or {}).get("home_logo") or "",
-        team_b_logo=team_b.get("logo") or (selected_fixture or {}).get("away_logo") or "",
-        league_logo=(selected_fixture or {}).get("league_logo") or "",
-        form_strip=form_a,
-        cta_url="/prediction",
-        cta_label="View Matchup",
-    )
-    scorpred["play_type"] = scorpred["decision_card"]["action"]
-    scorpred["confidence_pct"] = scorpred["decision_card"]["confidence_pct"]
+    selected_match_id = (selected_fixture or {}).get("fixture_id")
+    analysis = cached_analyze_match(str(selected_match_id)) if selected_match_id else None
+    scorpred["decision_card"] = dui.build_decision_card(analysis=analysis) if analysis else None
+    if scorpred["decision_card"]:
+        scorpred["play_type"] = scorpred["decision_card"].get("action")
+        scorpred["confidence_pct"] = scorpred["decision_card"].get("confidence")
 
     # â”€â”€ Compute odds edge for template display â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     edge_data: dict[str, Any] = {}
@@ -4639,6 +4654,7 @@ def player_stats_api():
 
 
 @app.route("/prediction")
+@app.route("/match-analysis")
 def prediction():
     _set_data_refresh()
     team_a, team_b = _require_teams()
@@ -4759,23 +4775,12 @@ def prediction():
         team_a_name=team_a["name"],
         team_b_name=team_b["name"],
     )
-    prediction["decision_card"] = dui.build_decision_card(
-        sport="soccer",
-        team_a=team_a["name"],
-        team_b=team_b["name"],
-        prediction=prediction,
-        competition=(selected_fixture or {}).get("league_name") or (LEAGUE_BY_ID.get(league_id, {}) or {}).get("name", ""),
-        match_date=(selected_fixture or {}).get("date") or "",
-        venue=(selected_fixture or {}).get("venue_name") or "",
-        team_a_logo=team_a.get("logo") or (selected_fixture or {}).get("home_logo") or "",
-        team_b_logo=team_b.get("logo") or (selected_fixture or {}).get("away_logo") or "",
-        league_logo=(selected_fixture or {}).get("league_logo") or "",
-        form_strip=form_a,
-        cta_url="/prediction",
-        cta_label="View Matchup",
-    )
-    prediction["play_type"] = prediction["decision_card"]["action"]
-    prediction["confidence_pct"] = prediction["decision_card"]["confidence_pct"]
+    selected_match_id = (selected_fixture or {}).get("fixture_id")
+    analysis = cached_analyze_match(str(selected_match_id)) if selected_match_id else None
+    prediction["decision_card"] = dui.build_decision_card(analysis=analysis) if analysis else None
+    if prediction["decision_card"]:
+        prediction["play_type"] = prediction["decision_card"].get("action")
+        prediction["confidence_pct"] = prediction["decision_card"].get("confidence")
     mastermind["ui_prediction"] = prediction
 
     try:
@@ -5092,10 +5097,16 @@ def today_soccer_predictions():
             home_team = teams_block.get("home", {})
             away_team = teams_block.get("away", {})
             league_block = fixture.get("league", {})
-            prediction = fixture.get("prediction", {})
-            best_pick = prediction.get("best_pick", {})
-            probs = prediction.get("win_probabilities", {})
-            card = _soccer_decision_card_from_fixture(fixture)
+            fixture_id = (fixture.get("fixture") or {}).get("id")
+            if fixture_id is None:
+                return None
+            _FIXTURE_INDEX[str(fixture_id)] = fixture
+            analysis = cached_analyze_match(str(fixture_id))
+            if not analysis:
+                return None
+            card = dui.build_decision_card(analysis=analysis)
+            if not card:
+                return None
 
             return {
                 "fixture": fixture,
@@ -5103,14 +5114,14 @@ def today_soccer_predictions():
                 "home_team": home_team,
                 "away_team": away_team,
                 "league": league_block,
-                "predicted_winner": best_pick.get("prediction", "â€”"),
-                "confidence": best_pick.get("confidence", "Low"),
-                "prob_home": probs.get("a", 50),
-                "prob_draw": probs.get("draw", 0),
-                "prob_away": probs.get("b", 50),
-                "reasoning": best_pick.get("reasoning", ""),
-                "score_gap": prediction.get("score_gap"),
-                "has_data": bool(prediction.get("form_a") and prediction.get("form_b")),
+                "predicted_winner": analysis.get("recommended_side"),
+                "confidence": analysis.get("confidence"),
+                "prob_home": (analysis.get("probabilities") or {}).get("home"),
+                "prob_draw": (analysis.get("probabilities") or {}).get("draw"),
+                "prob_away": (analysis.get("probabilities") or {}).get("away"),
+                "reasoning": analysis.get("reason"),
+                "score_gap": None,
+                "has_data": bool(analysis.get("data_quality")),
             }
         except Exception as e:
             app.logger.warning("Error preparing fixture prediction: %s", e)
@@ -5443,7 +5454,7 @@ def football_prefetch_competition_api():
 def my_bets():
     ctx = _page_context()
     ctx.update({
-        "bets": [],
+        "bets": bets_store,
         "won_count": 0,
         "lost_count": 0,
         "pushed_count": 0,
@@ -5454,6 +5465,13 @@ def my_bets():
         "total_profit": "+$0.00",
     })
     return render_template("my_bets.html", **ctx)
+
+
+@app.route("/add-bet", methods=["POST"])
+def add_bet():
+    data = request.json or {}
+    bets_store.append(data)
+    return {"status": "ok"}
 
 
 @app.route("/performance", methods=["GET"])

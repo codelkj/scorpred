@@ -228,6 +228,15 @@
     </form>
   </section>
 
+  <script>
+    function addBet(matchId) {
+      fetch("/add-bet", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({match_id: matchId})
+      });
+    }
+  </script>
   <script src="{{ url_for('static', filename='charts.js') }}"></script>
   <script src="{{ url_for('static', filename='main.js') }}"></script>
   {% block scripts %}{% endblock %}

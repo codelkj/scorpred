@@ -78,51 +78,26 @@
 {%- endmacro %}
 
 {% macro decision_card(card, variant='standard') -%}
-  <article class="sp-decision-card sp-decision-card--{{ card.strength_class }} {% if variant == 'featured' %}sp-decision-card--featured{% endif %}">
-    <div class="sp-card-identity">
-      <div class="sp-card-teams">
-        {{ logo_mark(card.team_a_logo, card.team_a, card.team_a_initials) }}
-        <span class="sp-card-versus">vs</span>
-        {{ logo_mark(card.team_b_logo, card.team_b, card.team_b_initials) }}
-      </div>
-      <div class="sp-card-match">
-        <strong>{{ card.team_a }} vs {{ card.team_b }}</strong>
-        <small>
-          {% if card.league_logo %}<img src="{{ card.league_logo }}" alt="" loading="lazy">{% endif %}
-          {{ card.competition or card.sport|upper }}
-        </small>
-      </div>
-    </div>
-
+  <article class="sp-decision-card {% if variant == 'featured' %}sp-decision-card--featured{% endif %}">
     <div class="sp-decision-card__top">
       <div>
-        <div class="sp-action-label sp-action-label--{{ card.action_class }}">{{ card.action_label or card.action }}</div>
+        <div class="sp-action-label">{{ card.action }}</div>
         <h3 class="sp-pick-side">{{ card.recommended_side }}</h3>
       </div>
-      {{ data_badge(card.data_confidence) }}
+      <span class="sp-data-badge">{{ card.data_quality }}</span>
     </div>
-
-    {{ confidence_bar(card) }}
-    {{ probability_bar(card) }}
-
-    <p class="sp-decision-card__reason">{{ card.summary_reason }}</p>
-    {% if card.support_note %}
-      <p class="sp-decision-card__support">{{ card.support_note }}</p>
+    <p><strong>Confidence:</strong> {{ card.confidence }}%</p>
+    {% if card.probabilities %}
+      <p>
+        <strong>Probabilities:</strong>
+        H {{ card.probabilities.home if card.probabilities.home is not none else 'Unavailable' }} /
+        D {{ card.probabilities.draw if card.probabilities.draw is not none else 'Unavailable' }} /
+        A {{ card.probabilities.away if card.probabilities.away is not none else 'Unavailable' }}
+      </p>
     {% endif %}
-
-    {% if card.cta_url and not card.hide_cta %}
-      {% if card.cta_method == 'post' %}
-        <form class="sp-card-cta" method="post" action="{{ card.cta_url }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-          {% for key, value in card.cta_payload.items() %}
-            <input type="hidden" name="{{ key }}" value="{{ value }}" />
-          {% endfor %}
-          <button type="submit" class="btn btn-primary btn-sm">{{ card.cta_label or 'Analyze Match' }}</button>
-        </form>
-      {% else %}
-        <a class="btn btn-primary btn-sm sp-card-cta" href="{{ card.cta_url }}">{{ card.cta_label or 'View Matchup' }}</a>
-      {% endif %}
-    {% endif %}
+    <p class="sp-decision-card__reason">{{ card.reason }}</p>
+    <p><strong>Visual Read:</strong> {{ card.metric_breakdown if card.metric_breakdown else "Unavailable" }}</p>
+    <button type="button" onclick="addBet('{{ card.match_id }}')">Add to Bets</button>
   </article>
 {%- endmacro %}
 
