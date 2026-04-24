@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from services.canonical_trust import compute as _canonical_trust, MIN_SAMPLES as _MIN_TRUST_SAMPLES
 
 _BUCKETS: list[tuple[int, int, str]] = [
     (50, 60, "50-60"),
@@ -67,11 +68,18 @@ class CalibrationEngine:
 
         if completed_predictions < self.min_samples or not errors:
             calibration_score: float | str = "insufficient data"
-            trust_score = self._trust_score(None, win_rate, completed_predictions)
+            cal_for_trust: float | None = None
         else:
             mae = sum(errors) / len(errors)
             calibration_score = round(max(0.0, 100.0 - mae), 2)
-            trust_score = self._trust_score(calibration_score, win_rate, completed_predictions)
+            cal_for_trust = calibration_score
+
+        trust_result = _canonical_trust(
+            calibration_score=cal_for_trust,
+            recent_accuracy=(win_rate / 100.0) if win_rate is not None else None,
+            sample_size=completed_predictions,
+        )
+        trust_score = trust_result["trust_score"]
 
         return {
             "total_predictions": total_predictions,
@@ -87,10 +95,3 @@ class CalibrationEngine:
             if low <= confidence < high:
                 return label
         return "90-100"
-
-    @staticmethod
-    def _trust_score(calibration_score: float | None, win_rate: float | None, sample_size: int) -> float:
-        cal = float(calibration_score or 0.0)
-        wr = float(win_rate or 0.0)
-        sample_component = min(100.0, (sample_size / 100.0) * 100.0)
-        return round(cal * 0.50 + wr * 0.30 + sample_component * 0.20, 2)

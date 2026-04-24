@@ -636,6 +636,15 @@ def build_decision_card(
     if " vs " in recommended_side_l or ("vs" in recommended_side_l and len(recommended_side) > 22):
         recommended_side = team_a if prob_a >= prob_b else team_b
 
+    mb = analysis.get("metric_breakdown") or {}
+    if not isinstance(mb, dict):
+        mb = {}
+    edge_score = mb.get("edge_score")
+    expected_value = mb.get("expected_value")
+    risk_level = str(mb.get("risk_level") or "").upper() or None
+    decision_grade = mb.get("decision_grade")
+    risk_score = mb.get("risk_score")
+
     card = {
         "matchup": matchup or f"{team_a} vs {team_b}",
         "team_a": team_a,
@@ -658,6 +667,11 @@ def build_decision_card(
         "confidence_pct": int(safe_float(confidence, 0)),
         "action_label": action,
         "action_class": str(action).lower(),
+        "edge_score": edge_score,
+        "expected_value": expected_value,
+        "risk_level": risk_level,
+        "decision_grade": decision_grade,
+        "risk_score": risk_score,
         "probability_rows": (
             [
                 {"label": team_a, "value": prob_a, "selected": recommended_side == team_a},

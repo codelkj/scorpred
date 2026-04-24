@@ -14,6 +14,9 @@ _logger = logging.getLogger(__name__)
 _local_cache = TTLCache(maxsize=2000, ttl=3600)
 _redis_client = None
 
+# Bump this when canonical payload schema changes so stale shapes are evicted.
+_CACHE_SCHEMA_VERSION = "v3"
+
 
 class _LazyModuleProxy:
     def __init__(self, module_name: str):
@@ -50,9 +53,27 @@ def _get_redis_client():
 
 
 def make_key(*parts: Any) -> str:
+    """Create a namespaced, versioned cache key.
+
+    The schema version suffix ensures that stale payloads from prior deploys
+    are never served after a canonical object shape change.
+    """
     raw = "|".join(str(p) for p in parts)
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
-    return f"scorpred:{digest}"
+    return f"scorpred:{_CACHE_SCHEMA_VERSION}:{digest}"
+
+
+def invalidate_pattern(prefix: str) -> int:
+    """Best-effort pattern invalidation for local cache.
+
+    Removes all keys whose stringified form starts with prefix.
+    Redis pattern-delete is not implemented here to avoid KEYS in production.
+    Returns count of local evictions.
+    """
+    to_delete = [k for k in list(_local_cache.keys()) if str(k).startswith(prefix)]
+    for k in to_delete:
+        _local_cache.pop(k, None)
+    return len(to_delete)
 
 
 def get_json(key: str) -> Any:

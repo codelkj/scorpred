@@ -3918,3 +3918,171 @@ h3 { font-size: 1.05rem; }
   .sp-dash-header__right { align-items: flex-start; }
   .sp-topbar__right .sp-topbar__pills { display: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Decision Metrics Panel · Risk Badges · Grade Badges · Mobile Hardening
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Decision Metrics Grid ───────────────────────────────────────────────────── */
+.sp-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .75rem;
+}
+.sp-metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  padding: .7rem .85rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.sp-metric-label {
+  font-size: .68rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-3);
+  font-weight: 700;
+}
+.sp-metric-value {
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.sp-metric-value--positive { color: var(--c-strong); }
+.sp-metric-value--negative { color: var(--c-danger); }
+.sp-text-muted { color: var(--text-3); font-weight: 400; font-size: .8rem; }
+
+/* ── Risk Badges ─────────────────────────────────────────────────────────────── */
+.sp-risk-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: .2rem .55rem;
+  border-radius: 4px;
+}
+.sp-risk-badge--low    { background: rgba(60,242,164,.12); color: var(--c-strong); }
+.sp-risk-badge--medium { background: rgba(245,158,11,.12); color: var(--c-caution); }
+.sp-risk-badge--high   { background: rgba(248,113,113,.12); color: var(--c-danger); }
+
+/* ── Grade Badges ────────────────────────────────────────────────────────────── */
+.sp-grade-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  font-size: .88rem;
+  font-weight: 900;
+}
+.sp-grade-badge--a { background: rgba(60,242,164,.18); color: var(--c-strong); }
+.sp-grade-badge--b { background: rgba(96,165,250,.18); color: var(--c-active); }
+.sp-grade-badge--c { background: rgba(245,158,11,.15); color: var(--c-caution); }
+.sp-grade-badge--d { background: rgba(248,113,113,.15); color: var(--c-danger); }
+
+/* ── Sidebar sticky on desktop ───────────────────────────────────────────────── */
+.sp-analysis-sidebar {
+  position: sticky;
+  top: calc(var(--topbar-h) + 1rem);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Mobile Hardening — touch targets, layout, navigation
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Fix mobile toggle button — minimum 44×44px touch target */
+.sp-mobile-toggle {
+  min-width: 44px;
+  min-height: 44px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: .6rem;
+  border-radius: 6px;
+}
+.sp-mobile-toggle:active { background: var(--bg-raised); }
+
+/* Fix .btn-sm touch targets on mobile */
+@media (max-width: 640px) {
+  .btn-sm {
+    padding: .5rem .9rem;
+    font-size: .84rem;
+    min-height: 36px;
+  }
+  .btn {
+    min-height: 40px;
+  }
+  .sp-topbar__auth .btn {
+    padding: .45rem .75rem;
+    font-size: .8rem;
+  }
+  .sp-metrics-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sp-analysis-sidebar {
+    position: static;
+  }
+}
+
+@media (max-width: 480px) {
+  .sp-metrics-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: .5rem;
+  }
+  .sp-metric-item {
+    padding: .55rem .65rem;
+  }
+  .sp-analysis-layout {
+    grid-template-columns: 1fr;
+  }
+  .sp-dash-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: .75rem;
+  }
+  .sp-dash-header > div:last-child {
+    align-self: flex-start;
+  }
+  /* Stack nav actions on mobile */
+  .sp-page-actions {
+    flex-direction: column;
+    gap: .5rem;
+  }
+  /* Make table rows stack on mobile */
+  .sp-bets-table__head { display: none; }
+  .sp-bets-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    padding: .75rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  /* Watch grid full width */
+  .sp-watch-grid {
+    grid-template-columns: 1fr;
+  }
+  /* KPI smaller on mobile */
+  .sp-kpi-card__value {
+    font-size: 1.4rem;
+  }
+}
+
+/* ── Swipe hint for mobile horizontal scroll ─────────────────────────────────── */
+@media (max-width: 640px) {
+  .sp-page-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: .2rem;
+  }
+  .sp-page-tabs::-webkit-scrollbar { display: none; }
+}

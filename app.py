@@ -8,6 +8,7 @@ import copy
 import os
 import sys
 import time
+import threading
 
 import re
 import unicodedata
@@ -550,6 +551,31 @@ def _data_quality_label(value: Any) -> str:
 
 
 _TRACKING_REFRESH_LAST_RUN: datetime | None = None
+_FIXTURE_AUTO_REFRESH_INTERVAL: int = int(os.environ.get("FIXTURE_REFRESH_INTERVAL_SECONDS", "900"))
+_auto_refresh_timer: threading.Timer | None = None
+
+
+def _schedule_auto_refresh(interval: int = _FIXTURE_AUTO_REFRESH_INTERVAL) -> None:
+    """Schedule a background fixture refresh without blocking request threads."""
+    global _auto_refresh_timer
+    if _auto_refresh_timer is not None:
+        _auto_refresh_timer.cancel()
+
+    def _run():
+        global _auto_refresh_timer
+        try:
+            if _MATCH_BRAIN is not None:
+                league = _active_league_id()
+                _MATCH_BRAIN.refresh_cycle(league, min_interval_seconds=0)
+                app.logger.info("auto_refresh completed league=%s", league)
+        except Exception:
+            app.logger.debug("auto_refresh background task error", exc_info=True)
+        finally:
+            _schedule_auto_refresh(interval)
+
+    _auto_refresh_timer = threading.Timer(interval, _run)
+    _auto_refresh_timer.daemon = True
+    _auto_refresh_timer.start()
 
 
 def _prediction_confidence_pct(row: dict[str, Any]) -> int:
@@ -2618,6 +2644,11 @@ prediction_service.configure(
     plan_summary=dui.plan_summary,
 )
 
+# Start background auto-refresh for upcoming match data.
+# Runs every FIXTURE_REFRESH_INTERVAL_SECONDS (default 15 min), daemon thread.
+if not app.config.get("TESTING"):
+    _schedule_auto_refresh()
+
 
 def _load_grouped_upcoming_fixtures_all_leagues(
     next_n_per_league: int = 8,
@@ -4223,19 +4254,27 @@ def insights():
         for item in insights_payload.get("top_opportunities", []):
             pred_block = item.get("prediction") or {}
             probs = pred_block.get("probabilities") or {}
+            canonical_mb = item.get("metric_breakdown") or {}
+            dq_raw = item.get("data_quality") or pred_block.get("data_quality")
+            if isinstance(dq_raw, int):
+                dq_label = "Strong Data" if dq_raw >= 75 else ("Limited Data" if dq_raw < 50 else "Partial Data")
+            else:
+                dq_label = str(dq_raw or "Partial Data")
             analysis = {
                 "match_id": item.get("match_id"),
                 "matchup": item.get("matchup"),
-                "confidence": pred_block.get("confidence"),
+                "confidence": pred_block.get("confidence") or item.get("confidence"),
                 "probabilities": {"a": probs.get("home"), "draw": probs.get("draw"), "b": probs.get("away")},
-                "action": pred_block.get("action"),
-                "recommended_side": pred_block.get("side"),
-                "reason": " | ".join((pred_block.get("reasoning") or {}).get("strengths", [])),
-                "data_quality": pred_block.get("data_quality"),
+                "action": pred_block.get("action") or item.get("action"),
+                "recommended_side": pred_block.get("side") or item.get("recommended_side"),
+                "reason": " | ".join((pred_block.get("reasoning") or {}).get("strengths", [])) or item.get("reason") or "",
+                "data_quality": dq_label,
                 "metric_breakdown": {
-                    "edge_score": pred_block.get("edge_score"),
-                    "risk_level": pred_block.get("risk_level"),
-                    "expected_value": pred_block.get("expected_value"),
+                    "edge_score": canonical_mb.get("edge_score") or pred_block.get("edge_score"),
+                    "expected_value": canonical_mb.get("expected_value") or pred_block.get("expected_value"),
+                    "risk_level": canonical_mb.get("risk_level") or pred_block.get("risk_level"),
+                    "decision_grade": canonical_mb.get("decision_grade") or pred_block.get("decision_grade"),
+                    "risk_score": canonical_mb.get("risk_score") or pred_block.get("risk_score"),
                 },
             }
             card = dui.build_decision_card(analysis=analysis)
@@ -5025,21 +5064,6 @@ def player_analyze():
     )
 
 
-@app.route("/api/player-stats")
-def player_stats_api():
-    _set_data_refresh()
-    pid = request.args.get("id", type=int)
-    league_id = request.args.get("league", default=LEAGUE, type=int)
-    season = request.args.get("season", default=SEASON, type=int)
-    if not pid:
-        return jsonify({"error": "missing id"}), 400
-    try:
-        data = ac.get_player_stats(pid, league_id, season) or []
-        return jsonify(data)
-    except Exception as exc:
-        return jsonify({"error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 500
-
-
 @app.route("/match-analysis")
 @app.route("/prediction")
 def prediction():
@@ -5068,24 +5092,29 @@ def prediction():
                 "prediction": prediction_block.get("side"),
                 "reasoning": " | ".join((prediction_block.get("reasoning") or {}).get("strengths", [])),
             },
-            "decision_card": dui.build_decision_card(
-                analysis={
-                    "match_id": canonical.get("match_id"),
-                    "matchup": canonical.get("matchup"),
-                    "confidence": prediction_block.get("confidence"),
-                    "probabilities": {"a": probs.get("home"), "draw": probs.get("draw"), "b": probs.get("away")},
-                    "action": prediction_block.get("action"),
-                    "recommended_side": prediction_block.get("side"),
-                    "reason": " | ".join((prediction_block.get("reasoning") or {}).get("strengths", [])),
-                    "data_quality": prediction_block.get("data_quality"),
-                    "metric_breakdown": {
-                        "edge_score": prediction_block.get("edge_score"),
-                        "risk_level": prediction_block.get("risk_level"),
-                        "expected_value": prediction_block.get("expected_value"),
-                    },
-                }
-            ),
         }
+        _built_card = dui.build_decision_card(
+            analysis={
+                "match_id": canonical.get("match_id"),
+                "matchup": canonical.get("matchup"),
+                "confidence": prediction_block.get("confidence"),
+                "probabilities": {"a": probs.get("home"), "draw": probs.get("draw"), "b": probs.get("away")},
+                "action": prediction_block.get("action"),
+                "recommended_side": prediction_block.get("side"),
+                "reason": " | ".join((prediction_block.get("reasoning") or {}).get("strengths", [])),
+                "data_quality": prediction_block.get("data_quality"),
+                "metric_breakdown": {
+                    "edge_score": canonical.get("edge_score") or prediction_block.get("edge_score"),
+                    "expected_value": canonical.get("expected_value") or prediction_block.get("expected_value"),
+                    "risk_level": canonical.get("risk_level") or prediction_block.get("risk_level"),
+                    "decision_grade": canonical.get("decision_grade") or prediction_block.get("decision_grade"),
+                    "risk_score": canonical.get("risk_score") or prediction_block.get("risk_score"),
+                },
+            }
+        )
+        if _built_card and isinstance(prediction_block.get("adaptive_adjustment"), dict):
+            _built_card["adaptive_adjustment"] = prediction_block["adaptive_adjustment"]
+        scorpred["decision_card"] = _built_card
         return render_template(
             "prediction.html",
             **_page_context(
@@ -5261,11 +5290,6 @@ def prediction():
             **_league_context(league_id),
         ),
     )
-
-
-@app.route("/match-analysis")
-def match_analysis():
-    return redirect(url_for("prediction"))
 
 
 @app.route("/players", methods=["GET"])

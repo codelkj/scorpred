@@ -12,12 +12,12 @@
 <div class="sp-dash-header">
   <div class="sp-dash-header__left">
     <span class="sp-kicker" style="color:var(--c-active);margin-bottom:.3rem;display:block">
-      {{ selected_fixture.league_name or current_league.name if current_league else 'Soccer' }}
+      {{ selected_fixture.league_name or (current_league.name if current_league) or 'Soccer' }}
     </span>
-    <h1>{{ team_a.name }} vs {{ team_b.name }}</h1>
+    <h1>{{ team_a.name if team_a else 'Home' }} vs {{ team_b.name if team_b else 'Away' }}</h1>
     <p>AI-powered match analysis with confidence, evidence, and data trust signals.</p>
   </div>
-  <div style="display:flex;gap:.6rem">
+  <div style="display:flex;gap:.6rem;flex-wrap:wrap">
     <a class="btn btn-secondary btn-sm" href="/soccer">Back to Soccer</a>
     <a class="btn btn-secondary btn-sm" href="/insights">Insights</a>
   </div>
@@ -28,6 +28,72 @@
     <div>
       {# Featured Decision Card #}
       {{ ui.decision_card(card, 'featured') }}
+
+      {# ── Decision Metrics Panel ──────────────────────────────────────────────── #}
+      <section class="sp-section">
+        <div class="sp-info-card">
+          <h2 style="margin-bottom:1rem">Decision Metrics</h2>
+          <div class="sp-metrics-grid">
+            <div class="sp-metric-item">
+              <span class="sp-metric-label">Edge Score</span>
+              {% if card.edge_score is not none %}
+                <span class="sp-metric-value {{ 'sp-metric-value--positive' if card.edge_score > 0 else 'sp-metric-value--negative' }}">
+                  {{ '%+.1f'|format(card.edge_score * 100) }}%
+                </span>
+              {% else %}
+                <span class="sp-metric-value sp-text-muted">Market odds unavailable</span>
+              {% endif %}
+            </div>
+            <div class="sp-metric-item">
+              <span class="sp-metric-label">Expected Value</span>
+              {% if card.expected_value is not none %}
+                <span class="sp-metric-value {{ 'sp-metric-value--positive' if card.expected_value > 0 else 'sp-metric-value--negative' }}">
+                  {{ '%+.1f'|format(card.expected_value) }} pts
+                </span>
+              {% else %}
+                <span class="sp-metric-value sp-text-muted">EV unavailable</span>
+              {% endif %}
+            </div>
+            <div class="sp-metric-item">
+              <span class="sp-metric-label">Risk Level</span>
+              <span class="sp-risk-badge sp-risk-badge--{{ (card.risk_level or 'medium')|lower }}">
+                {{ card.risk_level or 'N/A' }}
+              </span>
+            </div>
+            <div class="sp-metric-item">
+              <span class="sp-metric-label">Decision Grade</span>
+              <span class="sp-grade-badge sp-grade-badge--{{ (card.decision_grade or 'c')|lower }}">
+                {{ card.decision_grade or 'N/A' }}
+              </span>
+            </div>
+          </div>
+
+          {# Adaptive safeguard trace #}
+          {% set aa = card.adaptive_adjustment if card.adaptive_adjustment is mapping else none %}
+          {% if aa %}
+            <div style="margin-top:1rem;padding-top:.75rem;border-top:1px solid var(--border)">
+              <small class="sp-kicker" style="display:block;margin-bottom:.5rem">Adaptive Safeguards</small>
+              <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+                {% if aa.drift_detected %}
+                  <span class="sp-badge sp-badge--caution">Drift Detected · {{ aa.drift_severity or 'LOW' }}</span>
+                {% endif %}
+                {% if aa.threshold_shift %}
+                  <span class="sp-badge sp-badge--muted">Threshold {{ '%+d'|format(aa.threshold_shift) }}%</span>
+                {% endif %}
+                {% if aa.trust_modifier %}
+                  <span class="sp-badge sp-badge--muted">Trust adj {{ '%+d'|format(aa.trust_modifier) }}</span>
+                {% endif %}
+                {% if aa.calibration_penalty %}
+                  <span class="sp-badge sp-badge--muted">Cal penalty {{ '%+d'|format(aa.calibration_penalty) }}</span>
+                {% endif %}
+                {% if not aa.drift_detected and not aa.threshold_shift and not aa.trust_modifier %}
+                  <span style="color:var(--text-3);font-size:.8rem">All systems nominal</span>
+                {% endif %}
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </section>
 
       {# Why Win #}
       <section class="sp-section">
@@ -95,11 +161,23 @@
       </section>
     </div>
 
-    {# Trust Check Sidebar #}
-    <aside class="sp-info-card" style="align-self:start;position:sticky;top:calc(var(--topbar-h) + 1rem)">
+    {# ── Trust Check Sidebar ──────────────────────────────────────────────────── #}
+    <aside class="sp-info-card sp-analysis-sidebar" style="align-self:start">
       <h2 style="margin-bottom:.85rem">Trust Check</h2>
       {{ ui.data_badge(card.data_confidence) }}
-      <p class="sp-muted" style="margin-top:.75rem;font-size:.84rem">{{ (scorpred.data_completeness or {}).summary or card.support_text or 'Data quality assessment for this matchup.' }}</p>
+      <p class="sp-muted" style="margin-top:.75rem;font-size:.84rem">{{ (scorpred.data_completeness or {}).get('summary') or card.support_text or 'Data quality assessment for this matchup.' }}</p>
+
+      {# Grade + Risk quick stat #}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-top:.85rem">
+        <div style="text-align:center;padding:.5rem;background:var(--bg-card);border-radius:6px;border:1px solid var(--border)">
+          <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">Grade</div>
+          <div class="sp-grade-badge sp-grade-badge--{{ (card.decision_grade or 'c')|lower }}" style="font-size:1.1rem;margin-top:.25rem">{{ card.decision_grade or '—' }}</div>
+        </div>
+        <div style="text-align:center;padding:.5rem;background:var(--bg-card);border-radius:6px;border:1px solid var(--border)">
+          <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">Risk</div>
+          <div class="sp-risk-badge sp-risk-badge--{{ (card.risk_level or 'medium')|lower }}" style="margin-top:.25rem">{{ card.risk_level or '—' }}</div>
+        </div>
+      </div>
 
       {% if selected_fixture %}
         <div style="margin-top:.85rem">

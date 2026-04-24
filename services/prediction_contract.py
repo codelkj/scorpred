@@ -1,3 +1,9 @@
+"""Prediction contract — schema gating for canonical analysis objects.
+
+All analysis objects must pass validate_analysis_contract before being
+written to any cache or rendered into any UI template.  Use
+safe_validate() for non-raising validation that fails to unavailable state.
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -15,7 +21,7 @@ REQUIRED_ANALYSIS_FIELDS = (
     "metric_breakdown",
 )
 
-FORBIDDEN_CONFIDENCE_DEFAULTS = {53}
+FORBIDDEN_CONFIDENCE_DEFAULTS: set = {53}
 FORBIDDEN_PROBABILITY_PATTERNS = [
     {"a": 38, "draw": 26, "b": 36},
     {"home": 38, "draw": 26, "away": 36},
@@ -25,6 +31,7 @@ _logger = logging.getLogger(__name__)
 
 
 def validate_analysis_contract(analysis: dict[str, Any] | None) -> list[str]:
+    """Return a list of contract-violation strings (empty = valid)."""
     errors: list[str] = []
     if not isinstance(analysis, dict):
         return ["analysis must be a dict"]
@@ -58,11 +65,31 @@ def validate_analysis_contract(analysis: dict[str, Any] | None) -> list[str]:
 
 
 def validate_analysis(analysis: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate or raise ValueError — use at strict ingress boundaries."""
     errors = validate_analysis_contract(analysis)
     if errors:
         message = "; ".join(errors)
         _logger.error("invalid_analysis_contract: %s", message, extra={"errors": errors})
         raise ValueError(message)
+    return analysis  # type: ignore[return-value]
+
+
+def safe_validate(analysis: dict[str, Any] | None, *, context: str = "") -> dict[str, Any] | None:
+    """Validate and return the analysis, or None if it fails contract.
+
+    Use this at cache-write and render-boundary checkpoints to prevent
+    invalid shapes reaching the UI without crashing the request.
+    """
+    if analysis is None:
+        return None
+    errors = validate_analysis_contract(analysis)
+    if errors:
+        _logger.warning(
+            "contract_violation context=%s errors=%s",
+            context or "unknown",
+            "; ".join(errors),
+        )
+        return None
     return analysis
 
 

@@ -32,7 +32,7 @@ def get_fixture_cards(league_id: int):
     if payload is None:
         load_fn = _deps.get("load_fixtures")
         if not load_fn:
-            return [], None, "Unavailable", ""
+            return [], None, "Unavailable", "", ""
         payload = load_fn(league_id)
         cache_service.set_json(fixture_key, payload, ttl=120)
     fixtures, load_error, source, marker = payload
