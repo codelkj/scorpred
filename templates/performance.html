@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% import "components/decision.html" as ui with context %}
+
+{% block title %}ScorPred | Performance{% endblock %}
+{% block topbar_title %}Performance{% endblock %}
+
+{% block content %}
+
+{# ── Header ──────────────────────────────────────────────────────────────────── #}
+<div class="sp-dash-header">
+  <div class="sp-dash-header__left">
+    <h1>Performance</h1>
+    <p>Analyze your performance and track your results.</p>
+  </div>
+  <div style="display:flex;gap:.6rem;align-items:center">
+    <select class="sp-filter-control" aria-label="Date range">
+      <option>Apr 17 - Apr 24, 2025</option>
+      <option>Last 30 days</option>
+      <option>All time</option>
+    </select>
+  </div>
+</div>
+
+{# ── Top KPIs ─────────────────────────────────────────────────────────────────── #}
+<div class="sp-kpi-row" style="grid-template-columns:repeat(5,1fr)">
+  <div class="sp-kpi-card sp-kpi-card--roi">
+    <span class="sp-kpi-card__label">ROI</span>
+    <span class="sp-kpi-card__value">{{ roi or '+24.6%' }}</span>
+    <span class="sp-kpi-card__meta">Return on investment</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    </span>
+  </div>
+  <div class="sp-kpi-card sp-kpi-card--accuracy">
+    <span class="sp-kpi-card__label">Win Rate</span>
+    <span class="sp-kpi-card__value">{{ win_rate or '66.7%' }}</span>
+    <span class="sp-kpi-card__meta">Settled bets</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+    </span>
+  </div>
+  <div class="sp-kpi-card sp-kpi-card--bet">
+    <span class="sp-kpi-card__label">Total Profit</span>
+    <span class="sp-kpi-card__value">{{ total_profit or '+$213' }}</span>
+    <span class="sp-kpi-card__meta">Net profit/loss</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>
+    </span>
+  </div>
+  <div class="sp-kpi-card">
+    <span class="sp-kpi-card__label">Record</span>
+    <span class="sp-kpi-card__value" style="font-size:1.3rem">{{ record or '8W - 3L - 1P' }}</span>
+    <span class="sp-kpi-card__meta">Win - Loss - Push</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
+    </span>
+  </div>
+  <div class="sp-kpi-card">
+    <span class="sp-kpi-card__label">Avg. Odds</span>
+    <span class="sp-kpi-card__value">{{ avg_odds or '1.78' }}</span>
+    <span class="sp-kpi-card__meta">Decimal odds</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    </span>
+  </div>
+</div>
+
+{# ── Two-col layout: chart + breakdown ───────────────────────────────────────── #}
+<div class="sp-perf-layout">
+  <div>
+    {# Cumulative Profit Chart #}
+    <div class="sp-perf-panel" style="margin-bottom:1.25rem">
+      <div class="sp-perf-panel__head">
+        <span class="sp-perf-panel__title">Cumulative Profit</span>
+        <span class="sp-perf-panel__period">7-Day Trend</span>
+      </div>
+      <div class="sp-perf-panel__body">
+        <div style="position:relative;height:200px">
+          <canvas id="profitChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    {# Performance by League #}
+    <div class="sp-match-table">
+      <div style="display:grid;grid-template-columns:140px 60px 60px 60px 80px 80px 80px;gap:.5rem;padding:.55rem 1.25rem;background:var(--bg-raised);border-bottom:1px solid var(--border);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);font-family:var(--font-mono)">
+        <span>League</span>
+        <span>Bets</span>
+        <span>Won</span>
+        <span>Lost</span>
+        <span>Win %</span>
+        <span>Profit</span>
+        <span>ROI</span>
+      </div>
+      {% if league_breakdown %}
+        {% for league in league_breakdown %}
+          <div class="sp-league-perf-row">
+            <span style="font-weight:600">{{ league.name }}</span>
+            <span>{{ league.bets }}</span>
+            <span style="color:var(--c-strong)">{{ league.won }}</span>
+            <span style="color:var(--c-danger)">{{ league.lost }}</span>
+            <span>{{ league.win_rate }}%</span>
+            <span class="{% if league.profit >= 0 %}sp-bets-row__profit--pos{% else %}sp-bets-row__profit--neg{% endif %}">{{ '+' if league.profit >= 0 else '' }}${{ league.profit }}</span>
+            <span class="{% if league.roi >= 0 %}sp-bets-row__profit--pos{% else %}sp-bets-row__profit--neg{% endif %}">{{ '+' if league.roi >= 0 else '' }}{{ league.roi }}%</span>
+          </div>
+        {% endfor %}
+      {% else %}
+        {# Placeholder rows #}
+        {% for league_name in ['Premier League', 'La Liga', 'Bundesliga', 'Ligue 1', 'Serie A', 'Other Leagues'] %}
+          <div class="sp-league-perf-row" style="color:var(--text-3)">
+            <span>{{ league_name }}</span>
+            <span>—</span><span>—</span><span>—</span>
+            <span>—</span><span>—</span><span>—</span>
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+
+  {# Right: Performance Breakdown Donut #}
+  <div>
+    <div class="sp-conf-dist" style="margin-bottom:1rem">
+      <div class="sp-conf-dist__head">Performance Breakdown</div>
+      <div style="position:relative;height:160px;margin-bottom:.75rem">
+        <canvas id="perfDonut"></canvas>
+      </div>
+      <div style="display:flex;justify-content:space-around;font-size:.78rem">
+        <div style="text-align:center">
+          <span class="sp-bets-row__result--won" style="display:block;font-size:1.1rem;font-weight:700">{{ won_count or 0 }}</span>
+          <span style="color:var(--text-3)">Won ({{ win_rate or 0 }}%)</span>
+        </div>
+        <div style="text-align:center">
+          <span class="sp-bets-row__result--lost" style="display:block;font-size:1.1rem;font-weight:700">{{ lost_count or 0 }}</span>
+          <span style="color:var(--text-3)">Lost</span>
+        </div>
+        <div style="text-align:center">
+          <span style="display:block;font-size:1.1rem;font-weight:700;color:var(--c-caution)">{{ pushed_count or 0 }}</span>
+          <span style="color:var(--text-3)">Pushed</span>
+        </div>
+      </div>
+    </div>
+
+    {# Stake Distribution #}
+    <div class="sp-info-card">
+      <strong style="font-size:.82rem;font-weight:700;display:block;margin-bottom:.75rem">Stake Distribution</strong>
+      {% set stakes = [('$10 - $50', '12', '28.6%'), ('$51 - $100', '18', '42.9%'), ('$101 - $500', '9', '21.4%'), ('$500+', '3', '7.1%')] %}
+      {% for range, count, pct in stakes %}
+        <div class="sp-settings-row" style="padding:.4rem 0">
+          <span style="font-size:.78rem;color:var(--text-2)">{{ range }}</span>
+          <span style="font-size:.78rem;font-weight:700">{{ count }} bets ({{ pct }})</span>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  var profitCtx = document.getElementById('profitChart');
+  if (profitCtx) {
+    new Chart(profitCtx, {
+      type: 'line',
+      data: {
+        labels: ['Apr 17','Apr 18','Apr 19','Apr 20','Apr 21','Apr 22','Apr 23','Apr 24'],
+        datasets: [{
+          label: 'Cumulative Profit',
+          data: [-50, 20, 60, 30, 120, 90, 180, 213],
+          borderColor: 'rgba(60,242,164,.85)',
+          backgroundColor: 'rgba(60,242,164,.07)',
+          fill: true, tension: .4,
+          pointRadius: 4, pointBackgroundColor: '#3cf2a4', borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { color: '#64748b', font: { size: 11 } } },
+          y: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { color: '#64748b', font: { size: 11 }, callback: function(v) { return '$' + v; } } }
+        }
+      }
+    });
+  }
+  var donutCtx = document.getElementById('perfDonut');
+  if (donutCtx) {
+    new Chart(donutCtx, {
+      type: 'doughnut',
+      data: {
+        datasets: [{
+          data: [{{ won_count or 28 }}, {{ lost_count or 12 }}, {{ pushed_count or 2 }}],
+          backgroundColor: ['rgba(60,242,164,.8)', 'rgba(248,113,113,.7)', 'rgba(245,158,11,.65)'],
+          borderWidth: 0, hoverOffset: 4
+        }]
+      },
+      options: {
+        cutout: '65%', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

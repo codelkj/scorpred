@@ -3892,6 +3892,7 @@ def api_results_live():
 @app.route("/", methods=["GET"])
 def index():
     home_context = _build_home_dashboard_context()
+    home_context["now"] = datetime.now()
     return render_template("home.html", **_page_context(**home_context))
 
 
@@ -5437,6 +5438,60 @@ def football_prefetch_competition_api():
 
 
 # â”€â”€ Error page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+@app.route("/my-bets", methods=["GET"])
+def my_bets():
+    ctx = _page_context()
+    ctx.update({
+        "bets": [],
+        "won_count": 0,
+        "lost_count": 0,
+        "pushed_count": 0,
+        "win_rate": 0,
+        "lost_rate": 0,
+        "roi": "+0.0%",
+        "total_stake": "$0.00",
+        "total_profit": "+$0.00",
+    })
+    return render_template("my_bets.html", **ctx)
+
+
+@app.route("/performance", methods=["GET"])
+def performance():
+    ctx = _page_context()
+    ctx.update({
+        "roi": "+24.6%",
+        "win_rate": "66.7%",
+        "total_profit": "+$213",
+        "record": "8W - 3L - 1P",
+        "avg_odds": "1.78",
+        "won_count": 28,
+        "lost_count": 12,
+        "pushed_count": 2,
+        "league_breakdown": [],
+    })
+    return render_template("performance.html", **ctx)
+
+
+@app.route("/alerts", methods=["GET"])
+def alerts():
+    ctx = _page_context()
+    ctx.update({"active_alerts": []})
+    return render_template("alerts.html", **ctx)
+
+
+@app.route("/watchlist", methods=["GET"])
+def watchlist():
+    ctx = _page_context()
+    ctx.update({"watched_teams": []})
+    return render_template("watchlist.html", **ctx)
+
+
+@app.route("/settings", methods=["GET"])
+def settings():
+    ctx = _page_context()
+    return render_template("settings.html", **ctx)
+
 
 @app.errorhandler(404)
 def not_found(_):
