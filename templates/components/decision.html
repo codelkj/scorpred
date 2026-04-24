@@ -79,6 +79,11 @@
 
 {% macro decision_card(card, variant='standard') -%}
   <article class="sp-decision-card {% if variant == 'featured' %}sp-decision-card--featured{% endif %}">
+    <div class="sp-decision-card__matchup">
+      {{ logo_mark(card.team_a_logo, card.team_a, card.team_a_initials) }}
+      <span>{{ card.team_a }} vs {{ card.team_b }}</span>
+      {{ logo_mark(card.team_b_logo, card.team_b, card.team_b_initials) }}
+    </div>
     <div class="sp-decision-card__top">
       <div>
         <div class="sp-action-label">{{ card.action }}</div>
@@ -96,7 +101,7 @@
       </p>
     {% endif %}
     <p class="sp-decision-card__reason">{{ card.reason }}</p>
-    <p><strong>Visual Read:</strong> {{ card.metric_breakdown if card.metric_breakdown else "Unavailable" }}</p>
+    <p><strong>Visual Read:</strong> {{ card.metric_breakdown if card.metric_breakdown else ("Signal map loading (form, pace, and matchup profile)." if card.sport == 'nba' else "Unavailable") }}</p>
     <button
       type="button"
       data-bet-button="1"
@@ -108,7 +113,7 @@
         "confidence": card.confidence,
         "probabilities": card.probabilities
       }|tojson }})'
-    >Add to Bets</button>
+    >Track Match</button>
     {% if card.cta_url %}
       <a href="{{ card.cta_url }}" class="btn btn-primary btn-sm">Analyze Match</a>
     {% endif %}

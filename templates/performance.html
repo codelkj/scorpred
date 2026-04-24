@@ -5,195 +5,88 @@
 {% block topbar_title %}Performance{% endblock %}
 
 {% block content %}
-
-{# ── Header ──────────────────────────────────────────────────────────────────── #}
 <div class="sp-dash-header">
   <div class="sp-dash-header__left">
     <h1>Performance</h1>
-    <p>Analyze your performance and track your results.</p>
-  </div>
-  <div style="display:flex;gap:.6rem;align-items:center">
-    <select class="sp-filter-control" aria-label="Date range">
-      <option>Apr 17 - Apr 24, 2025</option>
-      <option>Last 30 days</option>
-      <option>All time</option>
-    </select>
+    <p>Track prediction accuracy and browse completed/scheduled match results.</p>
   </div>
 </div>
+<div class="sp-page-tabs">
+  <a href="?window=today" class="sp-page-tab {% if window == 'today' %}active{% endif %}">Today ({{ window_counts.today or 0 }})</a>
+  <a href="?window=tomorrow" class="sp-page-tab {% if window == 'tomorrow' %}active{% endif %}">Tomorrow ({{ window_counts.tomorrow or 0 }})</a>
+  <a href="?window=yesterday" class="sp-page-tab {% if window == 'yesterday' %}active{% endif %}">Yesterday ({{ window_counts.yesterday or 0 }})</a>
+  <a href="?window=week" class="sp-page-tab {% if window == 'week' %}active{% endif %}">Last 7 Days ({{ window_counts.week or 0 }})</a>
+  <a href="?window=month" class="sp-page-tab {% if window == 'month' %}active{% endif %}">Last 30 Days ({{ window_counts.month or 0 }})</a>
+  <a href="?window=all" class="sp-page-tab {% if window == 'all' %}active{% endif %}">All Time ({{ window_counts.all or 0 }})</a>
+</div>
 
-{# ── Top KPIs ─────────────────────────────────────────────────────────────────── #}
 <div class="sp-kpi-row" style="grid-template-columns:repeat(5,1fr)">
-  <div class="sp-kpi-card sp-kpi-card--roi">
-    <span class="sp-kpi-card__label">ROI</span>
-    <span class="sp-kpi-card__value">{{ roi or 'Unavailable' }}</span>
-    <span class="sp-kpi-card__meta">Return on investment</span>
-    <span class="sp-kpi-card__icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-    </span>
-  </div>
-  <div class="sp-kpi-card sp-kpi-card--accuracy">
-    <span class="sp-kpi-card__label">Win Rate</span>
-    <span class="sp-kpi-card__value">{{ win_rate or 'Unavailable' }}</span>
-    <span class="sp-kpi-card__meta">Settled bets</span>
-    <span class="sp-kpi-card__icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
-    </span>
-  </div>
-  <div class="sp-kpi-card sp-kpi-card--bet">
-    <span class="sp-kpi-card__label">Total Profit</span>
-    <span class="sp-kpi-card__value">{{ total_profit or 'Unavailable' }}</span>
-    <span class="sp-kpi-card__meta">Net profit/loss</span>
-    <span class="sp-kpi-card__icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>
-    </span>
-  </div>
-  <div class="sp-kpi-card">
-    <span class="sp-kpi-card__label">Record</span>
-    <span class="sp-kpi-card__value" style="font-size:1.3rem">{{ record or '0W - 0L - 0P' }}</span>
-    <span class="sp-kpi-card__meta">Win - Loss - Push</span>
-    <span class="sp-kpi-card__icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
-    </span>
-  </div>
-  <div class="sp-kpi-card">
-    <span class="sp-kpi-card__label">Avg. Odds</span>
-    <span class="sp-kpi-card__value">{{ avg_odds or 'Unavailable' }}</span>
-    <span class="sp-kpi-card__meta">Decimal odds</span>
-    <span class="sp-kpi-card__icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-    </span>
-  </div>
+  <div class="sp-kpi-card sp-kpi-card--roi"><span class="sp-kpi-card__label">ROI</span><span class="sp-kpi-card__value">{{ roi or 'N/A' }}</span><span class="sp-kpi-card__meta">Analysis mode</span></div>
+  <div class="sp-kpi-card sp-kpi-card--accuracy"><span class="sp-kpi-card__label">Win Rate</span><span class="sp-kpi-card__value">{{ win_rate or 'N/A' }}</span><span class="sp-kpi-card__meta">Settled predictions</span></div>
+  <div class="sp-kpi-card sp-kpi-card--bet"><span class="sp-kpi-card__label">Tracked Matches</span><span class="sp-kpi-card__value">{{ total_bets or 0 }}</span><span class="sp-kpi-card__meta">Open + completed</span></div>
+  <div class="sp-kpi-card"><span class="sp-kpi-card__label">Record</span><span class="sp-kpi-card__value" style="font-size:1.3rem">{{ record or '0W - 0L - 0O' }}</span><span class="sp-kpi-card__meta">Correct - Incorrect - Open</span></div>
+  <div class="sp-kpi-card"><span class="sp-kpi-card__label">Avg. Odds</span><span class="sp-kpi-card__value">N/A</span><span class="sp-kpi-card__meta">No betting fields stored</span></div>
 </div>
 
-{# ── Two-col layout: chart + breakdown ───────────────────────────────────────── #}
-<div class="sp-perf-layout">
-  <div>
-    {# Cumulative Profit Chart #}
-    <div class="sp-perf-panel" style="margin-bottom:1.25rem">
-      <div class="sp-perf-panel__head">
-        <span class="sp-perf-panel__title">Cumulative Profit</span>
-        <span class="sp-perf-panel__period">7-Day Trend</span>
-      </div>
-      <div class="sp-perf-panel__body">
-        <div style="position:relative;height:200px">
-          <canvas id="profitChart"></canvas>
-        </div>
-      </div>
-    </div>
-
-    {# Performance by League #}
-    <div class="sp-match-table">
-      <div style="display:grid;grid-template-columns:140px 60px 60px 60px 80px 80px 80px;gap:.5rem;padding:.55rem 1.25rem;background:var(--bg-raised);border-bottom:1px solid var(--border);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);font-family:var(--font-mono)">
-        <span>League</span>
-        <span>Bets</span>
-        <span>Won</span>
-        <span>Lost</span>
-        <span>Win %</span>
-        <span>Profit</span>
-        <span>ROI</span>
-      </div>
-      {% if league_breakdown %}
-        {% for league in league_breakdown %}
-          <div class="sp-league-perf-row">
-            <span style="font-weight:600">{{ league.name }}</span>
-            <span>{{ league.bets }}</span>
-            <span style="color:var(--c-strong)">{{ league.won }}</span>
-            <span style="color:var(--c-danger)">{{ league.lost }}</span>
-            <span>{{ league.win_rate }}%</span>
-            <span class="{% if league.profit >= 0 %}sp-bets-row__profit--pos{% else %}sp-bets-row__profit--neg{% endif %}">{{ '+' if league.profit >= 0 else '' }}${{ league.profit }}</span>
-            <span class="{% if league.roi >= 0 %}sp-bets-row__profit--pos{% else %}sp-bets-row__profit--neg{% endif %}">{{ '+' if league.roi >= 0 else '' }}{{ league.roi }}%</span>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div class="sp-league-perf-row" style="color:var(--text-3)">
-          <span>Unavailable</span>
-          <span>—</span><span>—</span><span>—</span><span>—</span><span>—</span><span>—</span>
-        </div>
-      {% endif %}
-    </div>
-  </div>
-
-  {# Right: Performance Breakdown Donut #}
-  <div>
-    <div class="sp-conf-dist" style="margin-bottom:1rem">
-      <div class="sp-conf-dist__head">Performance Breakdown</div>
-      <div style="position:relative;height:160px;margin-bottom:.75rem">
-        <canvas id="perfDonut"></canvas>
-      </div>
-      <div style="display:flex;justify-content:space-around;font-size:.78rem">
-        <div style="text-align:center">
-          <span class="sp-bets-row__result--won" style="display:block;font-size:1.1rem;font-weight:700">{{ won_count or 0 }}</span>
-          <span style="color:var(--text-3)">Won ({{ win_rate or 0 }}%)</span>
-        </div>
-        <div style="text-align:center">
-          <span class="sp-bets-row__result--lost" style="display:block;font-size:1.1rem;font-weight:700">{{ lost_count or 0 }}</span>
-          <span style="color:var(--text-3)">Lost</span>
-        </div>
-        <div style="text-align:center">
-          <span style="display:block;font-size:1.1rem;font-weight:700;color:var(--c-caution)">{{ pushed_count or 0 }}</span>
-          <span style="color:var(--text-3)">Pushed</span>
-        </div>
-      </div>
-    </div>
-
-    {# Stake Distribution #}
-    <div class="sp-info-card">
-      <strong style="font-size:.82rem;font-weight:700;display:block;margin-bottom:.75rem">Stake Distribution</strong>
-      <div class="sp-settings-row" style="padding:.4rem 0">
-        <span style="font-size:.78rem;color:var(--text-2)">Unavailable</span>
-        <span style="font-size:.78rem;font-weight:700">No settled stake data yet</span>
-      </div>
-    </div>
-  </div>
+<div class="sp-perf-panel" style="margin:1rem 0 1.25rem">
+  <div class="sp-perf-panel__head"><span class="sp-perf-panel__title">Cumulative Accuracy Delta</span></div>
+  <div class="sp-perf-panel__body"><div style="position:relative;height:200px"><canvas id="profitChart"></canvas></div></div>
 </div>
 
+<section class="sp-section">
+  <div class="sp-section__header"><div><h2>Results Feed</h2><p>Combined view of tracked matches for the selected period.</p></div></div>
+  {% if results_rows %}
+    <div class="sp-bets-table">
+      <div class="sp-bets-table__head" style="grid-template-columns:130px 1fr 90px 150px 80px 110px 110px">
+        <span>Date</span><span>Match</span><span>Sport</span><span>Pick</span><span>Score</span><span>Status</span><span>Confidence</span>
+      </div>
+      {% for row in results_rows %}
+        <div class="sp-bets-row" style="grid-template-columns:130px 1fr 90px 150px 80px 110px 110px">
+          <span class="sp-bets-row__date">{{ row.date }}</span>
+          <span>{{ row.match }}</span>
+          <span>{{ row.sport }}</span>
+          <span>{{ row.pick }}</span>
+          <span>{{ row.score }}</span>
+          <span class="sp-bets-row__result--{{ row.status_class }}">{{ row.status }}</span>
+          <span>{{ row.confidence }}%</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('No matches in this window', 'Try switching to another date range tab.') }}
+  {% endif %}
+</section>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function() {
-  var profitCtx = document.getElementById('profitChart');
-  if (profitCtx) {
-    new Chart(profitCtx, {
-      type: 'line',
-      data: {
-        labels: {{ profit_trend_labels|default([])|tojson }},
-        datasets: [{
-          label: 'Cumulative Profit',
-          data: {{ profit_trend_values|default([])|tojson }},
-          borderColor: 'rgba(60,242,164,.85)',
-          backgroundColor: 'rgba(60,242,164,.07)',
-          fill: true, tension: .4,
-          pointRadius: 4, pointBackgroundColor: '#3cf2a4', borderWidth: 2
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { color: '#64748b', font: { size: 11 } } },
-          y: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { color: '#64748b', font: { size: 11 }, callback: function(v) { return '$' + v; } } }
-        }
+  var ctx = document.getElementById('profitChart');
+  if (!ctx) return;
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: {{ profit_trend_labels|default([])|tojson }},
+      datasets: [{
+        label: 'Cumulative Accuracy Delta',
+        data: {{ profit_trend_values|default([])|tojson }},
+        borderColor: 'rgba(60,242,164,.85)',
+        backgroundColor: 'rgba(60,242,164,.07)',
+        fill: true,
+        tension: .35,
+        pointRadius: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,.04)' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,.04)' } }
       }
-    });
-  }
-  var donutCtx = document.getElementById('perfDonut');
-  if (donutCtx) {
-    new Chart(donutCtx, {
-      type: 'doughnut',
-      data: {
-        datasets: [{
-          data: [{{ won_count or 0 }}, {{ lost_count or 0 }}, {{ pushed_count or 0 }}],
-          backgroundColor: ['rgba(60,242,164,.8)', 'rgba(248,113,113,.7)', 'rgba(245,158,11,.65)'],
-          borderWidth: 0, hoverOffset: 4
-        }]
-      },
-      options: {
-        cutout: '65%', responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } }
-      }
-    });
-  }
+    }
+  });
 })();
 </script>
 {% endblock %}
