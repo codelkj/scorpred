@@ -4292,7 +4292,7 @@ def select_game():
         )
 
     _store_selected_teams(team_a, team_b, fixture_context)
-    return redirect(url_for("prediction"))
+    return redirect("/prediction")
 
 
 @app.route("/matchup", methods=["GET"])
@@ -4896,8 +4896,8 @@ def player_stats_api():
         return jsonify({"error": sanitize_error(exc), "data_source": _football_data_source(), "last_updated": _now_stamp()}), 500
 
 
-@app.route("/prediction")
 @app.route("/match-analysis")
+@app.route("/prediction")
 def prediction():
     retry_after = _check_rate_limit("prediction", limit=60, window_seconds=60)
     if retry_after:
@@ -5740,26 +5740,70 @@ def football_prefetch_competition_api():
 
 @app.route("/my-bets", methods=["GET"])
 def my_bets():
-    raw_bets = bets_service.list_bets()
-    bets = []
-    for row in raw_bets:
-        bets.append(
+    ru.update_pending_predictions()
+    tracked = mt.get_recent_predictions(limit=300)
+
+    status_filter = (request.args.get("status") or "all").strip().lower()
+    if status_filter not in {"all", "open", "settled"}:
+        status_filter = "all"
+
+    def _row_result_label(item: dict[str, Any]) -> tuple[str, str]:
+        if str(item.get("status") or "").lower() != "completed":
+            return "Open", "push"
+        if item.get("is_correct") is True:
+            return "Correct", "won"
+        if item.get("is_correct") is False:
+            return "Incorrect", "lost"
+        return "Settled", "push"
+
+    tracked_rows = []
+    for item in tracked:
+        result_label, result_class = _row_result_label(item)
+        is_open = str(item.get("status") or "").lower() != "completed"
+        if status_filter == "open" and not is_open:
+            continue
+        if status_filter == "settled" and is_open:
+            continue
+        final_score = item.get("final_score") if isinstance(item.get("final_score"), dict) else {}
+        score_label = "—"
+        if "a" in final_score and "b" in final_score:
+            score_label = f"{final_score.get('a', 0)}-{final_score.get('b', 0)}"
+        tracked_rows.append(
             {
-                "id": row.get("id"),
-                "match_id": row.get("match_id"),
-                "date": _format_prediction_date(row.get("created_at")),
-                "match": row.get("matchup") or "Unavailable",
-                "pick": row.get("recommended_side") or "Unavailable",
-                "pick_type": row.get("action") or "Unavailable",
-                "odds": "Unavailable",
-                "stake": "Unavailable",
-                "result_label": "Open",
-                "result_class": "push",
-                "profit": None,
-                "confidence": int(round(_safe_float(row.get("confidence"), 0))) if row.get("confidence") is not None else None,
+                "id": item.get("id"),
+                "sport": str(item.get("sport") or "soccer").upper(),
+                "date": _format_prediction_date(item.get("game_date") or item.get("date") or item.get("created_at")),
+                "match": f"{item.get('team_a') or 'Team A'} vs {item.get('team_b') or 'Team B'}",
+                "pick": item.get("predicted_pick_label") or item.get("predicted_winner") or "Unavailable",
+                "pick_type": item.get("action") or item.get("confidence") or "Tracked",
+                "score": score_label,
+                "result_label": result_label,
+                "result_class": result_class,
+                "confidence": int(round(_safe_float(item.get("confidence_pct"), 0))),
             }
         )
-    return render_template("my_bets.html", bets=bets, **_page_context())
+
+    settled = [row for row in tracked if str(row.get("status") or "").lower() == "completed" and row.get("is_correct") is not None]
+    won_count = sum(1 for row in settled if row.get("is_correct") is True)
+    lost_count = sum(1 for row in settled if row.get("is_correct") is False)
+    pushed_count = max(0, len(tracked) - len(settled))
+    settled_count = len(settled)
+    win_rate = round((won_count / settled_count) * 100, 1) if settled_count else 0.0
+    lost_rate = round((lost_count / settled_count) * 100, 1) if settled_count else 0.0
+
+    return render_template(
+        "my_bets.html",
+        bets=tracked_rows,
+        won_count=won_count,
+        lost_count=lost_count,
+        pushed_count=pushed_count,
+        win_rate=win_rate,
+        lost_rate=lost_rate,
+        roi="N/A",
+        total_profit="N/A",
+        total_stake="N/A",
+        **_page_context(),
+    )
 
 
 @app.route("/add-bet", methods=["POST"])
@@ -5795,31 +5839,120 @@ def delete_bet(bet_id: int):
 
 @app.route("/performance", methods=["GET"])
 def performance():
-    bets = bets_service.list_bets()
-    total_bets = len(bets)
-    settled_count = 0
-    won_count = 0
-    lost_count = 0
-    pushed_count = total_bets  # no settlement model persisted yet
-    win_rate = "Unavailable" if settled_count == 0 else f"{(won_count/settled_count)*100:.1f}%"
-    roi = "Unavailable"
-    record = f"{won_count}W - {lost_count}L - {pushed_count}P"
+    ru.update_pending_predictions()
+    window = (request.args.get("window") or "all").strip().lower()
+    supported_windows = {"today", "tomorrow", "yesterday", "week", "month", "all"}
+    if window not in supported_windows:
+        window = "all"
 
+    now_utc = datetime.now(timezone.utc)
+    base_date = now_utc.date()
+    completed = mt.get_completed_predictions(limit=2000)
+    pending = mt.get_pending_predictions(limit=2000)
+
+    def _as_dt(row: dict[str, Any]) -> datetime | None:
+        raw = str(row.get("game_date") or row.get("date") or row.get("created_at") or "").strip()
+        if not raw:
+            return None
+        text = raw.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(text)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+    def _in_window(row_dt: datetime | None) -> bool:
+        if row_dt is None:
+            return window == "all"
+        delta_days = (row_dt.date() - base_date).days
+        if window == "today":
+            return delta_days == 0
+        if window == "tomorrow":
+            return delta_days == 1
+        if window == "yesterday":
+            return delta_days == -1
+        if window == "week":
+            return row_dt.date() >= base_date - timedelta(days=7)
+        if window == "month":
+            return row_dt.date() >= base_date - timedelta(days=30)
+        return True
+
+    completed_window = [row for row in completed if _in_window(_as_dt(row))]
+    pending_window = [row for row in pending if _in_window(_as_dt(row))]
+
+    won_count = sum(1 for row in completed_window if row.get("is_correct") is True)
+    lost_count = sum(1 for row in completed_window if row.get("is_correct") is False)
+    settled_count = len(completed_window)
+    open_count = len(pending_window)
+    total_tracked = settled_count + open_count
+    win_rate_value = round((won_count / settled_count) * 100, 1) if settled_count else 0.0
+
+    scoreboard_rows = []
+    for row in sorted(completed_window + pending_window, key=lambda item: _as_dt(item) or now_utc, reverse=True)[:30]:
+        score = row.get("final_score") if isinstance(row.get("final_score"), dict) else {}
+        score_label = "Scheduled"
+        if score and "a" in score and "b" in score:
+            score_label = f"{score.get('a', 0)}-{score.get('b', 0)}"
+        status = "Open"
+        status_class = "push"
+        if str(row.get("status") or "").lower() == "completed":
+            if row.get("is_correct") is True:
+                status, status_class = "Correct", "won"
+            elif row.get("is_correct") is False:
+                status, status_class = "Incorrect", "lost"
+            else:
+                status = "Settled"
+        scoreboard_rows.append(
+            {
+                "date": _format_prediction_date(row.get("game_date") or row.get("date") or row.get("created_at")),
+                "match": f"{row.get('team_a') or 'Team A'} vs {row.get('team_b') or 'Team B'}",
+                "sport": str(row.get("sport") or "soccer").upper(),
+                "pick": row.get("predicted_pick_label") or row.get("predicted_winner") or "Unavailable",
+                "score": score_label,
+                "status": status,
+                "status_class": status_class,
+                "confidence": int(round(_safe_float(row.get("confidence_pct"), 0))),
+            }
+        )
+
+    trend_source = sorted(completed_window, key=lambda item: _as_dt(item) or now_utc)
+    cumulative = 0
+    profit_trend_labels = []
+    profit_trend_values = []
+    for row in trend_source[-12:]:
+        cumulative += 1 if row.get("is_correct") is True else -1
+        label_dt = _as_dt(row) or now_utc
+        profit_trend_labels.append(label_dt.strftime("%b %d"))
+        profit_trend_values.append(cumulative)
+
+    win_rate = "N/A" if settled_count == 0 else f"{win_rate_value:.1f}%"
     ctx = _page_context()
     ctx.update({
-        "roi": roi,
+        "roi": "N/A",
         "win_rate": win_rate,
-        "total_profit": "Unavailable",
-        "record": record,
-        "avg_odds": "Unavailable",
+        "total_profit": "N/A",
+        "record": f"{won_count}W - {lost_count}L - {open_count}O",
+        "avg_odds": "N/A",
         "won_count": won_count,
         "lost_count": lost_count,
-        "pushed_count": pushed_count,
-        "total_bets": total_bets,
+        "pushed_count": open_count,
+        "total_bets": total_tracked,
         "has_settled_results": settled_count > 0,
         "league_breakdown": [],
-        "profit_trend_labels": [],
-        "profit_trend_values": [],
+        "profit_trend_labels": profit_trend_labels,
+        "profit_trend_values": profit_trend_values,
+        "results_rows": scoreboard_rows,
+        "window": window,
+        "window_counts": {
+            "today": len([r for r in completed + pending if _in_window(_as_dt(r)) and (_as_dt(r) and (_as_dt(r).date() - base_date).days == 0)]),
+            "tomorrow": len([r for r in completed + pending if _as_dt(r) and (_as_dt(r).date() - base_date).days == 1]),
+            "yesterday": len([r for r in completed + pending if _as_dt(r) and (_as_dt(r).date() - base_date).days == -1]),
+            "week": len([r for r in completed + pending if _as_dt(r) and _as_dt(r).date() >= base_date - timedelta(days=7)]),
+            "month": len([r for r in completed + pending if _as_dt(r) and _as_dt(r).date() >= base_date - timedelta(days=30)]),
+            "all": len(completed + pending),
+        },
     })
     return render_template("performance.html", **ctx)
 

@@ -374,9 +374,9 @@ h3 { font-size: 1.05rem; }
   color: var(--text-2);
   font-size: .72rem;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .sp-auth-chip--guest { color: var(--c-caution); border-color: rgba(var(--c-caution-rgb), .3); }
 .sp-auth-chip--user { color: var(--c-strong); border-color: rgba(var(--c-strong-rgb), .3); }
@@ -2039,6 +2039,27 @@ h3 { font-size: 1.05rem; }
   gap: .75rem;
 }
 
+.sp-decision-card__matchup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .55rem;
+  font-size: .8rem;
+  color: var(--text-2);
+}
+.sp-decision-card__matchup .sp-logo-mark { width: 22px; height: 22px; }
+.sp-decision-card button[data-bet-button] {
+  width: 100%;
+  border: 1px solid rgba(var(--c-strong-rgb), .28);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(var(--c-strong-rgb), .18), rgba(var(--c-active-rgb), .14));
+  color: var(--text);
+  padding: .45rem .6rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sp-decision-card button[data-bet-button]:hover { filter: brightness(1.08); }
+
 .sp-action-label {
   font-family: var(--font-display);
   font-size: clamp(1.75rem, 5vw, 2.5rem);
@@ -3154,9 +3175,9 @@ h3 { font-size: 1.05rem; }
   font-size: .82rem;
   font-weight: 600;
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* AI Pick cell */
