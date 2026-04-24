@@ -7,69 +7,121 @@
 {% block content %}
 {% set card = scorpred.decision_card if scorpred else none %}
 {% if card %}{% set _ = card.update({'hide_cta': True}) %}{% endif %}
-<section class="sp-page-hero">
-  <span class="sp-page-hero__eyebrow">{{ selected_fixture.league_name or current_league.name if current_league else 'Soccer' }}</span>
-  <h1>{{ team_a.name }} vs {{ team_b.name }}</h1>
-  <p>A richer read on the recommended side, action, confidence, matchup support, and data quality.</p>
-</section>
+
+{# ── Match Header ─────────────────────────────────────────────────────────────── #}
+<div class="sp-dash-header">
+  <div class="sp-dash-header__left">
+    <span class="sp-kicker" style="color:var(--c-active);margin-bottom:.3rem;display:block">
+      {{ selected_fixture.league_name or current_league.name if current_league else 'Soccer' }}
+    </span>
+    <h1>{{ team_a.name }} vs {{ team_b.name }}</h1>
+    <p>AI-powered match analysis with confidence, evidence, and data trust signals.</p>
+  </div>
+  <div style="display:flex;gap:.6rem">
+    <a class="btn btn-secondary btn-sm" href="/soccer">Back to Soccer</a>
+    <a class="btn btn-secondary btn-sm" href="/insights">Insights</a>
+  </div>
+</div>
 
 {% if card %}
   <div class="sp-analysis-layout">
     <div>
+      {# Featured Decision Card #}
       {{ ui.decision_card(card, 'featured') }}
 
+      {# Why Win #}
       <section class="sp-section">
         <div class="sp-info-card">
-          <h2>Why this side can win</h2>
+          <h2 style="margin-bottom:.75rem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--c-strong)" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;display:inline-block;vertical-align:middle;margin-right:.4rem"><polyline points="20 6 9 17 4 12"/></svg>
+            Why this side can win
+          </h2>
           <ul class="sp-why-list">
             {% for point in card.why_win or [] %}
               <li>{{ point }}</li>
+            {% else %}
+              <li style="color:var(--text-3)">Analysis points not available for this match.</li>
             {% endfor %}
           </ul>
         </div>
       </section>
+
+      {# Why Lose #}
       <section class="sp-section">
         <div class="sp-info-card">
-          <h2>Why this side could lose</h2>
+          <h2 style="margin-bottom:.75rem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--c-caution)" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;display:inline-block;vertical-align:middle;margin-right:.4rem"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Why this side could lose
+          </h2>
           <ul class="sp-why-list">
             {% for point in card.why_lose or [] %}
               <li>{{ point }}</li>
+            {% else %}
+              <li style="color:var(--text-3)">Risk factors not available for this match.</li>
             {% endfor %}
           </ul>
         </div>
       </section>
+
+      {# Key Swing Factor #}
+      {% if card.key_swing_factor %}
       <section class="sp-section">
-        <div class="sp-info-card">
-          <h2>Key swing factor</h2>
+        <div class="sp-info-card" style="border-color:rgba(var(--c-active-rgb),.2);background:linear-gradient(135deg,rgba(var(--c-active-rgb),.04),transparent)">
+          <h2 style="margin-bottom:.5rem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--c-active)" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;display:inline-block;vertical-align:middle;margin-right:.4rem"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Key swing factor
+          </h2>
           <p>{{ card.key_swing_factor }}</p>
         </div>
       </section>
+      {% endif %}
+
+      {# Visual Read #}
       <section class="sp-section">
         <div class="sp-info-card">
-          <h2>Visual Read</h2>
+          <h2 style="margin-bottom:1rem">Visual Read</h2>
           {{ ui.confidence_bar(card) }}
           {{ ui.probability_bar(card) }}
-          {{ ui.comparison_bars(card.comparison_metrics) }}
-          {{ ui.form_strip(card.form_strip) }}
+          {% if card.comparison_metrics %}
+            <div style="margin-top:.75rem">{{ ui.comparison_bars(card.comparison_metrics) }}</div>
+          {% endif %}
+          {% if card.form_strip %}
+            <div style="margin-top:.75rem">
+              <small class="sp-kicker">Recent Form</small>
+              {{ ui.form_strip(card.form_strip) }}
+            </div>
+          {% endif %}
         </div>
       </section>
     </div>
 
-    <aside class="sp-info-card">
-      <h2>Trust Check</h2>
+    {# Trust Check Sidebar #}
+    <aside class="sp-info-card" style="align-self:start;position:sticky;top:calc(var(--topbar-h) + 1rem)">
+      <h2 style="margin-bottom:.85rem">Trust Check</h2>
       {{ ui.data_badge(card.data_confidence) }}
-      <p class="sp-muted" style="margin-top:.75rem">{{ (scorpred.data_completeness or {}).summary or card.support_text }}</p>
+      <p class="sp-muted" style="margin-top:.75rem;font-size:.84rem">{{ (scorpred.data_completeness or {}).summary or card.support_text or 'Data quality assessment for this matchup.' }}</p>
+
       {% if selected_fixture %}
-        <div class="sp-why-list">
-          {% if selected_fixture.date %}<li>Kickoff: {{ selected_fixture.date[:16] }}</li>{% endif %}
-          {% if selected_fixture.venue_name %}<li>Venue: {{ selected_fixture.venue_name }}</li>{% endif %}
-          {% if selected_fixture.round %}<li>{{ selected_fixture.round }}</li>{% endif %}
+        <div style="margin-top:.85rem">
+          <small class="sp-kicker">Fixture Details</small>
+          <ul class="sp-why-list" style="margin-top:.35rem">
+            {% if selected_fixture.date %}<li>Kickoff: {{ selected_fixture.date[:16] }}</li>{% endif %}
+            {% if selected_fixture.venue_name %}<li>Venue: {{ selected_fixture.venue_name }}</li>{% endif %}
+            {% if selected_fixture.round %}<li>{{ selected_fixture.round }}</li>{% endif %}
+          </ul>
         </div>
       {% endif %}
-      {{ ui.form_strip(card.form_strip) }}
-      <div class="sp-page-actions" style="margin-top:1rem">
-        <a class="btn btn-secondary btn-sm" href="/soccer">Back to Soccer</a>
-        <a class="btn btn-secondary btn-sm" href="/insights">Insights</a>
+
+      {% if card.form_strip %}
+        <div style="margin-top:.85rem">
+          <small class="sp-kicker">Form</small>
+          <div style="margin-top:.35rem">{{ ui.form_strip(card.form_strip) }}</div>
+        </div>
+      {% endif %}
+
+      <div style="margin-top:1.25rem;display:flex;flex-direction:column;gap:.5rem">
+        <a class="btn btn-secondary btn-sm btn-full" href="/soccer">Back to Soccer</a>
+        <a class="btn btn-secondary btn-sm btn-full" href="/insights">Open Insights</a>
       </div>
     </aside>
   </div>
