@@ -25,7 +25,7 @@
 <div class="sp-kpi-row" style="grid-template-columns:repeat(5,1fr)">
   <div class="sp-kpi-card sp-kpi-card--roi">
     <span class="sp-kpi-card__label">ROI</span>
-    <span class="sp-kpi-card__value">{{ roi or '+24.6%' }}</span>
+    <span class="sp-kpi-card__value">{{ roi or 'Unavailable' }}</span>
     <span class="sp-kpi-card__meta">Return on investment</span>
     <span class="sp-kpi-card__icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -33,7 +33,7 @@
   </div>
   <div class="sp-kpi-card sp-kpi-card--accuracy">
     <span class="sp-kpi-card__label">Win Rate</span>
-    <span class="sp-kpi-card__value">{{ win_rate or '66.7%' }}</span>
+    <span class="sp-kpi-card__value">{{ win_rate or 'Unavailable' }}</span>
     <span class="sp-kpi-card__meta">Settled bets</span>
     <span class="sp-kpi-card__icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
@@ -41,7 +41,7 @@
   </div>
   <div class="sp-kpi-card sp-kpi-card--bet">
     <span class="sp-kpi-card__label">Total Profit</span>
-    <span class="sp-kpi-card__value">{{ total_profit or '+$213' }}</span>
+    <span class="sp-kpi-card__value">{{ total_profit or 'Unavailable' }}</span>
     <span class="sp-kpi-card__meta">Net profit/loss</span>
     <span class="sp-kpi-card__icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>
@@ -49,7 +49,7 @@
   </div>
   <div class="sp-kpi-card">
     <span class="sp-kpi-card__label">Record</span>
-    <span class="sp-kpi-card__value" style="font-size:1.3rem">{{ record or '8W - 3L - 1P' }}</span>
+    <span class="sp-kpi-card__value" style="font-size:1.3rem">{{ record or '0W - 0L - 0P' }}</span>
     <span class="sp-kpi-card__meta">Win - Loss - Push</span>
     <span class="sp-kpi-card__icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
@@ -57,7 +57,7 @@
   </div>
   <div class="sp-kpi-card">
     <span class="sp-kpi-card__label">Avg. Odds</span>
-    <span class="sp-kpi-card__value">{{ avg_odds or '1.78' }}</span>
+    <span class="sp-kpi-card__value">{{ avg_odds or 'Unavailable' }}</span>
     <span class="sp-kpi-card__meta">Decimal odds</span>
     <span class="sp-kpi-card__icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -105,14 +105,10 @@
           </div>
         {% endfor %}
       {% else %}
-        {# Placeholder rows #}
-        {% for league_name in ['Premier League', 'La Liga', 'Bundesliga', 'Ligue 1', 'Serie A', 'Other Leagues'] %}
-          <div class="sp-league-perf-row" style="color:var(--text-3)">
-            <span>{{ league_name }}</span>
-            <span>—</span><span>—</span><span>—</span>
-            <span>—</span><span>—</span><span>—</span>
-          </div>
-        {% endfor %}
+        <div class="sp-league-perf-row" style="color:var(--text-3)">
+          <span>Unavailable</span>
+          <span>—</span><span>—</span><span>—</span><span>—</span><span>—</span><span>—</span>
+        </div>
       {% endif %}
     </div>
   </div>
@@ -143,13 +139,10 @@
     {# Stake Distribution #}
     <div class="sp-info-card">
       <strong style="font-size:.82rem;font-weight:700;display:block;margin-bottom:.75rem">Stake Distribution</strong>
-      {% set stakes = [('$10 - $50', '12', '28.6%'), ('$51 - $100', '18', '42.9%'), ('$101 - $500', '9', '21.4%'), ('$500+', '3', '7.1%')] %}
-      {% for range, count, pct in stakes %}
-        <div class="sp-settings-row" style="padding:.4rem 0">
-          <span style="font-size:.78rem;color:var(--text-2)">{{ range }}</span>
-          <span style="font-size:.78rem;font-weight:700">{{ count }} bets ({{ pct }})</span>
-        </div>
-      {% endfor %}
+      <div class="sp-settings-row" style="padding:.4rem 0">
+        <span style="font-size:.78rem;color:var(--text-2)">Unavailable</span>
+        <span style="font-size:.78rem;font-weight:700">No settled stake data yet</span>
+      </div>
     </div>
   </div>
 </div>
@@ -164,10 +157,10 @@
     new Chart(profitCtx, {
       type: 'line',
       data: {
-        labels: ['Apr 17','Apr 18','Apr 19','Apr 20','Apr 21','Apr 22','Apr 23','Apr 24'],
+        labels: {{ profit_trend_labels|default([])|tojson }},
         datasets: [{
           label: 'Cumulative Profit',
-          data: [-50, 20, 60, 30, 120, 90, 180, 213],
+          data: {{ profit_trend_values|default([])|tojson }},
           borderColor: 'rgba(60,242,164,.85)',
           backgroundColor: 'rgba(60,242,164,.07)',
           fill: true, tension: .4,
@@ -190,7 +183,7 @@
       type: 'doughnut',
       data: {
         datasets: [{
-          data: [{{ won_count or 28 }}, {{ lost_count or 12 }}, {{ pushed_count or 2 }}],
+          data: [{{ won_count or 0 }}, {{ lost_count or 0 }}, {{ pushed_count or 0 }}],
           backgroundColor: ['rgba(60,242,164,.8)', 'rgba(248,113,113,.7)', 'rgba(245,158,11,.65)'],
           borderWidth: 0, hoverOffset: 4
         }]

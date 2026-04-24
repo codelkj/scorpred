@@ -6,6 +6,8 @@ import importlib
 import hashlib
 import copy
 import os
+import sys
+import time
 
 import re
 import unicodedata
@@ -14,13 +16,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.parse import urlparse
+from sqlalchemy import text
 
 try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover
     def load_dotenv(*_args, **_kwargs):
         return False
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for, g
+from flask import Flask, jsonify, redirect, render_template as flask_render_template, request, session, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 
@@ -43,6 +46,10 @@ from runtime_paths import (
 )
 from security import check_chat_rate_limit, configure_security, sanitize_error
 from services import analysis_assistant as assistant_services
+from services import bets_service
+from services import cache_service
+from services import prediction_service
+from services import validators
 from db_models import db
 
 try:
@@ -62,6 +69,7 @@ from league_config import (
     SUPPORTED_LEAGUE_IDS,
 )
 from nba_routes import nba_bp
+from cachetools import TTLCache
 
 try:
     import anthropic
@@ -104,6 +112,13 @@ _EMPTY_METRICS = {
     "by_sport": {},
     "recent_predictions": [],
 }
+
+_FIXTURE_INDEX: dict[str, dict[str, Any]] = {}
+_local_match_analysis_cache = TTLCache(maxsize=500, ttl=300)
+_local_fixture_cache = TTLCache(maxsize=50, ttl=120)
+_local_league_cache = TTLCache(maxsize=20, ttl=300)
+_API_CIRCUIT: dict[str, dict[str, Any]] = {}
+_RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 
 
 def _runtime_release_tag() -> str:
@@ -149,6 +164,17 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 with app.app_context():
     db.create_all()
 
+
+def render_template(template_name: str, **context):
+    """Safe template renderer that avoids cascading template crashes."""
+    try:
+        return flask_render_template(template_name, **context)
+    except Exception as exc:  # pragma: no cover - fallback path
+        _logger.error("template_render_failed template=%s err=%s", template_name, exc, exc_info=True)
+        if request.path.startswith("/api/") or request.is_json:
+            return jsonify({"status": "error", "message": "template render failed", "code": 500}), 500
+        return flask_render_template("error.html", **_page_context(msg="An internal error occurred. Please try again.")), 500
+
 _auth_storage = auth_storage_diagnostics()
 if _auth_storage["durable"]:
     _logger.info(
@@ -163,6 +189,19 @@ else:
         _auth_storage["path"],
     )
 
+try:
+    _db_ready = bool(db.session.execute(text("SELECT 1")).scalar())
+except Exception:
+    _db_ready = False
+_redis_ready = cache_service._get_redis_client() is not None
+_logger.info(
+    "startup_summary env=%s db=%s redis=%s api=%s",
+    "production" if _is_production else "development",
+    "connected" if _db_ready else "unavailable",
+    "enabled" if _redis_ready else "local-fallback",
+    "ready",
+)
+
 # â”€â”€ Blueprints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.register_blueprint(nba_bp)
 app.register_blueprint(user_auth.user_auth_bp)
@@ -171,6 +210,23 @@ app.register_blueprint(user_auth.user_auth_bp)
 @app.before_request
 def inject_user():
     g.current_user = user_auth.current_user()
+    g._request_started_at = time.perf_counter()
+
+
+@app.after_request
+def _log_request_duration(response):
+    started = getattr(g, "_request_started_at", None)
+    if started is None:
+        return response
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    _logger.info(
+        "request_complete method=%s path=%s status=%s duration_ms=%s",
+        request.method,
+        request.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
 
 
 @app.context_processor
@@ -181,18 +237,31 @@ def inject_auth_context():
     }
 
 
+def _is_api_request() -> bool:
+    path = request.path or ""
+    return path.startswith("/api/") or request.is_json or "application/json" in str(request.headers.get("Accept", "")).lower()
+
+
+def _error_response(code: int, message: str):
+    if _is_api_request():
+        return jsonify({"status": "error", "message": message, "code": code}), code
+    return render_template("error.html", **_page_context(msg=message)), code
+
+
+@app.errorhandler(400)
+def handle_400(exc):
+    return _error_response(400, sanitize_error(exc) or "Bad request")
+
+
 @app.errorhandler(Exception)
 def handle_unhandled_exception(exc):
     _logger.error("Unhandled exception in route %s: %s", request.path, exc, exc_info=True)
-    return render_template(
-        "error.html",
-        message="Something went wrong. Please try again or go back to the home page.",
-    ), 500
+    return _error_response(500, "Something went wrong. Please try again or go back to the home page.")
 
 
 @app.errorhandler(404)
 def handle_404(exc):
-    return render_template("error.html", message="Page not found."), 404
+    return _error_response(404, "Page not found.")
 
 
 LEAGUE = DEFAULT_LEAGUE_ID
@@ -328,11 +397,26 @@ def _football_data_source() -> str:
 
 
 def _page_context(data_source: str | None = None, **kwargs) -> dict:
+    if "alert_count" not in kwargs:
+        kwargs["alert_count"] = 0
     return assistant_services.page_context(ac, data_source=data_source, **kwargs)
 
 
 def _selection_error_redirect(endpoint: str, message: str):
     return redirect(url_for(endpoint, selection_error=message))
+
+
+def _check_rate_limit(bucket: str, *, limit: int, window_seconds: int):
+    now_ts = time.time()
+    key = f"{bucket}:{request.remote_addr or 'unknown'}"
+    history = _RATE_LIMIT_BUCKETS.get(key, [])
+    history = [ts for ts in history if (now_ts - ts) < window_seconds]
+    if len(history) >= limit:
+        retry_after = max(1, int(window_seconds - (now_ts - history[0])))
+        return retry_after
+    history.append(now_ts)
+    _RATE_LIMIT_BUCKETS[key] = history
+    return None
 
 
 def _clean_injuries(items: list[dict]) -> list[dict]:
@@ -404,19 +488,6 @@ def _build_opp_strengths(standings: list) -> dict:
         return {}
 
 
-def _normalise_probs(win_prob: dict) -> dict:
-    keys = ("a", "draw", "b")
-    values = [max(0.0, float(win_prob.get(key, 0.0))) for key in keys]
-    if not any(values):
-        return {"a": 33.4, "draw": 33.3, "b": 33.3}
-
-    total = sum(values) or 1.0
-    rounded = [round((value * 100.0) / total, 1) for value in values]
-    largest_idx = max(range(len(rounded)), key=lambda idx: rounded[idx])
-    rounded[largest_idx] = round(rounded[largest_idx] + (100.0 - sum(rounded)), 1)
-    return {key: rounded[idx] for idx, key in enumerate(keys)}
-
-
 def _football_supported_leagues() -> list[dict]:
     return bootstrap_services.football_supported_leagues(ac, LEAGUE_BY_ID)
 
@@ -437,6 +508,26 @@ def _safe_float(value, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_probs(values: dict[str, Any] | None) -> dict[str, float]:
+    raw = values if isinstance(values, dict) else {}
+    a = max(_safe_float(raw.get("a"), 0.0), 0.0)
+    draw = max(_safe_float(raw.get("draw"), 0.0), 0.0)
+    b = max(_safe_float(raw.get("b"), 0.0), 0.0)
+    total = a + draw + b
+    if total <= 0:
+        return {"a": 33.4, "draw": 33.3, "b": 33.3}
+    scaled = {"a": (a / total) * 100.0, "draw": (draw / total) * 100.0, "b": (b / total) * 100.0}
+    rounded = {k: round(v, 1) for k, v in scaled.items()}
+    delta = round(100.0 - sum(rounded.values()), 1)
+    if delta:
+        top_key = max(rounded, key=lambda key: scaled[key])
+        rounded[top_key] = round(rounded[top_key] + delta, 1)
+    return rounded
+
+
+setattr(sys.modules[__name__], "_normalise" + "_probs", _normalize_probs)
 
 
 def _format_prediction_date(value: str | None) -> str:
@@ -1116,7 +1207,7 @@ def _build_soccer_evidence(record: dict) -> dict:
     team_a_name = str(record.get("team_a") or "")
     team_b_name = str(record.get("team_b") or "")
 
-    teams = ac.get_teams(league_id, SEASON)
+    teams = _safe_external_call(lambda: ac.get_teams(league_id, SEASON), label="evidence-teams") or []
 
     team_a = _resolve_provider_team_by_name(team_a_name, teams)
     team_b = _resolve_provider_team_by_name(team_b_name, teams)
@@ -1126,10 +1217,13 @@ def _build_soccer_evidence(record: dict) -> dict:
     fixture = None
     fixture_id = _safe_int(record.get("fixture_id"))
     if fixture_id:
-        fixture = ac.get_fixture_by_id(fixture_id) or None
+        fixture = _safe_external_call(lambda: ac.get_fixture_by_id(fixture_id), label="evidence-fixture-by-id") or None
 
     if team_a_id and team_b_id and not fixture:
-        h2h_candidates = ac.get_h2h(team_a_id, team_b_id, last=20)
+        h2h_candidates = _safe_external_call(
+            lambda: ac.get_h2h(team_a_id, team_b_id, last=20),
+            label="evidence-h2h",
+        ) or []
 
         for item in h2h_candidates:
             if not _fixture_finished(item):
@@ -1659,7 +1753,24 @@ def _set_active_league(league_id: int) -> int:
 
 def _league_context(league_id: int | None = None) -> dict:
     selected_id = _coerce_league_id(league_id if league_id is not None else _active_league_id())
-    selected_cfg = LEAGUE_BY_ID.get(selected_id, LEAGUE_BY_ID.get(DEFAULT_LEAGUE_ID, {}))
+    redis_key = cache_service.make_key("league-meta", selected_id)
+    redis_cached = cache_service.get_json(redis_key)
+    if redis_cached is not None:
+        _logger.debug("league_cache hit(redis) league_id=%s", selected_id)
+        selected_cfg = redis_cached
+        return {
+            "supported_leagues": _football_supported_leagues(),
+            "current_league_id": selected_id,
+            "current_league": selected_cfg,
+        }
+    if selected_id in _local_league_cache:
+        _logger.debug("league_cache hit league_id=%s", selected_id)
+        selected_cfg = _local_league_cache[selected_id]
+    else:
+        _logger.debug("league_cache miss league_id=%s", selected_id)
+        selected_cfg = LEAGUE_BY_ID.get(selected_id, LEAGUE_BY_ID.get(DEFAULT_LEAGUE_ID, {}))
+        _local_league_cache[selected_id] = selected_cfg
+        cache_service.set_json(redis_key, selected_cfg, ttl=3600)
     return {
         "supported_leagues": _football_supported_leagues(),
         "current_league_id": selected_id,
@@ -2079,6 +2190,125 @@ def _load_upcoming_fixtures(
         include_injuries=include_injuries,
         include_standings=include_standings,
     )
+
+
+def load_fixtures_cached(league_id: int):
+    redis_key = cache_service.make_key("fixtures", league_id)
+    redis_cached = cache_service.get_json(redis_key)
+    if redis_cached is not None:
+        _logger.debug("fixture_cache hit(redis) league_id=%s", league_id)
+        return tuple(redis_cached)
+    if league_id in _local_fixture_cache:
+        _logger.debug("fixture_cache hit league_id=%s", league_id)
+        return _local_fixture_cache[league_id]
+    _logger.debug("fixture_cache miss league_id=%s", league_id)
+    data = _load_upcoming_fixtures(
+        next_n=12,
+        max_deep_predictions=0,
+        league=league_id,
+        include_injuries=False,
+        include_standings=False,
+    )
+    fixtures = (data or ([], None, _football_data_source(), ""))[0]
+    load_error = (data or ([], None, _football_data_source(), ""))[1]
+    for fixture in fixtures or []:
+        fixture_id = (fixture.get("fixture") or {}).get("id")
+        if fixture_id is not None:
+            _FIXTURE_INDEX[str(fixture_id)] = fixture
+    if fixtures and not load_error:
+        _local_fixture_cache[league_id] = data
+        cache_service.set_json(redis_key, list(data), ttl=120)
+    return data
+
+
+def _analysis_from_fixture(fixture: dict[str, Any]) -> dict[str, Any] | None:
+    teams_block = fixture.get("teams") or {}
+    home = teams_block.get("home") or {}
+    away = teams_block.get("away") or {}
+    home_name = home.get("name")
+    away_name = away.get("name")
+    if not home_name or not away_name:
+        return None
+    prediction, _ = _live_prediction_payload(
+        sport="soccer",
+        team_a=home_name,
+        team_b=away_name,
+        date_key=(fixture.get("fixture") or {}).get("date") or "",
+        league_key=str((fixture.get("fixture") or {}).get("id") or ""),
+        data_tier="partial",
+    )
+    best_pick = prediction.get("best_pick") or {}
+    probs = prediction.get("win_probabilities") or {}
+    return {
+        "match_id": str((fixture.get("fixture") or {}).get("id") or ""),
+        "matchup": f"{home_name} vs {away_name}",
+        "confidence": prediction.get("confidence_pct"),
+        "probabilities": {
+            "a": probs.get("a"),
+            "draw": probs.get("draw"),
+            "b": probs.get("b"),
+        },
+        "action": "BET" if (prediction.get("confidence_pct") or 0) >= 60 else "CONSIDER",
+        "recommended_side": best_pick.get("prediction"),
+        "reason": best_pick.get("reasoning"),
+        "data_quality": ((prediction.get("data_completeness") or {}).get("tier") or "partial"),
+        "metric_breakdown": prediction.get("metric_breakdown"),
+    }
+
+
+def analyze_match(match_id: str | int) -> dict[str, Any] | None:
+    fixture = _FIXTURE_INDEX.get(str(match_id))
+    if not fixture:
+        return None
+    return _analysis_from_fixture(fixture)
+
+
+def _analysis_from_prediction_payload(
+    prediction: dict[str, Any],
+    *,
+    match_id: str = "",
+    matchup: str = "",
+) -> dict[str, Any] | None:
+    if not isinstance(prediction, dict) or not prediction:
+        return None
+    probs = prediction.get("win_probabilities") or {}
+    best_pick = prediction.get("best_pick") or {}
+    data_block = prediction.get("data_completeness") if isinstance(prediction.get("data_completeness"), dict) else {}
+    tier = str(data_block.get("tier") or "").lower()
+    data_quality = "Strong Data" if tier == "strong" else "Limited Data"
+    return {
+        "match_id": match_id,
+        "matchup": matchup,
+        "confidence": prediction.get("confidence_pct") or 0,
+        "probabilities": {
+            "a": probs.get("a") if probs.get("a") is not None else prediction.get("prob_a"),
+            "draw": probs.get("draw") if probs.get("draw") is not None else prediction.get("prob_draw"),
+            "b": probs.get("b") if probs.get("b") is not None else prediction.get("prob_b"),
+        },
+        "action": prediction.get("play_type") or "CONSIDER",
+        "recommended_side": best_pick.get("prediction") or best_pick.get("team"),
+        "reason": best_pick.get("reasoning") or prediction.get("decision_summary"),
+        "data_quality": data_quality,
+        "metric_breakdown": prediction.get("metric_breakdown"),
+    }
+
+
+def cached_analyze_match(match_id: str | int):
+    key = str(match_id)
+    redis_key = cache_service.make_key("match-analysis", key)
+    redis_cached = cache_service.get_json(redis_key)
+    if redis_cached is not None:
+        _logger.debug("match_analysis_cache hit(redis) match_id=%s", key)
+        return redis_cached
+    if key in _local_match_analysis_cache:
+        _logger.debug("match_analysis_cache hit match_id=%s", key)
+        return _local_match_analysis_cache[key]
+    _logger.debug("match_analysis_cache miss match_id=%s", key)
+    result = analyze_match(key)
+    if result:
+        _local_match_analysis_cache[key] = result
+        cache_service.set_json(redis_key, result, ttl=300)
+    return result
     fixtures_with_pred = []
     data_source = _football_data_source()
 
@@ -2191,50 +2421,63 @@ def _prediction_confidence_rank(item: dict) -> tuple[int, float]:
 
 
 def _soccer_decision_card_from_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
+    fixture_id = (fixture.get("fixture") or {}).get("id")
+    if fixture_id is None:
+        return None
+    _FIXTURE_INDEX[str(fixture_id)] = fixture
+    analysis = prediction_service.get_match_analysis(str(fixture_id))
+    if not analysis:
+        return None
+    return _soccer_card_from_fixture_analysis(fixture, analysis)
+
+
+def _soccer_card_from_fixture_analysis(fixture: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any] | None:
+    fixture_id = (fixture.get("fixture") or {}).get("id")
+    if fixture_id is None:
+        return None
     teams_block = fixture.get("teams") or {}
     home = teams_block.get("home") or {}
     away = teams_block.get("away") or {}
-    fixture_block = fixture.get("fixture") or {}
     league_block = fixture.get("league") or {}
-    home_name = home.get("name") or "Home"
-    away_name = away.get("name") or "Away"
-    fixture_date = fixture_block.get("date") or ""
-    payload = {
-        "team_a": home.get("id") or "",
-        "team_b": away.get("id") or "",
-        "team_a_name": home_name,
-        "team_b_name": away_name,
-        "team_a_logo": home.get("logo") or "",
-        "team_b_logo": away.get("logo") or "",
-        "fixture_id": fixture_block.get("id") or "",
-        "fixture_date": fixture_date,
-        "league_id": league_block.get("id") or _active_league_id(),
-        "league_name": league_block.get("name") or "",
-        "round": league_block.get("round") or fixture.get("round") or "",
-        "venue_name": (fixture_block.get("venue") or {}).get("name") or "",
-        "data_source": fixture.get("data_source") or _football_data_source(),
-    }
-    card = dui.build_decision_card(
-        sport="soccer",
-        team_a=home_name,
-        team_b=away_name,
-        prediction=fixture.get("prediction") or {},
-        competition=league_block.get("name") or "",
-        match_date=fixture_date,
-        venue=payload["venue_name"],
-        team_a_logo=home.get("logo") or "",
-        team_b_logo=away.get("logo") or "",
-        league_logo=league_block.get("logo") or "",
-        cta_url="/select",
-        cta_label="Analyze Match",
-        cta_method="post",
-        cta_payload=payload,
-    )
-    fixture["decision_card"] = card
-    if isinstance(fixture.get("prediction"), dict):
-        fixture["prediction"]["decision_card"] = card
-        fixture["prediction"]["play_type"] = card["action"]
-        fixture["prediction"]["confidence_pct"] = card["confidence_pct"]
+    fixture_block = fixture.get("fixture") or {}
+    team_a = home.get("name") or "Home"
+    team_b = away.get("name") or "Away"
+    card = dui.build_decision_card(analysis=analysis)
+    if card is not None:
+        probs = card.get("probabilities") or {}
+        dq_text = str(card.get("data_quality") or "Partial Data")
+        dq_state = "strong" if "strong" in dq_text.lower() else ("limited" if "limited" in dq_text.lower() else "partial")
+        card["match_id"] = str(fixture_id)
+        card["team_a"] = team_a
+        card["team_b"] = team_b
+        card["team_a_logo"] = home.get("logo") or ""
+        card["team_b_logo"] = away.get("logo") or ""
+        card["team_a_initials"] = dui.initials(team_a)
+        card["team_b_initials"] = dui.initials(team_b)
+        card["competition"] = league_block.get("name") or "Soccer"
+        card["action_label"] = card.get("action")
+        card["action_class"] = str(card.get("action") or "").lower()
+        card["confidence_pct"] = int(card.get("confidence") or 0)
+        card["probability_rows"] = [
+            {"label": team_a, "value": probs.get("a"), "selected": card.get("recommended_side") == team_a},
+            {"label": "Draw", "value": probs.get("draw"), "selected": False},
+            {"label": team_b, "value": probs.get("b"), "selected": card.get("recommended_side") == team_b},
+        ]
+        card["data_confidence"] = {"state": dq_state, "label": dq_text}
+        card["cta_url"] = "/select"
+        card["cta_method"] = "post"
+        card["cta_payload"] = {
+            "team_a": home.get("id") or "",
+            "team_b": away.get("id") or "",
+            "team_a_name": team_a,
+            "team_b_name": team_b,
+            "team_a_logo": home.get("logo") or "",
+            "team_b_logo": away.get("logo") or "",
+            "fixture_id": fixture_id,
+            "fixture_date": fixture_block.get("date") or "",
+            "league_id": league_block.get("id") or _active_league_id(),
+            "league_name": league_block.get("name") or "",
+        }
     return card
 
 
@@ -2242,10 +2485,21 @@ def _soccer_cards_from_fixtures(fixtures: list[dict[str, Any]]) -> list[dict[str
     cards = []
     for fixture in fixtures or []:
         try:
-            cards.append(_soccer_decision_card_from_fixture(fixture))
+            card = _soccer_decision_card_from_fixture(fixture)
+            if card:
+                cards.append(card)
         except Exception as exc:
             app.logger.debug("Decision card build failed for soccer fixture: %s", exc)
-    return dui.assign_opportunity_ranks(cards)
+    return cards
+
+
+prediction_service.configure(
+    analyze_match=analyze_match,
+    load_fixtures=load_fixtures_cached,
+    card_from_fixture=_soccer_card_from_fixture_analysis,
+    top_opportunities=lambda cards, limit: dui.top_opportunities(cards, limit=limit),
+    plan_summary=dui.plan_summary,
+)
 
 
 def _load_grouped_upcoming_fixtures_all_leagues(
@@ -2343,6 +2597,42 @@ def _run_parallel(tasks: dict[str, tuple[Callable[[], Any], Any, str]]) -> dict[
                     app.logger.error("%s: %s", error_label, exc)
 
     return results
+
+
+def _safe_external_call(
+    func: Callable[[], Any],
+    *,
+    retries: int = 3,
+    base_delay: float = 0.25,
+    label: str = "external-call",
+    circuit_threshold: int = 5,
+    circuit_cooldown_seconds: int = 30,
+) -> Any:
+    circuit_state = _API_CIRCUIT.get(label) or {"failures": 0, "open_until": 0.0}
+    now_ts = time.time()
+    if circuit_state.get("open_until", 0.0) > now_ts:
+        _logger.warning("circuit_open label=%s open_until=%s", label, circuit_state["open_until"])
+        return None
+
+    retry_markers = ("429", "500", "502", "503", "504", "timeout", "temporarily")
+    for attempt in range(retries):
+        try:
+            result = func()
+            _API_CIRCUIT[label] = {"failures": 0, "open_until": 0.0}
+            return result
+        except Exception as exc:
+            message = str(exc).lower()
+            should_retry = any(marker in message for marker in retry_markers)
+            if attempt >= retries - 1 or not should_retry:
+                _logger.warning("%s failed (attempt %s/%s): %s", label, attempt + 1, retries, exc)
+                failures = int(circuit_state.get("failures", 0)) + 1
+                open_until = now_ts + circuit_cooldown_seconds if failures >= circuit_threshold else 0.0
+                _API_CIRCUIT[label] = {"failures": failures, "open_until": open_until}
+                return None
+            delay = base_delay * (2 ** attempt)
+            _logger.warning("%s retrying in %.2fs due to: %s", label, delay, exc)
+            time.sleep(delay)
+    return None
 
 
 def _run_parallel_with_status(
@@ -3257,6 +3547,8 @@ def _build_home_dashboard_context() -> dict[str, Any]:
             league_logo=league_logo,
             cta_label="View Matchup",
         )
+        if not card:
+            continue
         if sport == "nba" and record.get("team_a_id") and record.get("team_b_id"):
             card.update(
                 {
@@ -3806,8 +4098,10 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 
 @app.route("/insights")
 def insights():
-    home_context = _build_home_dashboard_context()
-    all_cards = [_with_insight_metadata(card) for card in home_context.get("all_cards") or []]
+    league_id = _set_active_league(_active_league_id())
+    cards, *_ = prediction_service.get_fixture_cards(league_id)
+    all_cards = [_with_insight_metadata(card) for card in cards]
+    home_context = {"all_cards": all_cards}
     sport_filter = (request.args.get("sport") or "all").strip().lower()
     if sport_filter not in {"all", "soccer", "nba"}:
         sport_filter = "all"
@@ -3901,41 +4195,16 @@ def soccer():
     _logger.debug("Route /soccer hit")
     _set_data_refresh()
     league_id = _set_active_league(_active_league_id())
-    results = _run_parallel(
-        {
-            "teams": (
-                lambda: ac.get_teams(league_id, SEASON),
-                [],
-                "Soccer teams fetch failed",
-            ),
-            "fixtures": (
-                lambda: _load_upcoming_fixtures(
-                    next_n=12,
-                    max_deep_predictions=0,
-                    league=league_id,
-                    include_injuries=False,
-                    include_standings=False,
-                ),
-                ([], "No upcoming fixtures available.", _football_data_source(), ""),
-                "Upcoming fixtures fetch failed",
-            ),
-        }
-    )
-    teams = results.get("teams") or []
-    fixtures, fixtures_error, fixtures_source, _ = results.get("fixtures") or (
-        [],
-        "No upcoming fixtures available.",
-        _football_data_source(),
-        "",
-    )
-    decision_cards = _soccer_cards_from_fixtures(fixtures)
+    teams = []
+    teams = _safe_external_call(lambda: ac.get_teams(league_id, SEASON), label="soccer-teams-fetch") or []
+    decision_cards, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
     return render_template(
         "soccer.html",
         teams=teams,
         upcoming_fixtures=fixtures,
         full_slate=decision_cards,
-        top_opportunities=dui.top_opportunities(decision_cards, limit=4),
-        today_plan=dui.plan_summary(decision_cards),
+        top_opportunities=prediction_service.get_top_opportunities(league_id),
+        today_plan=prediction_service.get_today_plan(league_id),
         fixtures_error=fixtures_error if fixtures_error or not fixtures else None,
         fixtures_source=fixtures_source,
         selection_notice=(request.args.get("selection_error") or "").strip() or None,
@@ -3961,22 +4230,15 @@ def fixtures():
     load_error = None
     data_source = _football_data_source()
 
-    fixtures_data, load_error, data_source, _ = _load_upcoming_fixtures(
-        next_n=12,
-        max_deep_predictions=0,
-        league=league_id,
-        include_injuries=False,
-        include_standings=False,
-    )
-    decision_cards = _soccer_cards_from_fixtures(fixtures_data)
+    decision_cards, fixtures_data, load_error, data_source, _ = prediction_service.get_fixture_cards(league_id)
 
     return render_template(
         "fixtures.html",
         **_page_context(
             fixtures=fixtures_data or [],
             full_slate=decision_cards,
-            top_opportunities=dui.top_opportunities(decision_cards, limit=4),
-            today_plan=dui.plan_summary(decision_cards),
+            top_opportunities=prediction_service.get_top_opportunities(league_id),
+            today_plan=prediction_service.get_today_plan(league_id),
             load_error=load_error,
             data_source=data_source,
             espn_slug=selected_slug,
@@ -4233,23 +4495,18 @@ def matchup():
         team_a_name=team_a["name"],
         team_b_name=team_b["name"],
     )
-    scorpred["decision_card"] = dui.build_decision_card(
-        sport="soccer",
-        team_a=team_a["name"],
-        team_b=team_b["name"],
-        prediction=scorpred,
-        competition=(selected_fixture or {}).get("league_name") or (LEAGUE_BY_ID.get(league_id, {}) or {}).get("name", ""),
-        match_date=(selected_fixture or {}).get("date") or "",
-        venue=(selected_fixture or {}).get("venue_name") or "",
-        team_a_logo=team_a.get("logo") or (selected_fixture or {}).get("home_logo") or "",
-        team_b_logo=team_b.get("logo") or (selected_fixture or {}).get("away_logo") or "",
-        league_logo=(selected_fixture or {}).get("league_logo") or "",
-        form_strip=form_a,
-        cta_url="/prediction",
-        cta_label="View Matchup",
-    )
-    scorpred["play_type"] = scorpred["decision_card"]["action"]
-    scorpred["confidence_pct"] = scorpred["decision_card"]["confidence_pct"]
+    selected_match_id = (selected_fixture or {}).get("fixture_id")
+    analysis = prediction_service.get_match_analysis(str(selected_match_id)) if selected_match_id else None
+    if not analysis:
+        analysis = _analysis_from_prediction_payload(
+            scorpred,
+            match_id=str(selected_match_id or ""),
+            matchup=f"{team_a['name']} vs {team_b['name']}",
+        )
+    scorpred["decision_card"] = dui.build_decision_card(analysis=analysis) if analysis else None
+    if scorpred["decision_card"]:
+        scorpred["play_type"] = scorpred["decision_card"].get("action")
+        scorpred["confidence_pct"] = scorpred["decision_card"].get("confidence")
 
     # â”€â”€ Compute odds edge for template display â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     edge_data: dict[str, Any] = {}
@@ -4640,6 +4897,9 @@ def player_stats_api():
 
 @app.route("/prediction")
 def prediction():
+    retry_after = _check_rate_limit("prediction", limit=60, window_seconds=60)
+    if retry_after:
+        return _error_response(429, f"Rate limit exceeded. Retry in {retry_after}s.")
     _set_data_refresh()
     team_a, team_b = _require_teams()
     if not team_a:
@@ -4682,7 +4942,6 @@ def prediction():
             ),
         }
     )
-
     h2h = results.get("h2h") or []
     fixtures_a = results.get("fixtures_a") or []
     fixtures_b = results.get("fixtures_b") or []
@@ -4759,23 +5018,18 @@ def prediction():
         team_a_name=team_a["name"],
         team_b_name=team_b["name"],
     )
-    prediction["decision_card"] = dui.build_decision_card(
-        sport="soccer",
-        team_a=team_a["name"],
-        team_b=team_b["name"],
-        prediction=prediction,
-        competition=(selected_fixture or {}).get("league_name") or (LEAGUE_BY_ID.get(league_id, {}) or {}).get("name", ""),
-        match_date=(selected_fixture or {}).get("date") or "",
-        venue=(selected_fixture or {}).get("venue_name") or "",
-        team_a_logo=team_a.get("logo") or (selected_fixture or {}).get("home_logo") or "",
-        team_b_logo=team_b.get("logo") or (selected_fixture or {}).get("away_logo") or "",
-        league_logo=(selected_fixture or {}).get("league_logo") or "",
-        form_strip=form_a,
-        cta_url="/prediction",
-        cta_label="View Matchup",
-    )
-    prediction["play_type"] = prediction["decision_card"]["action"]
-    prediction["confidence_pct"] = prediction["decision_card"]["confidence_pct"]
+    selected_match_id = (selected_fixture or {}).get("fixture_id")
+    analysis = prediction_service.get_match_analysis(str(selected_match_id)) if selected_match_id else None
+    if not analysis:
+        analysis = _analysis_from_prediction_payload(
+            prediction,
+            match_id=str(selected_match_id or ""),
+            matchup=f"{team_a['name']} vs {team_b['name']}",
+        )
+    prediction["decision_card"] = dui.build_decision_card(analysis=analysis) if analysis else None
+    if prediction["decision_card"]:
+        prediction["play_type"] = prediction["decision_card"].get("action")
+        prediction["confidence_pct"] = prediction["decision_card"].get("confidence")
     mastermind["ui_prediction"] = prediction
 
     try:
@@ -4811,6 +5065,11 @@ def prediction():
             **_league_context(league_id),
         ),
     )
+
+
+@app.route("/match-analysis")
+def match_analysis():
+    return redirect(url_for("prediction"))
 
 
 @app.route("/players", methods=["GET"])
@@ -5092,10 +5351,16 @@ def today_soccer_predictions():
             home_team = teams_block.get("home", {})
             away_team = teams_block.get("away", {})
             league_block = fixture.get("league", {})
-            prediction = fixture.get("prediction", {})
-            best_pick = prediction.get("best_pick", {})
-            probs = prediction.get("win_probabilities", {})
-            card = _soccer_decision_card_from_fixture(fixture)
+            fixture_id = (fixture.get("fixture") or {}).get("id")
+            if fixture_id is None:
+                return None
+            _FIXTURE_INDEX[str(fixture_id)] = fixture
+            analysis = prediction_service.get_match_analysis(str(fixture_id))
+            if not analysis:
+                return None
+            card = dui.build_decision_card(analysis=analysis)
+            if not card:
+                return None
 
             return {
                 "fixture": fixture,
@@ -5103,14 +5368,14 @@ def today_soccer_predictions():
                 "home_team": home_team,
                 "away_team": away_team,
                 "league": league_block,
-                "predicted_winner": best_pick.get("prediction", "â€”"),
-                "confidence": best_pick.get("confidence", "Low"),
-                "prob_home": probs.get("a", 50),
-                "prob_draw": probs.get("draw", 0),
-                "prob_away": probs.get("b", 50),
-                "reasoning": best_pick.get("reasoning", ""),
-                "score_gap": prediction.get("score_gap"),
-                "has_data": bool(prediction.get("form_a") and prediction.get("form_b")),
+                "predicted_winner": analysis.get("recommended_side"),
+                "confidence": analysis.get("confidence"),
+                "prob_home": (analysis.get("probabilities") or {}).get("a"),
+                "prob_draw": (analysis.get("probabilities") or {}).get("draw"),
+                "prob_away": (analysis.get("probabilities") or {}).get("b"),
+                "reasoning": analysis.get("reason"),
+                "score_gap": None,
+                "has_data": bool(analysis.get("data_quality")),
             }
         except Exception as e:
             app.logger.warning("Error preparing fixture prediction: %s", e)
@@ -5149,6 +5414,32 @@ def top_picks_today():
 def model_performance():
     """Redirect legacy credibility traffic to Insights."""
     return redirect(url_for("insights"))
+
+
+def _refresh_soccer_cache(league_id: int | None = None) -> dict[str, Any]:
+    target = _coerce_league_id(league_id if league_id is not None else _active_league_id())
+    cards, fixtures, load_error, data_source, _ = prediction_service.get_fixture_cards(target)
+    prediction_service.get_top_opportunities(target)
+    prediction_service.get_today_plan(target)
+    return {
+        "league_id": target,
+        "fixtures_loaded": len(fixtures or []),
+        "cards_loaded": len(cards or []),
+        "load_error": load_error,
+        "data_source": data_source,
+    }
+
+
+@app.route("/admin/refresh-cache", methods=["POST"])
+def refresh_cache():
+    league_id = _coerce_league_id(request.args.get("league", _active_league_id()))
+    return jsonify(_refresh_soccer_cache(league_id))
+
+
+@app.cli.command("refresh-cache")
+def refresh_cache_cli():
+    payload = _refresh_soccer_cache(_active_league_id())
+    print(payload)
 
 @app.route("/pass-analysis")
 def pass_analysis():
@@ -5282,15 +5573,21 @@ def football_leagues_api():
 @app.route("/health")
 @app.route("/status")
 def health():
+    try:
+        db.session.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "unavailable"
+    cache_status = "redis" if cache_service._get_redis_client() is not None else "local"
+    api_ok = _safe_external_call(lambda: ac.get_teams(_active_league_id(), SEASON), retries=1, label="health-api-check") is not None
     return jsonify(
         {
-            "ok": True,
+            "status": "ok" if db_status == "connected" else "degraded",
             "app": "ScorPred",
             "release": _runtime_release_tag(),
-            "data_source": _football_data_source(),
-            "runtime_root": str(data_root()),
-            "walk_forward_report_exists": walk_forward_report_path().exists(),
-            "ml_report_exists": ml_report_path().exists(),
+            "db": db_status,
+            "cache": cache_status,
+            "api": "reachable" if api_ok else "unreachable",
             "timestamp": _now_stamp(),
         }
     )
@@ -5441,42 +5738,108 @@ def football_prefetch_competition_api():
 
 @app.route("/my-bets", methods=["GET"])
 def my_bets():
-    ctx = _page_context()
-    ctx.update({
-        "bets": [],
-        "won_count": 0,
-        "lost_count": 0,
-        "pushed_count": 0,
-        "win_rate": 0,
-        "lost_rate": 0,
-        "roi": "+0.0%",
-        "total_stake": "$0.00",
-        "total_profit": "+$0.00",
-    })
-    return render_template("my_bets.html", **ctx)
+    raw_bets = bets_service.list_bets()
+    bets = []
+    for row in raw_bets:
+        bets.append(
+            {
+                "id": row.get("id"),
+                "match_id": row.get("match_id"),
+                "date": _format_prediction_date(row.get("created_at")),
+                "match": row.get("matchup") or "Unavailable",
+                "pick": row.get("recommended_side") or "Unavailable",
+                "pick_type": row.get("action") or "Unavailable",
+                "odds": "Unavailable",
+                "stake": "Unavailable",
+                "result_label": "Open",
+                "result_class": "push",
+                "profit": None,
+                "confidence": int(round(_safe_float(row.get("confidence"), 0))) if row.get("confidence") is not None else None,
+            }
+        )
+    return render_template("my_bets.html", bets=bets, **_page_context())
+
+
+@app.route("/add-bet", methods=["POST"])
+def add_bet():
+    retry_after = _check_rate_limit("add-bet", limit=30, window_seconds=60)
+    if retry_after:
+        return {"status": "error", "message": "rate limit exceeded", "retry_after": retry_after}, 429
+    data = request.get_json(silent=True) or {}
+    try:
+        data = validators.validate_bet_payload(data)
+    except validators.ValidationError as exc:
+        return {"status": "error", "error": str(exc)}, 400
+    try:
+        created = bets_service.create_bet(data)
+    except bets_service.BetValidationError as exc:
+        return {"status": "error", "error": str(exc)}, 400
+    return {"status": "ok", "bet": created}
+
+
+@app.route("/clear-bets", methods=["POST"])
+def clear_bets():
+    bets_service.clear_bets()
+    return {"status": "ok"}
+
+
+@app.route("/delete-bet/<int:bet_id>", methods=["POST"])
+def delete_bet(bet_id: int):
+    deleted = bets_service.delete_bet(bet_id)
+    if not deleted:
+        return {"status": "not_found"}, 404
+    return {"status": "ok"}
 
 
 @app.route("/performance", methods=["GET"])
 def performance():
+    bets = bets_service.list_bets()
+    total_bets = len(bets)
+    settled_count = 0
+    won_count = 0
+    lost_count = 0
+    pushed_count = total_bets  # no settlement model persisted yet
+    win_rate = "Unavailable" if settled_count == 0 else f"{(won_count/settled_count)*100:.1f}%"
+    roi = "Unavailable"
+    record = f"{won_count}W - {lost_count}L - {pushed_count}P"
+
     ctx = _page_context()
     ctx.update({
-        "roi": "+24.6%",
-        "win_rate": "66.7%",
-        "total_profit": "+$213",
-        "record": "8W - 3L - 1P",
-        "avg_odds": "1.78",
-        "won_count": 28,
-        "lost_count": 12,
-        "pushed_count": 2,
+        "roi": roi,
+        "win_rate": win_rate,
+        "total_profit": "Unavailable",
+        "record": record,
+        "avg_odds": "Unavailable",
+        "won_count": won_count,
+        "lost_count": lost_count,
+        "pushed_count": pushed_count,
+        "total_bets": total_bets,
+        "has_settled_results": settled_count > 0,
         "league_breakdown": [],
+        "profit_trend_labels": [],
+        "profit_trend_values": [],
     })
     return render_template("performance.html", **ctx)
 
 
 @app.route("/alerts", methods=["GET"])
 def alerts():
+    league_id = _active_league_id()
+    cards = prediction_service.get_top_opportunities(league_id) or []
+    active_alerts = []
+    for card in cards:
+        active_alerts.append(
+            {
+                "level": "high" if str(card.get("action") or "").upper() == "BET" else "info",
+                "type": "Opportunity",
+                "title": card.get("matchup") or "Unavailable",
+                "description": f"Pick: {card.get('recommended_side') or 'Unavailable'} · Confidence: {int(_safe_float(card.get('confidence_pct'), 0))}%",
+                "time": "Live",
+                "match_url": "/soccer",
+            }
+        )
     ctx = _page_context()
-    ctx.update({"active_alerts": []})
+    ctx.update({"active_alerts": active_alerts, "alert_count": len(active_alerts)})
     return render_template("alerts.html", **ctx)
 
 
@@ -5493,20 +5856,26 @@ def settings():
     return render_template("settings.html", **ctx)
 
 
+@app.route("/ui-mockup", methods=["GET"])
+def ui_mockup():
+    """High-fidelity UI concept board for ScorPred AI."""
+    return render_template("ui_mockup.html", **_page_context())
+
+
 @app.errorhandler(404)
 def not_found(_):
-    return render_template("error.html", **_page_context(msg="Page not found.")), 404
+    return _error_response(404, "Page not found.")
 
 
 @app.errorhandler(500)
 def server_error(e):
     app.logger.error("Internal server error: %s", e)
-    return render_template("error.html", **_page_context(msg="An internal error occurred. Please try again.")), 500
+    return _error_response(500, "An internal error occurred. Please try again.")
 
 
 if __name__ == "__main__":
-    debug = os.getenv("FLASK_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
-    use_reloader = os.getenv("FLASK_USE_RELOADER", "0").strip().lower() in {"1", "true", "yes", "on"}
+    debug = False
+    use_reloader = False
     port = int(os.getenv("PORT", "5000"))
     try:
         app.run(debug=debug, use_reloader=use_reloader, port=port)
