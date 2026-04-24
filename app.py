@@ -14,6 +14,7 @@ import unicodedata
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any, Callable
 from urllib.parse import urlparse
 from sqlalchemy import text
@@ -4896,6 +4897,7 @@ def player_stats_api():
 
 
 @app.route("/prediction")
+@app.route("/match-analysis")
 def prediction():
     retry_after = _check_rate_limit("prediction", limit=60, window_seconds=60)
     if retry_after:
