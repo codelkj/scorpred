@@ -189,10 +189,26 @@ class MatchBrain:
 
     def get_insights(self, league_id: int) -> dict[str, Any]:
         fixtures = self.safe_fetch_fixtures(league_id)
-        canonical = [self.canonical_from_fixture(f) for f in fixtures or []]
-        canonical = [row for row in canonical if row]
-        opportunities = sorted(canonical, key=lambda row: (-self._priority_score(row), -(row.get("confidence") or 0)))
-        high_conf = [row for row in opportunities if int((row["prediction"] or {}).get("confidence") or 0) >= 64]
+        canonical = []
+        for f in fixtures or []:
+            try:
+                row = self.canonical_from_fixture(f)
+                if row:
+                    canonical.append(row)
+            except Exception as exc:
+                self._log.warning("get_insights canonical_from_fixture failed: %s", exc)
+        try:
+            opportunities = sorted(canonical, key=lambda row: (-self._priority_score(row), -(row.get("confidence") or 0)))
+        except Exception:
+            opportunities = canonical
+        high_conf = []
+        for row in opportunities:
+            try:
+                conf = (row.get("prediction") or {}).get("confidence") or 0
+                if int(float(conf)) >= 64:
+                    high_conf.append(row)
+            except (TypeError, ValueError):
+                pass
         return {"top_opportunities": opportunities[:6], "high_confidence": high_conf[:6]}
 
     def track_match(self, canonical_match: dict[str, Any]) -> str:
@@ -389,7 +405,14 @@ class MatchBrain:
         rows = self.safe_fetch_results()
         metrics = self._calibration_engine.get_model_metrics(rows)
         calib = metrics.get("bucket_breakdown") or {}
-        errors = [float(v.get("error")) for v in calib.values() if v.get("error") is not None]
+        errors = []
+        for v in calib.values():
+            raw = v.get("error")
+            if raw is not None:
+                try:
+                    errors.append(float(raw))
+                except (TypeError, ValueError):
+                    pass
         metrics["calibration_error"] = round(sum(errors) / len(errors), 2) if errors else None
         return metrics
 
