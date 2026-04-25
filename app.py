@@ -6240,6 +6240,213 @@ def ui_mockup():
     return render_template("ui_mockup.html", **_page_context())
 
 
+# ── React Dashboard JSON API ──────────────────────────────────────────────────
+
+def _normalize_data_label(raw: str | None) -> str:
+    s = str(raw or "").lower()
+    if "strong" in s:
+        return "Strong Data"
+    if "limited" in s:
+        return "Limited Data"
+    return "Partial Data"
+
+
+def _card_to_decision(card: dict) -> dict:
+    action = str(card.get("action") or "CONSIDER").upper()
+    if action not in {"BET", "CONSIDER", "SKIP"}:
+        action = "CONSIDER"
+    return {
+        "action": action,
+        "side": card.get("recommended_side") or card.get("team_a") or "",
+        "matchup": card.get("matchup") or "",
+        "confidence": int(dui.safe_float(card.get("confidence_pct") or card.get("confidence"), 0)),
+        "reason": card.get("reason") or "",
+        "data": _normalize_data_label(
+            (card.get("data_confidence") or {}).get("label") or card.get("data_quality")
+        ),
+        "support": card.get("competition") or "",
+        "logo": card.get("team_a_logo") if card.get("recommended_side") == card.get("team_a") else card.get("team_b_logo") or "",
+        "leagueLogo": card.get("league_logo") or "",
+    }
+
+
+@app.route("/api/dashboard/home", methods=["GET"])
+def api_dashboard_home():
+    try:
+        home_ctx = _build_home_dashboard_context()
+        all_cards = home_ctx.get("all_cards") or home_ctx.get("full_slate") or []
+        top = home_ctx.get("top_opportunities") or dui.top_opportunities(all_cards, limit=4)
+        plan = home_ctx.get("today_plan") or dui.plan_summary(all_cards)
+        insight_rows = [
+            {
+                "match": c.get("matchup") or "",
+                "action": str(c.get("action") or "CONSIDER").upper(),
+                "side": c.get("recommended_side") or "",
+                "confidence": f"{int(dui.safe_float(c.get('confidence_pct') or c.get('confidence'), 0))}%",
+                "trust": _normalize_data_label(
+                    (c.get("data_confidence") or {}).get("label") or c.get("data_quality")
+                ),
+            }
+            for c in all_cards[:8]
+        ]
+        return jsonify({
+            "topOpportunities": [_card_to_decision(c) for c in top],
+            "insightRows": insight_rows,
+            "plan": {"bet": plan.get("bet", 0), "consider": plan.get("consider", 0), "skip": plan.get("skip", 0)},
+            "last_updated": _now_stamp(),
+        })
+    except Exception as exc:
+        app.logger.warning("api_dashboard_home error: %s", exc)
+        return jsonify({"topOpportunities": [], "insightRows": [], "plan": {"bet": 0, "consider": 0, "skip": 0}}), 200
+
+
+@app.route("/api/dashboard/soccer", methods=["GET"])
+def api_dashboard_soccer():
+    try:
+        league_id = _set_active_league(_active_league_id())
+        cards, _, load_error, _, _ = prediction_service.get_fixture_cards(league_id)
+        top = dui.top_opportunities(cards, limit=4)
+        plan = dui.plan_summary(cards)
+        return jsonify({
+            "slate": [_card_to_decision(c) for c in cards],
+            "topOpportunities": [_card_to_decision(c) for c in top],
+            "plan": {"bet": plan.get("bet", 0), "consider": plan.get("consider", 0), "skip": plan.get("skip", 0)},
+            "error": load_error,
+            "last_updated": _now_stamp(),
+        })
+    except Exception as exc:
+        app.logger.warning("api_dashboard_soccer error: %s", exc)
+        return jsonify({"slate": [], "topOpportunities": [], "plan": {"bet": 0, "consider": 0, "skip": 0}, "error": str(exc)}), 200
+
+
+@app.route("/api/dashboard/nba", methods=["GET"])
+def api_dashboard_nba():
+    try:
+        from nba_routes import bp as nba_bp_module  # noqa: F401
+        nba_service = app.blueprints.get("nba")
+        cards: list[dict] = []
+        load_error = None
+        try:
+            from nba_live_client import NBALiveClient as _NC
+            nc_inst = _NC()
+            upcoming = nc_inst.get_upcoming_games(12, 5, "api") or []
+            today = nc_inst.get_today_games("api") or []
+            slate = upcoming or [g for g in today if (g.get("status") or {}).get("state") in {"pre", "in"}]
+            teams = nc_inst.get_teams() or []
+            team_map = {str(t["id"]): t for t in teams}
+            standings = nc_inst.get_standings() or {}
+            from nba_routes import _build_nba_opp_strengths, _build_upcoming_prediction_card, _fallback_prediction_card_from_game  # type: ignore
+            nba_opp_strengths = _build_nba_opp_strengths(standings)
+            from concurrent.futures import ThreadPoolExecutor, as_completed as _asc
+            ordered: list[dict | None] = [None] * len(slate)
+            with ThreadPoolExecutor(max_workers=min(6, len(slate) or 1)) as ex:
+                fmap = {ex.submit(_build_upcoming_prediction_card, g, team_map, nba_opp_strengths): i for i, g in enumerate(slate)}
+                for fut in _asc(fmap):
+                    idx = fmap[fut]
+                    try:
+                        ordered[idx] = fut.result()
+                    except Exception:
+                        ordered[idx] = _fallback_prediction_card_from_game(slate[idx], team_map)
+                    if not ((ordered[idx] or {}).get("prediction") or {}).get("decision_card"):
+                        ordered[idx] = _fallback_prediction_card_from_game(slate[idx], team_map)
+            games_with_pred = [r for r in ordered if r]
+            cards = [(g.get("prediction") or {}).get("decision_card") for g in games_with_pred]
+            cards = [c for c in cards if c]
+        except Exception as exc:
+            load_error = sanitize_error(exc)
+            app.logger.warning("api_dashboard_nba data fetch error: %s", exc)
+        dui.assign_opportunity_ranks(cards)
+        top = dui.top_opportunities(cards, limit=4)
+        plan = dui.plan_summary(cards)
+        return jsonify({
+            "slate": [_card_to_decision(c) for c in cards],
+            "topOpportunities": [_card_to_decision(c) for c in top],
+            "plan": {"bet": plan.get("bet", 0), "consider": plan.get("consider", 0), "skip": plan.get("skip", 0)},
+            "error": load_error,
+            "last_updated": _now_stamp(),
+        })
+    except Exception as exc:
+        app.logger.warning("api_dashboard_nba error: %s", exc)
+        return jsonify({"slate": [], "topOpportunities": [], "plan": {"bet": 0, "consider": 0, "skip": 0}, "error": str(exc)}), 200
+
+
+@app.route("/api/dashboard/insights", methods=["GET"])
+def api_dashboard_insights():
+    try:
+        sport_filter = (request.args.get("sport") or "all").strip().lower()
+        if sport_filter not in {"all", "soccer", "nba"}:
+            sport_filter = "all"
+        league_id = _set_active_league(_active_league_id())
+        if _MATCH_BRAIN is not None:
+            insights_payload = _MATCH_BRAIN.get_insights(league_id)
+            raw_cards: list[dict] = []
+            for item in insights_payload.get("top_opportunities", []):
+                pred_block = item.get("prediction") or {}
+                probs = pred_block.get("probabilities") or {}
+                dq_raw = item.get("data_quality") or pred_block.get("data_quality")
+                if isinstance(dq_raw, int):
+                    dq_label = "Strong Data" if dq_raw >= 75 else ("Limited Data" if dq_raw < 50 else "Partial Data")
+                else:
+                    dq_label = _normalize_data_label(str(dq_raw or ""))
+                analysis = {
+                    "match_id": item.get("match_id"),
+                    "matchup": item.get("matchup"),
+                    "confidence": pred_block.get("confidence") or item.get("confidence"),
+                    "probabilities": {"a": probs.get("home"), "draw": probs.get("draw"), "b": probs.get("away")},
+                    "action": pred_block.get("action") or item.get("action"),
+                    "recommended_side": pred_block.get("side") or item.get("recommended_side"),
+                    "reason": " | ".join((pred_block.get("reasoning") or {}).get("strengths", [])) or item.get("reason") or "",
+                    "data_quality": dq_label,
+                    "metric_breakdown": item.get("metric_breakdown") or {},
+                }
+                card = dui.build_decision_card(analysis=analysis)
+                if card:
+                    raw_cards.append(card)
+        else:
+            raw_cards, *_ = prediction_service.get_fixture_cards(league_id)
+
+        all_cards = raw_cards
+        if sport_filter != "all":
+            all_cards = [c for c in all_cards if str(c.get("sport") or "").lower() == sport_filter]
+
+        top = dui.top_opportunities(all_cards, limit=6)
+        plan = dui.plan_summary(all_cards)
+        confidence_groups = {
+            "Top confidence": len([c for c in all_cards if dui.safe_float(c.get("confidence_pct"), 0) >= 66]),
+            "Playable range": len([c for c in all_cards if 55 <= dui.safe_float(c.get("confidence_pct"), 0) < 66]),
+            "Caution range": len([c for c in all_cards if dui.safe_float(c.get("confidence_pct"), 0) < 55]),
+        }
+        volatility_watch = sorted(
+            [c for c in all_cards if str(c.get("action") or "").upper() != "SKIP"],
+            key=lambda c: (-int(c.get("volatility_score") or 0), -dui.safe_float(c.get("confidence_pct"), 0)),
+        )[:4]
+
+        return jsonify({
+            "radarCards": [_card_to_decision(c) for c in top],
+            "volatilityRows": [
+                {
+                    "side": c.get("recommended_side") or "",
+                    "matchup": c.get("matchup") or "",
+                    "action": str(c.get("action") or "CONSIDER").upper(),
+                    "confidence": int(dui.safe_float(c.get("confidence_pct"), 0)),
+                    "note": c.get("volatility_note") or c.get("reason") or "",
+                }
+                for c in volatility_watch
+            ],
+            "confidenceGroups": confidence_groups,
+            "plan": {"bet": plan.get("bet", 0), "consider": plan.get("consider", 0), "skip": plan.get("skip", 0)},
+            "sportFilter": sport_filter,
+            "last_updated": _now_stamp(),
+        })
+    except Exception as exc:
+        app.logger.warning("api_dashboard_insights error: %s", exc)
+        return jsonify({
+            "radarCards": [], "volatilityRows": [],
+            "confidenceGroups": {"Top confidence": 0, "Playable range": 0, "Caution range": 0},
+            "plan": {"bet": 0, "consider": 0, "skip": 0},
+        }), 200
+
+
 @app.errorhandler(404)
 def not_found(_):
     return _error_response(404, "Page not found.")

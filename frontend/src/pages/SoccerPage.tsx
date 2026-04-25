@@ -1,40 +1,19 @@
+import { useFetch } from '../hooks/useFetch';
 import { DecisionCard, EmptyState, PlanStrip, type Decision } from '../components/DecisionCard';
 
-const slate: Decision[] = [
-  {
-    action: 'BET',
-    side: 'Arsenal',
-    matchup: 'Arsenal vs Bournemouth',
-    confidence: 68,
-    reason: 'Strong attacking form plus home edge.',
-    data: 'Strong Data',
-    support: 'Premier League | Arsenal vs Bournemouth',
-    cta: 'Analyze Match',
-  },
-  {
-    action: 'CONSIDER',
-    side: 'Barcelona',
-    matchup: 'Barcelona vs Real Madrid',
-    confidence: 58,
-    reason: 'Attacking edge, but opponent chance quality is live.',
-    data: 'Partial Data',
-    support: 'La Liga | Barcelona vs Real Madrid',
-    cta: 'View Matchup',
-  },
-  {
-    action: 'CONSIDER',
-    side: 'Inter Milan',
-    matchup: 'Inter Milan vs AC Milan',
-    confidence: 51,
-    reason: 'Narrow venue-led edge with elevated derby volatility.',
-    data: 'Limited Data',
-    support: 'Serie A | Inter Milan vs AC Milan',
-    cta: 'View Matchup',
-  },
-];
+interface SoccerData {
+  slate: Decision[];
+  topOpportunities: Decision[];
+  plan: { bet: number; consider: number; skip: number };
+  error?: string | null;
+}
 
 export default function SoccerPage() {
-  const top = slate.filter((item) => item.action === 'BET' || item.action === 'CONSIDER');
+  const { data, loading, error } = useFetch<SoccerData>('/api/dashboard/soccer');
+
+  const slate = data?.slate ?? [];
+  const top = data?.topOpportunities ?? [];
+  const plan = data?.plan ?? { bet: 0, consider: 0, skip: 0 };
 
   return (
     <div className="page-stack">
@@ -46,17 +25,26 @@ export default function SoccerPage() {
         </p>
       </section>
 
-      <PlanStrip bet={1} consider={2} skip={0} />
+      <PlanStrip bet={plan.bet} consider={plan.consider} skip={plan.skip} />
 
       <section className="section">
         <div>
           <p className="section-label">Top Opportunities Today</p>
           <h2 className="font-oswald text-2xl uppercase tracking-[0.08em] text-white">Strongest picks first.</h2>
         </div>
-        {top.length ? (
+        {loading ? (
+          <div className="empty-state">
+            <p className="font-oswald text-lg uppercase tracking-normal text-white">Loading fixtures…</p>
+          </div>
+        ) : error || data?.error ? (
+          <EmptyState
+            title="Data unavailable"
+            body={data?.error ?? 'Could not load today\'s soccer fixtures. Check back shortly.'}
+          />
+        ) : top.length > 0 ? (
           <div className="grid-2">
             {top.map((decision) => (
-              <DecisionCard key={decision.side} decision={decision} featured />
+              <DecisionCard key={`${decision.action}-${decision.side}-${decision.matchup}`} decision={decision} featured />
             ))}
           </div>
         ) : (
@@ -66,11 +54,19 @@ export default function SoccerPage() {
 
       <section className="section">
         <p className="section-label">Full Slate</p>
-        <div className="grid-2">
-          {slate.map((decision) => (
-            <DecisionCard key={`${decision.action}-${decision.side}`} decision={decision} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="empty-state">
+            <p className="font-oswald text-lg uppercase tracking-normal text-white">Loading slate…</p>
+          </div>
+        ) : slate.length > 0 ? (
+          <div className="grid-2">
+            {slate.map((decision) => (
+              <DecisionCard key={`${decision.action}-${decision.side}-${decision.matchup}`} decision={decision} />
+            ))}
+          </div>
+        ) : !loading ? (
+          <EmptyState title="No fixtures found" body="No soccer matches are available for the current league and date." />
+        ) : null}
       </section>
     </div>
   );
