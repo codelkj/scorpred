@@ -57,6 +57,7 @@ from services import validators
 from services.decision_engine import DecisionEngine
 from services.match_brain import MatchBrain
 from db_models import db
+from decision_ui import build_decision_card, sort_cards_by_kickoff, top_opportunities, plan_summary
 
 try:
     import nba_live_client as nc
@@ -4246,102 +4247,137 @@ def _chat_reply(message: str, history: list[dict] | None = None, chat_context: d
 
 @app.route("/insights")
 def insights():
-    _refresh_tracking_results_if_due()
-    league_id = _set_active_league(_active_league_id())
-    if _MATCH_BRAIN is not None:
-        insights_payload = _MATCH_BRAIN.get_insights(league_id)
-        cards = []
-        for item in insights_payload.get("top_opportunities", []):
-            pred_block = item.get("prediction") or {}
-            probs = pred_block.get("probabilities") or {}
-            canonical_mb = item.get("metric_breakdown") or {}
-            dq_raw = item.get("data_quality") or pred_block.get("data_quality")
-            if isinstance(dq_raw, int):
-                dq_label = "Strong Data" if dq_raw >= 75 else ("Limited Data" if dq_raw < 50 else "Partial Data")
-            else:
-                dq_label = str(dq_raw or "Partial Data")
-            analysis = {
-                "match_id": item.get("match_id"),
-                "matchup": item.get("matchup"),
-                "confidence": pred_block.get("confidence") or item.get("confidence"),
-                "probabilities": {"a": probs.get("home"), "draw": probs.get("draw"), "b": probs.get("away")},
-                "action": pred_block.get("action") or item.get("action"),
-                "recommended_side": pred_block.get("side") or item.get("recommended_side"),
-                "reason": " | ".join((pred_block.get("reasoning") or {}).get("strengths", [])) or item.get("reason") or "",
-                "data_quality": dq_label,
-                "metric_breakdown": {
-                    "edge_score": canonical_mb.get("edge_score") or pred_block.get("edge_score"),
-                    "expected_value": canonical_mb.get("expected_value") or pred_block.get("expected_value"),
-                    "risk_level": canonical_mb.get("risk_level") or pred_block.get("risk_level"),
-                    "decision_grade": canonical_mb.get("decision_grade") or pred_block.get("decision_grade"),
-                    "risk_score": canonical_mb.get("risk_score") or pred_block.get("risk_score"),
-                },
-            }
-            card = dui.build_decision_card(analysis=analysis)
-            if card:
-                cards.append(card)
-    else:
-        cards, *_ = prediction_service.get_fixture_cards(league_id)
-    all_cards = [_with_insight_metadata(card) for card in cards]
-    home_context = {"all_cards": all_cards}
-    sport_filter = (request.args.get("sport") or "all").strip().lower()
-    if sport_filter not in {"all", "soccer", "nba"}:
-        sport_filter = "all"
-    cards = [
-        card for card in all_cards
-        if sport_filter == "all" or str(card.get("sport") or "").lower() == sport_filter
-    ]
-    home_context["insight_cards"] = [_with_insight_metadata(card) for card in dui.top_opportunities(cards, limit=6)]
-    action_mix = dui.plan_summary(cards)
-    sport_counts = {
-        "all": len(all_cards),
-        "soccer": len([card for card in all_cards if str(card.get("sport") or "").lower() != "nba"]),
-        "nba": len([card for card in all_cards if str(card.get("sport") or "").lower() == "nba"]),
-    }
-    confidence_groups = {
-        "Top confidence": len([card for card in cards if dui.safe_float(card.get("confidence_pct"), 0) >= 66]),
-        "Playable range": len([card for card in cards if 55 <= dui.safe_float(card.get("confidence_pct"), 0) < 66]),
-        "Caution range": len([card for card in cards if dui.safe_float(card.get("confidence_pct"), 0) < 55]),
-    }
-    volatility_watch = sorted(
-        [card for card in cards if str(card.get("action") or "").upper() != "SKIP"],
-        key=lambda card: (
-            -int(card.get("volatility_score") or 0),
-            -dui.safe_float(card.get("confidence_pct"), 0),
-        ),
-    )[:4]
-    context_watch = []
-    for card in volatility_watch:
-        context_watch.append(
-            {
-                "matchup": card.get("matchup") or f"{card.get('team_a')} vs {card.get('team_b')}",
-                "side": card.get("recommended_side") or card.get("pick_side") or "",
-                "action": card.get("action") or "CONSIDER",
-                "confidence_pct": int(round(dui.safe_float(card.get("confidence_pct"), 0))),
-                "data_label": _card_data_label(card),
-                "note": card.get("volatility_note") or "",
-            }
+    try:
+        _refresh_tracking_results_if_due()
+        league_id = _set_active_league(_active_league_id())
+        cards: list[dict] = []
+        if _MATCH_BRAIN is not None:
+            try:
+                insights_payload = _MATCH_BRAIN.get_insights(league_id)
+            except Exception as exc:
+                app.logger.warning("insights get_insights failed: %s", exc)
+                insights_payload = {"top_opportunities": []}
+            for item in insights_payload.get("top_opportunities", []):
+                try:
+                    pred_block = item.get("prediction") or {}
+                    probs = pred_block.get("probabilities") or {}
+                    canonical_mb = item.get("metric_breakdown") or {}
+                    dq_raw = item.get("data_quality") or pred_block.get("data_quality")
+                    if isinstance(dq_raw, int):
+                        dq_label = "Strong Data" if dq_raw >= 75 else ("Limited Data" if dq_raw < 50 else "Partial Data")
+                    else:
+                        dq_label = str(dq_raw or "Partial Data")
+                    analysis = {
+                        "match_id": item.get("match_id"),
+                        "matchup": item.get("matchup"),
+                        "confidence": pred_block.get("confidence") or item.get("confidence"),
+                        "probabilities": {"a": probs.get("home"), "draw": probs.get("draw"), "b": probs.get("away")},
+                        "action": pred_block.get("action") or item.get("action"),
+                        "recommended_side": pred_block.get("side") or item.get("recommended_side"),
+                        "reason": " | ".join((pred_block.get("reasoning") or {}).get("strengths", [])) or item.get("reason") or "",
+                        "data_quality": dq_label,
+                        "metric_breakdown": {
+                            "edge_score": canonical_mb.get("edge_score") or pred_block.get("edge_score"),
+                            "expected_value": canonical_mb.get("expected_value") or pred_block.get("expected_value"),
+                            "risk_level": canonical_mb.get("risk_level") or pred_block.get("risk_level"),
+                            "decision_grade": canonical_mb.get("decision_grade") or pred_block.get("decision_grade"),
+                            "risk_score": canonical_mb.get("risk_score") or pred_block.get("risk_score"),
+                        },
+                    }
+                    card = dui.build_decision_card(analysis=analysis)
+                    if card:
+                        cards.append(card)
+                except Exception as exc:
+                    app.logger.warning("insights card build failed: %s", exc)
+        else:
+            try:
+                cards, *_ = prediction_service.get_fixture_cards(league_id)
+            except Exception as exc:
+                app.logger.warning("insights fixture_cards fallback failed: %s", exc)
+        all_cards = []
+        for card in cards:
+            try:
+                all_cards.append(_with_insight_metadata(card))
+            except Exception:
+                all_cards.append(card)
+        home_context: dict = {"all_cards": all_cards}
+        sport_filter = (request.args.get("sport") or "all").strip().lower()
+        if sport_filter not in {"all", "soccer", "nba"}:
+            sport_filter = "all"
+        filtered_cards = [
+            card for card in all_cards
+            if sport_filter == "all" or str(card.get("sport") or "").lower() == sport_filter
+        ]
+        home_context["insight_cards"] = [_with_insight_metadata(card) for card in dui.top_opportunities(filtered_cards, limit=6)]
+        action_mix = dui.plan_summary(filtered_cards)
+        sport_counts = {
+            "all": len(all_cards),
+            "soccer": len([card for card in all_cards if str(card.get("sport") or "").lower() != "nba"]),
+            "nba": len([card for card in all_cards if str(card.get("sport") or "").lower() == "nba"]),
+        }
+        confidence_groups = {
+            "Top confidence": len([card for card in filtered_cards if dui.safe_float(card.get("confidence_pct"), 0) >= 66]),
+            "Playable range": len([card for card in filtered_cards if 55 <= dui.safe_float(card.get("confidence_pct"), 0) < 66]),
+            "Caution range": len([card for card in filtered_cards if dui.safe_float(card.get("confidence_pct"), 0) < 55]),
+        }
+        volatility_watch = sorted(
+            [card for card in filtered_cards if str(card.get("action") or "").upper() != "SKIP"],
+            key=lambda card: (
+                -int(card.get("volatility_score") or 0),
+                -dui.safe_float(card.get("confidence_pct"), 0),
+            ),
+        )[:4]
+        context_watch = []
+        for card in volatility_watch:
+            context_watch.append(
+                {
+                    "matchup": card.get("matchup") or f"{card.get('team_a')} vs {card.get('team_b')}",
+                    "side": card.get("recommended_side") or card.get("pick_side") or "",
+                    "action": card.get("action") or "CONSIDER",
+                    "confidence_pct": int(round(dui.safe_float(card.get("confidence_pct"), 0))),
+                    "data_label": _card_data_label(card),
+                    "note": card.get("volatility_note") or "",
+                }
+            )
+        trust_rows: list[dict] = []
+        try:
+            trust_rows = _tracker_result_rows(limit=12)
+            if sport_filter != "all":
+                trust_rows = [row for row in trust_rows if str(row.get("sport") or "").lower() == sport_filter]
+            trust_rows = trust_rows[:6]
+        except Exception as exc:
+            app.logger.warning("insights trust_rows failed: %s", exc)
+        trust_summary: dict = {}
+        try:
+            trust_summary = dui.results_summary(trust_rows) if trust_rows else {}
+        except Exception as exc:
+            app.logger.warning("insights results_summary failed: %s", exc)
+        home_context["data_mix"] = dict(Counter(_card_data_label(card) for card in filtered_cards))
+        return render_template(
+            "insights.html",
+            **_page_context(
+                **home_context,
+                action_mix=action_mix,
+                confidence_groups=confidence_groups,
+                sport_filter=sport_filter,
+                sport_counts=sport_counts,
+                volatility_watch=volatility_watch,
+                context_watch=context_watch,
+                trust_rows=trust_rows,
+                trust_summary=trust_summary,
+            ),
         )
-    trust_rows = _tracker_result_rows(limit=12)
-    if sport_filter != "all":
-        trust_rows = [row for row in trust_rows if str(row.get("sport") or "").lower() == sport_filter]
-    trust_rows = trust_rows[:6]
-    trust_summary = dui.results_summary(trust_rows) if trust_rows else {}
-    home_context["data_mix"] = dict(Counter(_card_data_label(card) for card in cards))
-    return render_template(
-        "insights.html",
-        **_page_context(
-            **home_context,
-            action_mix=action_mix,
-            confidence_groups=confidence_groups,
-            sport_filter=sport_filter,
-            sport_counts=sport_counts,
-            volatility_watch=volatility_watch,
-            context_watch=context_watch,
-            trust_rows=trust_rows,
-            trust_summary=trust_summary,
-        ),
-    )
+    except Exception as exc:
+        app.logger.error("insights route unhandled error: %s", exc, exc_info=True)
+        return render_template(
+            "insights.html",
+            **_page_context(
+                all_cards=[], insight_cards=[], action_mix={"bet": 0, "consider": 0, "skip": 0},
+                confidence_groups={"Top confidence": 0, "Playable range": 0, "Caution range": 0},
+                sport_filter="all", sport_counts={"all": 0, "soccer": 0, "nba": 0},
+                volatility_watch=[], context_watch=[], trust_rows=[], trust_summary={}, data_mix={},
+            ),
+        )
 
 
 @app.route("/results")
@@ -4379,16 +4415,51 @@ def soccer():
     _set_data_refresh()
     _refresh_tracking_results_if_due()
     league_id = _set_active_league(_active_league_id())
-    teams = []
-    teams = _safe_external_call(lambda: ac.get_teams(league_id, SEASON), label="soccer-teams-fetch") or []
-    decision_cards, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
+    results = _run_parallel(
+        {
+            "teams": (
+                lambda: ac.get_teams(league_id, SEASON),
+                [],
+                "Soccer teams fetch failed",
+            ),
+            "fixtures": (
+                lambda: _load_upcoming_fixtures(
+                    next_n=12,
+                    max_deep_predictions=0,
+                    league=league_id,
+                    include_injuries=False,
+                    include_standings=False,
+                ),
+                ([], "No upcoming fixtures available.", _football_data_source(), ""),
+                "Upcoming fixtures fetch failed",
+            ),
+        }
+    )
+    teams = results.get("teams") or []
+    fixtures, fixtures_error, fixtures_source, _ = results.get("fixtures") or (
+        [],
+        "No upcoming fixtures available.",
+        _football_data_source(),
+        "",
+    )
+    decision_cards = []
+    for fixture in fixtures:
+        match_id = (fixture.get("fixture") or {}).get("id")
+        result = sm.analyze_match(match_id)
+        card = build_decision_card(result)
+        if card is not None:
+            decision_cards.append({"fixture": fixture, "card": card})
+    full_slate = sort_cards_by_kickoff(decision_cards)
+    return_top_opportunities = top_opportunities(full_slate)
+    today_plan = plan_summary(full_slate)
+
     return render_template(
         "soccer.html",
         teams=teams,
         upcoming_fixtures=fixtures,
-        full_slate=decision_cards,
-        top_opportunities=prediction_service.get_top_opportunities(league_id),
-        today_plan=prediction_service.get_today_plan(league_id),
+        top_opportunities=return_top_opportunities,
+        full_slate=full_slate,
+        today_plan=today_plan,
         fixtures_error=fixtures_error if fixtures_error or not fixtures else None,
         fixtures_source=fixtures_source,
         selection_notice=(request.args.get("selection_error") or "").strip() or None,
@@ -5572,16 +5643,15 @@ def today_soccer_predictions():
             home_team = teams_block.get("home", {})
             away_team = teams_block.get("away", {})
             league_block = fixture.get("league", {})
-            fixture_id = (fixture.get("fixture") or {}).get("id")
-            if fixture_id is None:
+            match_id = (fixture.get("fixture") or {}).get("id")
+            result = sm.analyze_match(match_id)
+            card = build_decision_card(result)
+            if card is None:
                 return None
-            _FIXTURE_INDEX[str(fixture_id)] = fixture
-            analysis = prediction_service.get_match_analysis(str(fixture_id))
-            if not analysis:
-                return None
-            card = dui.build_decision_card(analysis=analysis)
-            if not card:
-                return None
+            probs = card.get("probabilities") or {}
+            metric_breakdown = card.get("metric_breakdown") if isinstance(card.get("metric_breakdown"), dict) else {}
+            home_metrics = metric_breakdown.get("home") if isinstance(metric_breakdown.get("home"), dict) else {}
+            away_metrics = metric_breakdown.get("away") if isinstance(metric_breakdown.get("away"), dict) else {}
 
             return {
                 "fixture": fixture,
@@ -5589,14 +5659,16 @@ def today_soccer_predictions():
                 "home_team": home_team,
                 "away_team": away_team,
                 "league": league_block,
-                "predicted_winner": analysis.get("recommended_side"),
-                "confidence": analysis.get("confidence"),
-                "prob_home": (analysis.get("probabilities") or {}).get("a"),
-                "prob_draw": (analysis.get("probabilities") or {}).get("draw"),
-                "prob_away": (analysis.get("probabilities") or {}).get("b"),
-                "reasoning": analysis.get("reason"),
-                "score_gap": None,
-                "has_data": bool(analysis.get("data_quality")),
+                "action": card.get("action"),
+                "recommended_side": card.get("recommended_side"),
+                "confidence": card.get("confidence"),
+                "prob_home": probs.get("a"),
+                "prob_draw": probs.get("draw"),
+                "prob_away": probs.get("b"),
+                "reason": card.get("reason"),
+                "data_quality": card.get("data_quality"),
+                "metric_breakdown": metric_breakdown,
+                "has_data": bool(home_metrics.get("form") is not None and away_metrics.get("form") is not None),
             }
         except Exception as e:
             app.logger.warning("Error preparing fixture prediction: %s", e)

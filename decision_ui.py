@@ -689,6 +689,19 @@ def build_decision_card(
             "label": str(analysis["data_quality"] or "Partial Data"),
         },
     }
+    data_state = card["data_confidence"]["state"]
+    draw_risk = prob_draw >= 26 if sport == "soccer" else False
+    comparison_metrics = []
+    if analysis.get("metric_breakdown"):
+        mb_raw = analysis["metric_breakdown"]
+        if isinstance(mb_raw, dict):
+            for label in ("Recent form", "Attack", "Defense", "Venue/context"):
+                if mb_raw.get(label.lower().replace("/", "_").replace(" ", "_")):
+                    comparison_metrics.append({"label": label, "leader": recommended_side})
+    card["comparison_metrics"] = comparison_metrics
+    card["why_win"] = why_win_points_for(comparison_metrics, side=recommended_side, data_state=data_state, draw_risk=draw_risk)
+    card["why_lose"] = why_lose_points_for(side=recommended_side, data_state=data_state, draw_risk=draw_risk, sport=sport)
+    card["key_swing_factor"] = swing_factor_for(side=recommended_side, draw_risk=draw_risk, sport=sport)
     return card
 
 
@@ -810,34 +823,35 @@ def normalize_result_record(record: dict[str, Any]) -> dict[str, Any]:
         team_a_logo=_logo_from_record(record, "team_a_logo", "home_logo"),
         team_b_logo=_logo_from_record(record, "team_b_logo", "away_logo"),
         league_logo=_logo_from_record(record, "league_logo", "competition_logo"),
-    )
+    ) or {}
     status = result_status(record)
+    matchup_str = f"{team_a} vs {team_b}"
     return {
         "date": format_date(record.get("game_date") or record.get("date") or record.get("created_at")),
         "raw_date": str(record.get("game_date") or record.get("date") or record.get("created_at") or ""),
         "sport": sport,
-        "competition": card["competition"],
-        "matchup": card["matchup"],
-        "team_a": card["team_a"],
-        "team_b": card["team_b"],
-        "team_a_logo": card["team_a_logo"],
-        "team_b_logo": card["team_b_logo"],
-        "team_a_initials": card["team_a_initials"],
-        "team_b_initials": card["team_b_initials"],
-        "league_logo": card["league_logo"],
+        "competition": card.get("competition") or record.get("league_name") or sport.upper(),
+        "matchup": card.get("matchup") or matchup_str,
+        "team_a": card.get("team_a") or team_a,
+        "team_b": card.get("team_b") or team_b,
+        "team_a_logo": card.get("team_a_logo") or _logo_from_record(record, "team_a_logo", "home_logo"),
+        "team_b_logo": card.get("team_b_logo") or _logo_from_record(record, "team_b_logo", "away_logo"),
+        "team_a_initials": card.get("team_a_initials") or initials(team_a),
+        "team_b_initials": card.get("team_b_initials") or initials(team_b),
+        "league_logo": _logo_from_record(record, "league_logo", "competition_logo"),
         "final_score": record.get("final_score_display") or record.get("score") or "Pending",
-        "action": card["action"],
-        "action_label": card["action_label"],
-        "action_class": card["action_class"],
-        "strength_tier": card["strength_tier"],
-        "strength_class": card["strength_class"],
-        "recommended_side": card["recommended_side"],
+        "action": card.get("action") or "CONSIDER",
+        "action_label": card.get("action_label") or card.get("action") or "CONSIDER",
+        "action_class": card.get("action_class") or "consider",
+        "strength_tier": card.get("strength_tier") or card.get("action") or "CONSIDER",
+        "strength_class": card.get("strength_class") or card.get("action_class") or "consider",
+        "recommended_side": card.get("recommended_side") or team_a,
         "result": status,
         "result_label": status.title(),
-        "confidence_pct": card["confidence_pct"],
-        "data_confidence": card["data_confidence"],
-        "summary_reason": card["summary_reason"],
-        "detail_url": card["cta_url"],
+        "confidence_pct": card.get("confidence_pct") or 0,
+        "data_confidence": card.get("data_confidence") or {"state": "limited", "label": "Limited Data"},
+        "summary_reason": card.get("summary_reason") or card.get("reason") or "",
+        "detail_url": card.get("cta_url") or "",
     }
 
 
