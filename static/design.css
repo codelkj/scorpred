@@ -4086,3 +4086,61 @@ h3 { font-size: 1.05rem; }
   }
   .sp-page-tabs::-webkit-scrollbar { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Mobile Supplement — analytics pages, grid utilities, breakpoint corrections
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Responsive grid utility classes ─────────────────────────────────────────── */
+.sp-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.sp-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+
+/* ── League performance row — prevent 560px min-width overflow on mobile ─────── */
+@media (max-width: 760px) {
+  .sp-league-perf-row {
+    grid-template-columns: 1fr 48px 48px 48px 65px 65px 65px;
+    font-size: .76rem;
+    padding: .5rem .6rem;
+    gap: .3rem;
+  }
+}
+@media (max-width: 480px) {
+  .sp-league-perf-row > *:nth-child(n+6) { display: none; }
+  .sp-league-perf-row { grid-template-columns: 1fr 48px 48px 48px 60px; }
+}
+
+/* ── .sp-kpi-row: force media query breakpoints over inline grid-template-columns  */
+@media (max-width: 760px) {
+  .sp-kpi-row { grid-template-columns: repeat(2, 1fr) !important; }
+  .sp-bets-table__head { display: none !important; }
+  .sp-bets-row { display: flex !important; flex-wrap: wrap; gap: .4rem; }
+  .sp-grid-3 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .sp-grid-2 { grid-template-columns: 1fr; }
+  .sp-grid-3 { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .sp-kpi-row { grid-template-columns: 1fr 1fr !important; }
+}
+
+/* ── Prevent chart canvas from overflowing its panel ────────────────────────── */
+@media (max-width: 760px) {
+  .sp-perf-panel { overflow: hidden; }
+}
+
+/* ── Bottom padding so the chat toggle doesn't obscure content ───────────────── */
+@media (max-width: 760px) {
+  .sp-container { padding-bottom: 5rem !important; }
+}
+
+/* ── Topbar: prevent text overflow on very small phones ──────────────────────── */
+@media (max-width: 360px) {
+  .sp-topbar__title { max-width: 35vw; font-size: .8rem; }
+}
+
+/* ── Soccer / analytics page header: wrap action buttons cleanly ─────────────── */
+@media (max-width: 480px) {
+  .sp-soccer-header { align-items: flex-start; }
+  .sp-soccer-header > div:last-child { flex-wrap: wrap; }
+}

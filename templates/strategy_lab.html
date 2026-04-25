@@ -33,7 +33,7 @@
 {% endif %}
 
 {# ── Accuracy Sources ─────────────────────────────────────────────────────── #}
-<div class="sp-kpi-row" style="grid-template-columns:repeat(3,1fr);margin-top:.75rem">
+<div class="sp-kpi-row" style="margin-top:.75rem">
   <div class="sp-kpi-card sp-kpi-card--accuracy">
     <span class="sp-kpi-card__label">Live Hit Rate</span>
     <span class="sp-kpi-card__value">
@@ -76,7 +76,7 @@
 {# ── Overview Tab ─────────────────────────────────────────────────────────── #}
 <div id="tab-overview">
   {% set bs = backtest_summary or {} %}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.75rem">
+  <div class="sp-grid-2" style="margin-top:.75rem">
     <div class="sp-perf-panel">
       <div class="sp-perf-panel__head"><span class="sp-perf-panel__title">Hit Rate by Confidence Tier</span></div>
       <div class="sp-perf-panel__body">
@@ -198,7 +198,7 @@
 <div id="tab-ml-summary" style="display:none">
   {% set ml = ml_summary or {} %}
   {% if ml.get('available') %}
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:.75rem">
+  <div class="sp-grid-3" style="margin-top:.75rem">
     <div class="sp-kpi-card sp-kpi-card--accuracy">
       <span class="sp-kpi-card__label">Ensemble Accuracy</span>
       <span class="sp-kpi-card__value">{{ "%.1f"|format((ml.ensemble_accuracy or 0) * 100) }}%</span>
@@ -243,7 +243,7 @@
 {% if wf.get('available') %}
 <div class="sp-section" style="margin:1.5rem 0">
   <div class="sp-section__header"><div><h2>Walk-Forward Backtest</h2><p>{{ wf.n_folds or 0 }} chronological folds · {{ wf.total_test_matches or 0 }} total test matches</p></div></div>
-  <div class="sp-kpi-row" style="grid-template-columns:repeat(4,1fr)">
+  <div class="sp-kpi-row">
     <div class="sp-kpi-card"><span class="sp-kpi-card__label">Combined Accuracy</span><span class="sp-kpi-card__value">{{ "%.1f"|format((wf.combined_accuracy or 0) * 100) }}%</span></div>
     <div class="sp-kpi-card"><span class="sp-kpi-card__label">Best Fold</span><span class="sp-kpi-card__value" style="color:var(--c-strong)">{{ "%.1f"|format((wf.best_fold_accuracy or 0) * 100) }}%</span></div>
     <div class="sp-kpi-card"><span class="sp-kpi-card__label">Trend</span><span class="sp-kpi-card__value" style="font-size:1rem;text-transform:capitalize">{{ wf.trend or '—' }}</span></div>

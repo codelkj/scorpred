@@ -19,7 +19,7 @@
 </div>
 
 {# ── Three-Way Accuracy Banner ────────────────────────────────────────────── #}
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:.5rem">
+<div class="sp-grid-3" style="margin-top:.5rem">
   <div class="sp-kpi-card" style="border:1px solid rgba(96,165,250,0.3);text-align:center;padding:1.5rem">
     <span class="sp-kpi-card__label" style="color:var(--c-active)">ML ENGINE</span>
     <span class="sp-kpi-card__value" style="font-size:2.5rem;color:var(--c-active)">{{ ml_acc }}%</span>
@@ -57,7 +57,7 @@
 {% endif %}
 
 {# ── Charts ───────────────────────────────────────────────────────────────── #}
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.5rem">
+<div class="sp-grid-2" style="margin-top:.5rem">
   <div class="sp-perf-panel">
     <div class="sp-perf-panel__head"><span class="sp-perf-panel__title">Accuracy Per Fold</span><span style="font-size:.75rem;color:var(--text-3)">ML vs Rules vs Hybrid</span></div>
     <div class="sp-perf-panel__body"><div style="position:relative;height:240px"><canvas id="foldCompChart"></canvas></div></div>
@@ -106,7 +106,7 @@
 {# ── How it works ─────────────────────────────────────────────────────────── #}
 <div class="sp-section" style="margin-top:1.25rem">
   <div class="sp-section__header"><div><h2>How the Hybrid Works</h2><p>Architecture of the two-layer prediction system.</p></div></div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+  <div class="sp-grid-2">
     <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:.75rem;padding:1.25rem">
       <div style="color:var(--c-active);font-size:.7rem;font-weight:700;letter-spacing:.08em;margin-bottom:.75rem">ML PIPELINE</div>
       <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.5rem;font-size:.85rem;color:var(--text-2)">

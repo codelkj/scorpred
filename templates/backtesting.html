@@ -26,7 +26,7 @@
 
 {# ── KPI Row ──────────────────────────────────────────────────────────────── #}
 {% set combined = agg.combined or {} %}
-<div class="sp-kpi-row" style="grid-template-columns:repeat(5,1fr)">
+<div class="sp-kpi-row">
   <div class="sp-kpi-card sp-kpi-card--accuracy">
     <span class="sp-kpi-card__label">Combined Accuracy</span>
     <span class="sp-kpi-card__value">{{ "%.1f"|format((combined.mean_combined_accuracy or 0) * 100) }}%</span>
@@ -55,7 +55,7 @@
 </div>
 
 {# ── Charts Row ───────────────────────────────────────────────────────────── #}
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+<div class="sp-grid-2" style="margin-top:1rem">
   <div class="sp-perf-panel">
     <div class="sp-perf-panel__head"><span class="sp-perf-panel__title">Accuracy by Fold</span><span style="font-size:.75rem;color:var(--text-3)">Chronological, no look-ahead</span></div>
     <div class="sp-perf-panel__body"><div style="position:relative;height:240px"><canvas id="foldChart"></canvas></div></div>
@@ -119,7 +119,7 @@
 {# ── Policy Summary ────────────────────────────────────────────────────────── #}
 <div class="sp-section" style="margin-top:1.25rem">
   <div class="sp-section__header"><div><h2>Policy Summary</h2><p>BET/LEAN/AVOID recommendation policy performance.</p></div></div>
-  <div class="sp-kpi-row" style="grid-template-columns:repeat(4,1fr)">
+  <div class="sp-kpi-row">
     <div class="sp-kpi-card sp-kpi-card--bet">
       <span class="sp-kpi-card__label">Total Placed</span>
       <span class="sp-kpi-card__value">{{ policy.total_placed or 0 }}</span>
