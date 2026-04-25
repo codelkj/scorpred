@@ -57,6 +57,7 @@ from services import validators
 from services.decision_engine import DecisionEngine
 from services.match_brain import MatchBrain
 from db_models import db
+from decision_ui import build_decision_card, sort_cards_by_kickoff, top_opportunities, plan_summary
 
 try:
     import nba_live_client as nc
@@ -4414,16 +4415,51 @@ def soccer():
     _set_data_refresh()
     _refresh_tracking_results_if_due()
     league_id = _set_active_league(_active_league_id())
-    teams = []
-    teams = _safe_external_call(lambda: ac.get_teams(league_id, SEASON), label="soccer-teams-fetch") or []
-    decision_cards, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
+    results = _run_parallel(
+        {
+            "teams": (
+                lambda: ac.get_teams(league_id, SEASON),
+                [],
+                "Soccer teams fetch failed",
+            ),
+            "fixtures": (
+                lambda: _load_upcoming_fixtures(
+                    next_n=12,
+                    max_deep_predictions=0,
+                    league=league_id,
+                    include_injuries=False,
+                    include_standings=False,
+                ),
+                ([], "No upcoming fixtures available.", _football_data_source(), ""),
+                "Upcoming fixtures fetch failed",
+            ),
+        }
+    )
+    teams = results.get("teams") or []
+    fixtures, fixtures_error, fixtures_source, _ = results.get("fixtures") or (
+        [],
+        "No upcoming fixtures available.",
+        _football_data_source(),
+        "",
+    )
+    decision_cards = []
+    for fixture in fixtures:
+        match_id = (fixture.get("fixture") or {}).get("id")
+        result = sm.analyze_match(match_id)
+        card = build_decision_card(result)
+        if card is not None:
+            decision_cards.append({"fixture": fixture, "card": card})
+    full_slate = sort_cards_by_kickoff(decision_cards)
+    return_top_opportunities = top_opportunities(full_slate)
+    today_plan = plan_summary(full_slate)
+
     return render_template(
         "soccer.html",
         teams=teams,
         upcoming_fixtures=fixtures,
-        full_slate=decision_cards,
-        top_opportunities=prediction_service.get_top_opportunities(league_id),
-        today_plan=prediction_service.get_today_plan(league_id),
+        top_opportunities=return_top_opportunities,
+        full_slate=full_slate,
+        today_plan=today_plan,
         fixtures_error=fixtures_error if fixtures_error or not fixtures else None,
         fixtures_source=fixtures_source,
         selection_notice=(request.args.get("selection_error") or "").strip() or None,
@@ -5607,16 +5643,15 @@ def today_soccer_predictions():
             home_team = teams_block.get("home", {})
             away_team = teams_block.get("away", {})
             league_block = fixture.get("league", {})
-            fixture_id = (fixture.get("fixture") or {}).get("id")
-            if fixture_id is None:
+            match_id = (fixture.get("fixture") or {}).get("id")
+            result = sm.analyze_match(match_id)
+            card = build_decision_card(result)
+            if card is None:
                 return None
-            _FIXTURE_INDEX[str(fixture_id)] = fixture
-            analysis = prediction_service.get_match_analysis(str(fixture_id))
-            if not analysis:
-                return None
-            card = dui.build_decision_card(analysis=analysis)
-            if not card:
-                return None
+            probs = card.get("probabilities") or {}
+            metric_breakdown = card.get("metric_breakdown") if isinstance(card.get("metric_breakdown"), dict) else {}
+            home_metrics = metric_breakdown.get("home") if isinstance(metric_breakdown.get("home"), dict) else {}
+            away_metrics = metric_breakdown.get("away") if isinstance(metric_breakdown.get("away"), dict) else {}
 
             return {
                 "fixture": fixture,
@@ -5624,14 +5659,16 @@ def today_soccer_predictions():
                 "home_team": home_team,
                 "away_team": away_team,
                 "league": league_block,
-                "predicted_winner": analysis.get("recommended_side"),
-                "confidence": analysis.get("confidence"),
-                "prob_home": (analysis.get("probabilities") or {}).get("a"),
-                "prob_draw": (analysis.get("probabilities") or {}).get("draw"),
-                "prob_away": (analysis.get("probabilities") or {}).get("b"),
-                "reasoning": analysis.get("reason"),
-                "score_gap": None,
-                "has_data": bool(analysis.get("data_quality")),
+                "action": card.get("action"),
+                "recommended_side": card.get("recommended_side"),
+                "confidence": card.get("confidence"),
+                "prob_home": probs.get("a"),
+                "prob_draw": probs.get("draw"),
+                "prob_away": probs.get("b"),
+                "reason": card.get("reason"),
+                "data_quality": card.get("data_quality"),
+                "metric_breakdown": metric_breakdown,
+                "has_data": bool(home_metrics.get("form") is not None and away_metrics.get("form") is not None),
             }
         except Exception as e:
             app.logger.warning("Error preparing fixture prediction: %s", e)

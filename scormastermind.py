@@ -21,6 +21,8 @@ import nba_ml_service
 import odds_utils
 import prediction_policy as pp
 import soccer_selector as selector
+import api_client as ac
+import predictor as pred
 from runtime_paths import elo_state_path, ml_report_path, walk_forward_report_path
 import scorpred_engine as se
 
@@ -900,6 +902,109 @@ def _ui_prediction(
     return ui
 
 
+
+
+def analyze_match(match_id: int | str) -> dict[str, Any] | None:
+    """Build a canonical soccer analysis payload for one fixture id."""
+    try:
+        fixture = ac.get_fixture_by_id(int(match_id))
+    except Exception:
+        return None
+    if not isinstance(fixture, dict):
+        return None
+
+    teams = fixture.get("teams") or {}
+    home = teams.get("home") or {}
+    away = teams.get("away") or {}
+    home_id = int(home.get("id") or 0)
+    away_id = int(away.get("id") or 0)
+    home_name = str(home.get("name") or "Home")
+    away_name = str(away.get("name") or "Away")
+    league_id = int(((fixture.get("league") or {}).get("id")) or 0)
+    season = int(((fixture.get("league") or {}).get("season")) or 0)
+    if not home_id or not away_id:
+        return None
+
+    try:
+        h2h_raw = ac.get_h2h(home_id, away_id, last=20)
+    except Exception:
+        h2h_raw = []
+    try:
+        fixtures_home = ac.get_team_fixtures(home_id, league_id, season, last=20)
+    except Exception:
+        fixtures_home = []
+    try:
+        fixtures_away = ac.get_team_fixtures(away_id, league_id, season, last=20)
+    except Exception:
+        fixtures_away = []
+    try:
+        injuries_home = ac.get_injuries(league_id, season, home_id)
+    except Exception:
+        injuries_home = []
+    try:
+        injuries_away = ac.get_injuries(league_id, season, away_id)
+    except Exception:
+        injuries_away = []
+    try:
+        standings = ac.get_standings(league_id, season)
+    except Exception:
+        standings = []
+
+    h2h_raw = pred.filter_recent_completed_fixtures(h2h_raw, current_season=season or None, seasons_back=5)
+    form_home = pred.extract_form(fixtures_home, home_id)[:5]
+    form_away = pred.extract_form(fixtures_away, away_id)[:5]
+    h2h_home = pred.extract_form(h2h_raw, home_id)[:5]
+    h2h_away = pred.extract_form(h2h_raw, away_id)[:5]
+    opp_strengths = se.build_opp_strengths_from_standings(standings) if standings else {}
+
+    result = predict_match(
+        {
+            "sport": "soccer",
+            "team_a_name": home_name,
+            "team_b_name": away_name,
+            "team_a_is_home": True,
+            "form_a": form_home,
+            "form_b": form_away,
+            "h2h_form_a": h2h_home,
+            "h2h_form_b": h2h_away,
+            "injuries_a": injuries_home,
+            "injuries_b": injuries_away,
+            "opp_strengths": opp_strengths,
+            "team_stats": {"a": {"form": form_home}, "b": {"form": form_away}},
+        }
+    )
+    payload = result.get("ui_prediction") if isinstance(result.get("ui_prediction"), dict) else {}
+    probabilities = payload.get("win_probabilities") if isinstance(payload.get("win_probabilities"), dict) else {}
+    best_pick = payload.get("best_pick") if isinstance(payload.get("best_pick"), dict) else {}
+
+    if any(probabilities.get(key) is None for key in ("a", "draw", "b")):
+        return None
+
+    raw_action = str(payload.get("play_type") or payload.get("recommended_play") or "").strip().upper()
+    action = "PASS" if raw_action in {"AVOID", ""} else raw_action
+    recommended_side = best_pick.get("prediction")
+    if str(recommended_side).strip().lower() == "avoid":
+        recommended_side = ((payload.get("top_lean") or {}).get("prediction") or recommended_side)
+    confidence = payload.get("confidence_pct")
+    reason = best_pick.get("reasoning")
+    data_quality = payload.get("data_quality")
+    if any(value is None for value in (recommended_side, confidence, reason, data_quality)):
+        return None
+
+    metric_breakdown = {
+        "home": {"form": round(_results_to_points(form_home, "soccer"), 3)},
+        "away": {"form": round(_results_to_points(form_away, "soccer"), 3)},
+    }
+
+    return {
+        "action": action,
+        "recommended_side": recommended_side,
+        "confidence": confidence,
+        "probabilities": probabilities,
+        "reason": reason,
+        "data_quality": data_quality,
+        "metric_breakdown": metric_breakdown,
+    }
 def predict_match(context: dict[str, Any]) -> dict[str, Any]:
     """Return a unified prediction for soccer or NBA.
 
