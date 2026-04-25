@@ -59,11 +59,57 @@ requests = _LazyModuleProxy("requests")
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 API_KEY  = os.getenv("API_FOOTBALL_KEY", "").strip()
-API_HOST = os.getenv("API_FOOTBALL_HOST", "api-football-v1.p.rapidapi.com").strip()
-API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://api-football-v1.p.rapidapi.com/v3").rstrip("/")
+API_HOST = os.getenv("API_FOOTBALL_HOST", "free-api-live-football-data.p.rapidapi.com").strip()
+API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://free-api-live-football-data.p.rapidapi.com").rstrip("/")
 EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "8"))
 EXTERNAL_API_RETRY_ATTEMPTS = 2
 EXTERNAL_API_RETRY_BACKOFF_SECONDS = 2.0
+
+# True when configured to use the free-api-live-football-data provider, which has
+# different endpoint paths from API-Football v3.
+_USING_FREE_API = "free-api-live-football-data" in API_HOST
+
+# Endpoint translation: API-Football v3 path → free-api-live-football-data path.
+# Params are re-mapped per entry: the value is (free_path, param_remapper_fn | None).
+# param_remapper_fn receives the original params dict and returns the translated dict.
+_FREE_API_ENDPOINT_MAP: dict[str, tuple[str, Any]] = {
+    "fixtures": (
+        "football-get-all-matches",
+        lambda p: (
+            {"date": p["date"]} if "date" in p else
+            {"matchId": p["id"]} if "id" in p else
+            {"leagueId": p.get("league"), "season": p.get("season")}
+        ),
+    ),
+    "fixtures/headtohead": (
+        "football-get-h2h",
+        lambda p: {"team1Id": p["h2h"].split("-")[0], "team2Id": p["h2h"].split("-")[1]} if "h2h" in p else p,
+    ),
+    "fixtures/statistics": (
+        "football-get-match-statistics",
+        lambda p: {"matchId": p.get("fixture")},
+    ),
+    "fixtures/events": (
+        "football-get-match-events",
+        lambda p: {"matchId": p.get("fixture")},
+    ),
+    "fixtures/players": (
+        "football-get-match-players",
+        lambda p: {"matchId": p.get("fixture")},
+    ),
+    "standings": (
+        "football-get-standings",
+        lambda p: {"leagueId": p.get("league"), "season": p.get("season")},
+    ),
+    "teams": (
+        "football-get-teams-by-league-id",
+        lambda p: {"leagueId": p.get("league"), "season": p.get("season")},
+    ),
+    "players": (
+        "football-players-search",
+        lambda p: {"searchrm": p.get("search", "")},
+    ),
+}
 
 CACHE_DIR          = cache_dir("football")
 CACHE_HOURS        = 1          # default 1-hour TTL
@@ -271,7 +317,20 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             return stale_entry["data"] or {}
         return {}
 
-    url = f"{API_BASE}/{endpoint.lstrip('/')}"
+    # Translate endpoint path and params when using the free football API provider
+    translated_params = params
+    if _USING_FREE_API:
+        mapping = _FREE_API_ENDPOINT_MAP.get(endpoint)
+        if mapping:
+            free_path, param_fn = mapping
+            translated_params = param_fn(params) if param_fn else params
+            url = f"{API_BASE}/{free_path}"
+        else:
+            # Endpoint has no known free-API equivalent; skip and let ESPN handle it
+            _logger.debug("No free-API mapping for endpoint '%s', skipping RapidAPI call", endpoint)
+            return {}
+    else:
+        url = f"{API_BASE}/{endpoint.lstrip('/')}"
 
     # Per-request dedup cache — prevent identical calls within one page render
     try:
@@ -296,7 +355,7 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 resp = sess.get(
                     url,
                     headers=_headers(api_key),
-                    params=params,
+                    params=translated_params,
                     timeout=EXTERNAL_API_TIMEOUT_SECONDS,
                 )
             _logger.debug("%s status=%s", url, resp.status_code)
@@ -325,6 +384,10 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             if data.get("errors"):
                 _logger.warning("API-Football error for %s: %s", endpoint, data["errors"])
                 break
+            # Normalize free-API responses to API-Football v3 format {"response": [...]}
+            if _USING_FREE_API and "response" not in data:
+                payload = data.get("data") or data.get("result") or data.get("matches") or data.get("teams") or data.get("standings") or data
+                data = {"response": payload if isinstance(payload, list) else ([payload] if isinstance(payload, dict) else [])}
             _save(path, data)
             with _cache_lock:
                 _memory_cache[cache_key] = {"data": data, "ts": now}
