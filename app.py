@@ -5810,8 +5810,176 @@ def prediction_result_detail(prediction_id: str):
 
 @app.route("/strategy-lab")
 def strategy_lab():
-    """Redirect the legacy lab surface to Insights."""
-    return redirect(url_for("insights"))
+    try:
+        lab_ctx = strategy_lab_services.build_strategy_lab_context()
+    except Exception as exc:
+        app.logger.exception("strategy-lab error: %s", exc)
+        lab_ctx = {}
+    ctx = _page_context()
+    ctx.update(lab_ctx)
+    return render_template("strategy_lab.html", **ctx)
+
+
+@app.route("/backtesting")
+def backtesting():
+    import json as _json
+    from runtime_paths import walk_forward_report_path as _wfr_path
+    report: dict[str, Any] = {}
+    try:
+        p = _wfr_path()
+        if p.exists():
+            with open(p) as _f:
+                report = _json.load(_f)
+    except Exception as exc:
+        app.logger.warning("backtesting report load error: %s", exc)
+    agg = report.get("aggregate") or {}
+    folds = report.get("folds") or []
+    base_models = agg.get("base_models") or {}
+
+    fold_labels = [f"Fold {i+1}" for i in range(len(folds))]
+    fold_rf = [round((f.get("base_models") or {}).get("rf", {}).get("accuracy", 0) * 100, 1) for f in folds]
+    fold_lr = [round((f.get("base_models") or {}).get("lr", {}).get("accuracy", 0) * 100, 1) for f in folds]
+    fold_combined = [round((f.get("combined") or {}).get("combined_accuracy", 0) * 100, 1) for f in folds]
+
+    conf_data = (agg.get("combined") or {}).get("by_confidence_bucket") or {}
+    conf_labels = ["<50%", "50-59%", "60-69%", "70%+"]
+    conf_keys = ["under_50", "50_59", "60_69", "70_plus"]
+    conf_acc = [round((conf_data.get(k) or {}).get("accuracy", 0) * 100, 1) for k in conf_keys]
+    conf_counts = [(conf_data.get(k) or {}).get("count", 0) for k in conf_keys]
+
+    model_rows = []
+    model_name_map = {"lr": "Logistic Regression", "rf": "Random Forest", "xgb": "XGBoost", "lgbm": "LightGBM", "stacking_ensemble": "Stacking Ensemble"}
+    for key, label in model_name_map.items():
+        m = base_models.get(key) or {}
+        if m:
+            model_rows.append({
+                "label": label,
+                "accuracy": round((m.get("mean_accuracy") or 0) * 100, 1),
+                "brier": round(m.get("mean_brier") or 0, 4),
+                "folds": m.get("folds_evaluated", 0),
+                "std": round((m.get("std_accuracy") or 0) * 100, 1),
+            })
+
+    ctx = _page_context()
+    ctx.update({
+        "report": report,
+        "agg": agg,
+        "folds": folds,
+        "model_rows": model_rows,
+        "fold_labels": fold_labels,
+        "fold_rf": fold_rf,
+        "fold_lr": fold_lr,
+        "fold_combined": fold_combined,
+        "conf_labels": conf_labels,
+        "conf_acc": conf_acc,
+        "conf_counts": conf_counts,
+        "total_test_matches": agg.get("total_test_matches", 0),
+        "n_folds": agg.get("n_folds", 0),
+        "best_fold": agg.get("best_fold") or {},
+        "worst_fold": agg.get("worst_fold") or {},
+        "trend": agg.get("trend", "stable"),
+        "trend_delta": agg.get("trend_delta"),
+        "policy": agg.get("policy") or {},
+        "generated_at": report.get("generated_at", ""),
+    })
+    return render_template("backtesting.html", **ctx)
+
+
+@app.route("/compare")
+def compare():
+    import json as _json
+    from runtime_paths import walk_forward_report_path as _wfr_path
+    report: dict[str, Any] = {}
+    try:
+        p = _wfr_path()
+        if p.exists():
+            with open(p) as _f:
+                report = _json.load(_f)
+    except Exception as exc:
+        app.logger.warning("compare report load error: %s", exc)
+    agg = report.get("aggregate") or {}
+    combined = agg.get("combined") or {}
+    base_models = agg.get("base_models") or {}
+
+    ml_acc = round((combined.get("mean_ml_accuracy") or 0) * 100, 1)
+    rule_acc = round((combined.get("mean_rule_accuracy") or 0) * 100, 1)
+    hybrid_acc = round((combined.get("mean_combined_accuracy") or 0) * 100, 1)
+
+    by_outcome = combined.get("by_predicted_outcome") or {}
+    outcome_labels = ["Home Win", "Draw", "Away Win"]
+    outcome_keys = ["HomeWin", "Draw", "AwayWin"]
+    outcome_acc = [round((by_outcome.get(k) or {}).get("accuracy", 0) * 100, 1) for k in outcome_keys]
+    outcome_counts = [(by_outcome.get(k) or {}).get("count", 0) for k in outcome_keys]
+
+    model_compare_rows = []
+    name_map = {"lr": "Logistic Regression", "rf": "Random Forest", "xgb": "XGBoost", "lgbm": "LightGBM", "stacking_ensemble": "Stacking Ensemble"}
+    for key, label in name_map.items():
+        m = base_models.get(key) or {}
+        if m:
+            acc = round((m.get("mean_accuracy") or 0) * 100, 1)
+            model_compare_rows.append({
+                "label": label,
+                "accuracy": acc,
+                "brier": round(m.get("mean_brier") or 0, 4),
+                "vs_rule": round(acc - rule_acc, 1),
+                "vs_hybrid": round(acc - hybrid_acc, 1),
+            })
+
+    folds = report.get("folds") or []
+    fold_labels = [f"Fold {i+1}" for i in range(len(folds))]
+    fold_ml = [round((f.get("combined") or {}).get("ml_accuracy", 0) * 100, 1) for f in folds]
+    fold_rule = [round((f.get("combined") or {}).get("rule_accuracy", 0) * 100, 1) for f in folds]
+    fold_hybrid = [round((f.get("combined") or {}).get("combined_accuracy", 0) * 100, 1) for f in folds]
+
+    ctx = _page_context()
+    ctx.update({
+        "ml_acc": ml_acc,
+        "rule_acc": rule_acc,
+        "hybrid_acc": hybrid_acc,
+        "model_compare_rows": model_compare_rows,
+        "outcome_labels": outcome_labels,
+        "outcome_acc": outcome_acc,
+        "outcome_counts": outcome_counts,
+        "fold_labels": fold_labels,
+        "fold_ml": fold_ml,
+        "fold_rule": fold_rule,
+        "fold_hybrid": fold_hybrid,
+        "avg_confidence": combined.get("mean_avg_confidence_pct", 0),
+        "policy": agg.get("policy") or {},
+        "generated_at": report.get("generated_at", ""),
+    })
+    return render_template("compare.html", **ctx)
+
+
+@app.route("/explainability")
+def explainability():
+    from services.feature_attribution_engine import FeatureAttributionEngine
+    completed = mt.get_completed_predictions(limit=500)
+    engine = FeatureAttributionEngine(min_samples=5)
+    attribution = {}
+    try:
+        attribution = engine.summarize(completed)
+    except Exception as exc:
+        app.logger.warning("explainability engine error: %s", exc)
+
+    features = list((attribution.get("feature_impacts") or {}).items())
+    features.sort(key=lambda kv: abs(float(kv[1].get("impact") or 0)), reverse=True)
+    chart_labels = [k.replace("_", " ").title() for k, _ in features[:12]]
+    chart_impacts = [round(v.get("impact", 0), 4) for _, v in features[:12]]
+    chart_colors = ["rgba(60,242,164,0.8)" if x > 0 else "rgba(248,113,113,0.8)" for x in chart_impacts]
+
+    ctx = _page_context()
+    ctx.update({
+        "attribution": attribution,
+        "top_positive": attribution.get("top_positive_signals") or [],
+        "top_negative": attribution.get("top_negative_signals") or [],
+        "all_features": [{"feature": k.replace("_", " ").title(), **v} for k, v in features],
+        "chart_labels": chart_labels,
+        "chart_impacts": chart_impacts,
+        "chart_colors": chart_colors,
+        "sample_size": len(completed),
+    })
+    return render_template("explainability.html", **ctx)
 
 @app.route("/update-prediction-results", methods=["GET", "POST"])
 def update_prediction_results():
