@@ -2301,7 +2301,14 @@ def load_fixtures_cached(league_id: int):
     redis_cached = cache_service.get_json(redis_key)
     if redis_cached is not None:
         _logger.debug("fixture_cache hit(redis) league_id=%s", league_id)
-        return tuple(redis_cached)
+        result = tuple(redis_cached)
+        # Repopulate the in-process fixture index from the cached data so that
+        # /prediction?match_id=X can resolve fixtures even after a Redis hit.
+        for _fix in (result[0] if result else []) or []:
+            _fid = (_fix.get("fixture") or {}).get("id")
+            if _fid is not None:
+                _FIXTURE_INDEX[str(_fid)] = _fix
+        return result
     if league_id in _local_fixture_cache:
         _logger.debug("fixture_cache hit league_id=%s", league_id)
         return _local_fixture_cache[league_id]
@@ -4447,13 +4454,21 @@ def soccer():
         match_id = (fixture.get("fixture") or {}).get("id")
         if match_id is None:
             continue
+        # Use _analysis_from_fixture instead of sm.analyze_match:
+        # sm.analyze_match() first calls ac.get_fixture_by_id() (API-Football)
+        # which 403s when the plan doesn't cover that endpoint, returning None
+        # for every fixture. _analysis_from_fixture() works purely from the
+        # fixture dict we already have and also populates _MATCH_BRAIN._fixture_index
+        # so that /prediction?match_id=X can look it up for Match Analysis.
         try:
-            result = sm.analyze_match(match_id)
-        except Exception as _sm_exc:
-            app.logger.debug("analyze_match failed for fixture %s: %s", match_id, _sm_exc)
+            result = _analysis_from_fixture(fixture)
+        except Exception as _af_exc:
+            app.logger.debug("_analysis_from_fixture failed for fixture %s: %s", match_id, _af_exc)
             result = None
         if result is None:
             continue
+        # Also populate the app-level index so get_fixture_by_id() fallback works
+        _FIXTURE_INDEX[str(match_id)] = fixture
         card = _soccer_card_from_fixture_analysis(fixture, result)
         if card is not None:
             decision_cards.append(card)
