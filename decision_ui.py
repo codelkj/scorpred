@@ -576,7 +576,6 @@ def swing_factor_for(*, side: str, draw_risk: bool, sport: str) -> str:
 
 
 def build_decision_card(
-    *,
     analysis: dict[str, Any] | None = None,
     **_: Any,
 ) -> dict[str, Any]:
@@ -728,6 +727,47 @@ def sort_cards(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
             str(card.get("match_date") or ""),
         ),
     )
+
+
+def sort_cards_by_kickoff(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Backward-compatible sorter used by older route code paths.
+
+    Supports both plain decision cards and wrapper payloads shaped like
+    ``{"fixture": fixture_dict, "card": card_dict}``.
+    """
+
+    def _date_token(entry: dict[str, Any]) -> str:
+        fixture = entry.get("fixture") if isinstance(entry.get("fixture"), dict) else {}
+        fixture_block = fixture.get("fixture") if isinstance(fixture.get("fixture"), dict) else {}
+        card = entry.get("card") if isinstance(entry.get("card"), dict) else entry
+        return str(
+            fixture_block.get("date")
+            or fixture.get("date")
+            or card.get("match_date")
+            or ""
+        )
+
+    def _card_part(entry: dict[str, Any]) -> dict[str, Any]:
+        card = entry.get("card")
+        return card if isinstance(card, dict) else entry
+
+    wrapped = [
+        item for item in (cards or [])
+        if isinstance(item, dict) and isinstance(item.get("card"), dict)
+    ]
+    if wrapped and len(wrapped) == len(cards or []):
+        return [
+            item
+            for item in sorted(
+                wrapped,
+                key=lambda item: (
+                    _date_token(item),
+                    ACTION_ORDER.get(str(_card_part(item).get("action") or "SKIP"), 3),
+                    -safe_float(_card_part(item).get("confidence_pct"), 0),
+                ),
+            )
+        ]
+    return sort_cards(cards or [])
 
 
 def assign_opportunity_ranks(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:

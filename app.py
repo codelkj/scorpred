@@ -4442,13 +4442,7 @@ def soccer():
         _football_data_source(),
         "",
     )
-    decision_cards = []
-    for fixture in fixtures:
-        match_id = (fixture.get("fixture") or {}).get("id")
-        result = sm.analyze_match(match_id)
-        card = build_decision_card(result)
-        if card is not None:
-            decision_cards.append({"fixture": fixture, "card": card})
+    decision_cards, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
     full_slate = sort_cards_by_kickoff(decision_cards)
     return_top_opportunities = top_opportunities(full_slate)
     today_plan = plan_summary(full_slate)
@@ -5644,8 +5638,12 @@ def today_soccer_predictions():
             away_team = teams_block.get("away", {})
             league_block = fixture.get("league", {})
             match_id = (fixture.get("fixture") or {}).get("id")
-            result = sm.analyze_match(match_id)
-            card = build_decision_card(result)
+            if match_id is None:
+                return None
+            result = prediction_service.get_match_analysis(str(match_id))
+            if not isinstance(result, dict):
+                return None
+            card = _soccer_card_from_fixture_analysis(fixture, result)
             if card is None:
                 return None
             probs = card.get("probabilities") or {}
