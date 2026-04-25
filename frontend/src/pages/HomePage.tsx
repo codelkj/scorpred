@@ -1,33 +1,11 @@
-import { DecisionCard, PlanStrip, type Decision } from '../components/DecisionCard';
+import { useFetch } from '../hooks/useFetch';
+import { DecisionCard, EmptyState, PlanStrip, type Decision } from '../components/DecisionCard';
 
-const topOpportunities: Decision[] = [
-  {
-    action: 'BET',
-    side: 'Arsenal',
-    matchup: 'Arsenal vs Bournemouth',
-    confidence: 68,
-    reason: 'Strong attacking form plus home edge.',
-    data: 'Strong Data',
-    support: 'Clear advantage across recent form and chance quality.',
-    cta: 'Analyze Match',
-  },
-  {
-    action: 'CONSIDER',
-    side: 'Napoli',
-    matchup: 'Napoli vs Lazio',
-    confidence: 57,
-    reason: 'More stable attack metrics with a useful venue edge.',
-    data: 'Partial Data',
-    support: 'Solid side profile, with lineup confirmation still worth tracking.',
-    cta: 'View Matchup',
-  },
-];
-
-const insightRows = [
-  { match: 'Arsenal vs Bournemouth', action: 'BET', side: 'Arsenal', confidence: '68%', trust: 'Strong Data' },
-  { match: 'Celtics vs Heat', action: 'CONSIDER', side: 'Celtics', confidence: '59%', trust: 'Partial Data' },
-  { match: 'Inter Milan vs AC Milan', action: 'CONSIDER', side: 'Inter Milan', confidence: '56%', trust: 'Partial Data' },
-];
+interface HomeData {
+  topOpportunities: Decision[];
+  insightRows: { match: string; action: string; side: string; confidence: string; trust: string }[];
+  plan: { bet: number; consider: number; skip: number };
+}
 
 const quickLinks = [
   { title: 'Soccer', body: 'Today plan, top opportunities, and full slate.' },
@@ -37,6 +15,12 @@ const quickLinks = [
 ];
 
 export default function HomePage() {
+  const { data, loading, error } = useFetch<HomeData>('/api/dashboard/home');
+
+  const topOpportunities = data?.topOpportunities ?? [];
+  const insightRows = data?.insightRows ?? [];
+  const plan = data?.plan ?? { bet: 0, consider: 0, skip: 0 };
+
   return (
     <div className="page-stack">
       <section className="hero-card">
@@ -47,7 +31,7 @@ export default function HomePage() {
         </p>
       </section>
 
-      <PlanStrip bet={2} consider={13} skip={1} />
+      <PlanStrip bet={plan.bet} consider={plan.consider} skip={plan.skip} />
 
       <section className="section">
         <div>
@@ -56,11 +40,21 @@ export default function HomePage() {
             Only the strongest data-backed opportunities.
           </h2>
         </div>
-        <div className="grid-2">
-          {topOpportunities.map((decision) => (
-            <DecisionCard key={`${decision.action}-${decision.side}`} decision={decision} featured />
-          ))}
-        </div>
+        {loading ? (
+          <div className="empty-state">
+            <p className="font-oswald text-lg uppercase tracking-normal text-white">Loading opportunities…</p>
+          </div>
+        ) : error ? (
+          <EmptyState title="Data unavailable" body="Could not load today's opportunities. The server may still be warming up." />
+        ) : topOpportunities.length > 0 ? (
+          <div className="grid-2">
+            {topOpportunities.map((decision) => (
+              <DecisionCard key={`${decision.action}-${decision.side}-${decision.matchup}`} decision={decision} featured />
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="Slate still forming" body="Once fixtures load, the strongest playable sides rise here automatically." />
+        )}
       </section>
 
       <section className="section">
@@ -77,15 +71,21 @@ export default function HomePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
-              {insightRows.map((row) => (
-                <tr key={row.match}>
-                  <td className="py-3 text-slate-200">{row.match}</td>
-                  <td className="py-3 text-slate-400">{row.action}</td>
-                  <td className="py-3 text-slate-400">{row.side}</td>
-                  <td className="py-3 text-emerald-300">{row.confidence}</td>
-                  <td className="py-3 text-slate-400">{row.trust}</td>
-                </tr>
-              ))}
+              {loading ? (
+                <tr><td colSpan={5} className="py-4 text-center text-slate-500">Loading…</td></tr>
+              ) : insightRows.length === 0 ? (
+                <tr><td colSpan={5} className="py-4 text-center text-slate-500">No data available yet.</td></tr>
+              ) : (
+                insightRows.map((row) => (
+                  <tr key={row.match}>
+                    <td className="py-3 text-slate-200">{row.match}</td>
+                    <td className="py-3 text-slate-400">{row.action}</td>
+                    <td className="py-3 text-slate-400">{row.side}</td>
+                    <td className="py-3 text-emerald-300">{row.confidence}</td>
+                    <td className="py-3 text-slate-400">{row.trust}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
