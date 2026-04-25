@@ -687,6 +687,11 @@ def build_decision_card(
             "state": "strong" if "strong" in str(analysis["data_quality"]).lower() else ("limited" if "limited" in str(analysis["data_quality"]).lower() else "partial"),
             "label": str(analysis["data_quality"] or "Partial Data"),
         },
+        "cta_url": _.get("cta_url") or "",
+        "cta_method": _.get("cta_method") or "get",
+        "cta_label": _.get("cta_label") or "Analyze",
+        "cta_payload": _.get("cta_payload") or {},
+        "support_text": _.get("support_text") or "",
     }
     data_state = card["data_confidence"]["state"]
     draw_risk = prob_draw >= 26 if sport == "soccer" else False

@@ -4445,10 +4445,18 @@ def soccer():
     decision_cards = []
     for fixture in fixtures:
         match_id = (fixture.get("fixture") or {}).get("id")
-        result = sm.analyze_match(match_id)
-        card = build_decision_card(result)
+        if match_id is None:
+            continue
+        try:
+            result = sm.analyze_match(match_id)
+        except Exception as _sm_exc:
+            app.logger.debug("analyze_match failed for fixture %s: %s", match_id, _sm_exc)
+            result = None
+        if result is None:
+            continue
+        card = _soccer_card_from_fixture_analysis(fixture, result)
         if card is not None:
-            decision_cards.append({"fixture": fixture, "card": card})
+            decision_cards.append(card)
     full_slate = sort_cards_by_kickoff(decision_cards)
     return_top_opportunities = top_opportunities(full_slate)
     today_plan = plan_summary(full_slate)
@@ -6190,34 +6198,38 @@ def performance():
 
 @app.route("/alerts", methods=["GET"])
 def alerts():
-    league_id = _active_league_id()
-    if _MATCH_BRAIN is not None:
-        canonical_alerts = _MATCH_BRAIN.get_alerts(league_id)
-        active_alerts = [
-            {
-                "level": "high" if row.get("type") == "high_confidence_opportunity" else "info",
-                "type": row.get("type", "Alert").replace("_", " ").title(),
-                "title": row.get("title") or "Alert",
-                "description": row.get("description") or "",
-                "time": "Live",
-                "match_url": f"/prediction?match_id={row.get('match_id')}" if row.get("match_id") else "/soccer",
-            }
-            for row in canonical_alerts
-        ]
-    else:
-        cards = prediction_service.get_top_opportunities(league_id) or []
-        active_alerts = []
-        for card in cards:
-            active_alerts.append(
+    try:
+        league_id = _active_league_id()
+        if _MATCH_BRAIN is not None:
+            canonical_alerts = _MATCH_BRAIN.get_alerts(league_id)
+            active_alerts = [
                 {
-                    "level": "high" if str(card.get("action") or "").upper() == "BET" else "info",
-                    "type": "Opportunity",
-                    "title": card.get("matchup") or "Unavailable",
-                    "description": f"Pick: {card.get('recommended_side') or 'Unavailable'} · Confidence: {int(_safe_float(card.get('confidence_pct'), 0))}%",
+                    "level": "high" if row.get("type") == "high_confidence_opportunity" else "info",
+                    "type": row.get("type", "Alert").replace("_", " ").title(),
+                    "title": row.get("title") or "Alert",
+                    "description": row.get("description") or "",
                     "time": "Live",
-                    "match_url": "/soccer",
+                    "match_url": f"/prediction?match_id={row.get('match_id')}" if row.get("match_id") else "/soccer",
                 }
-            )
+                for row in canonical_alerts
+            ]
+        else:
+            cards = prediction_service.get_top_opportunities(league_id) or []
+            active_alerts = []
+            for card in cards:
+                active_alerts.append(
+                    {
+                        "level": "high" if str(card.get("action") or "").upper() == "BET" else "info",
+                        "type": "Opportunity",
+                        "title": card.get("matchup") or "Unavailable",
+                        "description": f"Pick: {card.get('recommended_side') or 'Unavailable'} · Confidence: {int(_safe_float(card.get('confidence_pct'), 0))}%",
+                        "time": "Live",
+                        "match_url": "/soccer",
+                    }
+                )
+    except Exception as exc:
+        app.logger.exception("alerts route error: %s", exc)
+        active_alerts = []
     ctx = _page_context()
     ctx.update({"active_alerts": active_alerts, "alert_count": len(active_alerts)})
     return render_template("alerts.html", **ctx)
@@ -6234,42 +6246,47 @@ def system_intelligence():
 
 @app.route("/watchlist", methods=["GET"])
 def watchlist():
-    watched_names = session.get("watchlist_teams") if isinstance(session.get("watchlist_teams"), list) else []
-    watched_names = [str(team).strip() for team in watched_names if str(team).strip()]
-    watched_set = {team.lower() for team in watched_names}
+    try:
+        watched_names = session.get("watchlist_teams") if isinstance(session.get("watchlist_teams"), list) else []
+        watched_names = [str(team).strip() for team in watched_names if str(team).strip()]
+        watched_set = {team.lower() for team in watched_names}
 
-    league_id = _active_league_id()
-    _, fixtures, _, _, _ = prediction_service.get_fixture_cards(league_id)
-    upcoming_matches = []
-    for fixture in fixtures or []:
-        teams_block = fixture.get("teams") or {}
-        home = (teams_block.get("home") or {}).get("name") or ""
-        away = (teams_block.get("away") or {}).get("name") or ""
-        if not home or not away:
-            continue
-        if home.lower() not in watched_set and away.lower() not in watched_set:
-            continue
-        upcoming_matches.append(
-            {
-                "matchup": f"{home} vs {away}",
-                "date": _format_prediction_date(((fixture.get("fixture") or {}).get("date") or "")),
-                "league": ((fixture.get("league") or {}).get("name") or f"League {league_id}"),
-            }
-        )
-    upcoming_matches = sorted(upcoming_matches, key=lambda row: row.get("date", ""))[:40]
-    watched_teams = []
-    for team_name in watched_names:
-        next_match = next((m["matchup"] for m in upcoming_matches if team_name.lower() in m["matchup"].lower()), "No upcoming match")
-        watched_teams.append(
-            {
-                "name": team_name,
-                "logo": "",
-                "league": "Tracked",
-                "next_match": next_match,
-                "recent_form": [],
-                "form_pct": None,
-            }
-        )
+        league_id = _active_league_id()
+        _, fixtures, _, _, _ = prediction_service.get_fixture_cards(league_id)
+        upcoming_matches = []
+        for fixture in fixtures or []:
+            teams_block = fixture.get("teams") or {}
+            home = (teams_block.get("home") or {}).get("name") or ""
+            away = (teams_block.get("away") or {}).get("name") or ""
+            if not home or not away:
+                continue
+            if home.lower() not in watched_set and away.lower() not in watched_set:
+                continue
+            upcoming_matches.append(
+                {
+                    "matchup": f"{home} vs {away}",
+                    "date": _format_prediction_date(((fixture.get("fixture") or {}).get("date") or "")),
+                    "league": ((fixture.get("league") or {}).get("name") or f"League {league_id}"),
+                }
+            )
+        upcoming_matches = sorted(upcoming_matches, key=lambda row: row.get("date", ""))[:40]
+        watched_teams = []
+        for team_name in watched_names:
+            next_match = next((m["matchup"] for m in upcoming_matches if team_name.lower() in m["matchup"].lower()), "No upcoming match")
+            watched_teams.append(
+                {
+                    "name": team_name,
+                    "logo": "",
+                    "league": "Tracked",
+                    "next_match": next_match,
+                    "recent_form": [],
+                    "form_pct": None,
+                }
+            )
+    except Exception as exc:
+        app.logger.exception("watchlist route error: %s", exc)
+        watched_teams = []
+        upcoming_matches = []
     ctx = _page_context()
     ctx.update({"watched_teams": watched_teams, "watchlist_matches": upcoming_matches})
     return render_template("watchlist.html", **ctx)
