@@ -6,7 +6,7 @@
 <section class="sp-auth-wrap">
   <div class="sp-auth-card">
     <div class="sp-auth-brand">
-      <span class="sp-auth-brand__icon">SP</span>
+      <span class="sp-auth-brand__icon"><img src="{{ url_for('static', filename='media/scorpred-player-logo.png') }}" alt=""></span>
       <div>
         <span class="sp-auth-brand__name">ScorPred</span>
         <span class="sp-auth-brand__sub">Decision Intelligence</span>
@@ -14,7 +14,7 @@
     </div>
 
     <h1 class="sp-auth-title">Welcome back</h1>
-    <p class="sp-auth-subtitle">Sign in to access your saved picks, tracking history, and strategy tools.</p>
+    <p class="sp-auth-subtitle">Sign in to access your saved picks, tracking history, and decision workspace.</p>
 
     <form method="POST" action="/login" class="sp-auth-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />

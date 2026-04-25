@@ -1,199 +1,104 @@
-/* ─────────────────────────────────────────────────────────────────────────────
-   HomePage — Decision intelligence dashboard.
-   Structure: page header → hero pick → kpi-grid → grid-2 previews → section
-   ───────────────────────────────────────────────────────────────────────────── */
+import { useFetch } from '../hooks/useFetch';
+import { DecisionCard, EmptyState, PlanStrip, type Decision } from '../components/DecisionCard';
 
-const TOP_PICK = {
-  sport: 'Soccer',
-  league: 'Premier League',
-  match: 'Man City vs Arsenal',
-  pick: 'Home Win',
-  confidence: 0.87,
-  edge: '+3.8pp',
-  prob: 58,
-};
-
-const KPIS = [
-  { label: 'Predictions Today', value: '18', sub: '6 high-confidence' },
-  { label: 'Model Accuracy', value: '67.2%', sub: 'last 90 days' },
-  { label: 'Combined Edge', value: '+4.1pp', sub: 'vs market baseline' },
-  { label: 'Active Models', value: '4', sub: 'RF · XGB · LGBM · Stack' },
-];
-
-const SOCCER_PREVIEW = [
-  { home: 'Man City', away: 'Arsenal', prob: 58, pick: 'H', conf: 'HIGH' },
-  { home: 'Barcelona', away: 'Real Madrid', prob: 44, pick: 'H', conf: 'MED' },
-  { home: 'Bayern', away: 'Dortmund', prob: 62, pick: 'H', conf: 'HIGH' },
-];
-
-const NBA_PREVIEW = [
-  { home: 'Lakers', away: 'Celtics', prob: 46, pick: 'A', conf: 'MED' },
-  { home: 'Warriors', away: 'Nuggets', prob: 54, pick: 'H', conf: 'HIGH' },
-  { home: 'Bucks', away: 'Heat', prob: 61, pick: 'H', conf: 'HIGH' },
-];
-
-const RECENT = [
-  { match: 'Liverpool vs Chelsea', pick: 'Home Win', result: 'WIN', pct: 71 },
-  { match: 'Knicks vs Nets', pick: 'Away Win', result: 'WIN', pct: 63 },
-  { match: 'PSG vs Lyon', pick: 'Home Win', result: 'WIN', pct: 78 },
-  { match: 'Spurs vs Villa', pick: 'Draw', result: 'LOSS', pct: 38 },
-  { match: 'Heat vs Bulls', pick: 'Home Win', result: 'WIN', pct: 59 },
-];
-
-function ConfBadge({ conf }: { conf: string }) {
-  const color = conf === 'HIGH' ? '#00ff87' : '#00d4ff';
-  return (
-    <span
-      className="text-[9px] tracking-[0.2em] uppercase font-mono px-1.5 py-0.5 border"
-      style={{ color, borderColor: `${color}33` }}
-    >
-      {conf}
-    </span>
-  );
+interface HomeData {
+  topOpportunities: Decision[];
+  insightRows: { match: string; action: string; side: string; confidence: string; trust: string }[];
+  plan: { bet: number; consider: number; skip: number };
 }
 
+const quickLinks = [
+  { title: 'Soccer', body: 'Today plan, top opportunities, and full slate.' },
+  { title: 'NBA', body: 'Same decision-first workflow for tonight.' },
+  { title: 'Match Analysis', body: 'Focused breakdown of one matchup.' },
+  { title: 'Insights', body: 'Opportunity radar and trust mix.' },
+];
+
 export default function HomePage() {
+  const { data, loading, error } = useFetch<HomeData>('/api/dashboard/home');
+
+  const topOpportunities = data?.topOpportunities ?? [];
+  const insightRows = data?.insightRows ?? [];
+  const plan = data?.plan ?? { bet: 0, consider: 0, skip: 0 };
+
   return (
     <div className="page-stack">
+      <section className="hero-card">
+        <p className="page-eyebrow">Decision Intelligence</p>
+        <h1 className="page-title">Clear actions for matchday.</h1>
+        <p className="mt-4 max-w-2xl text-slate-400">
+          ScorPred ranks every playable matchup with a side, action, confidence context, and the trust signal behind it.
+        </p>
+      </section>
 
-      {/* ── Page header ────────────────────────────────────────────────── */}
-      <div>
-        <p className="page-eyebrow">// System Online</p>
-        <h1 className="page-title">Decision Intelligence</h1>
-        <div className="mt-4 h-px bg-gradient-to-r from-[#00ff87]/20 to-transparent" />
-      </div>
+      <PlanStrip bet={plan.bet} consider={plan.consider} skip={plan.skip} />
 
-      {/* ── Hero pick ──────────────────────────────────────────────────── */}
-      <div className="hero-card">
-        <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
-          <div>
-            <p className="text-[10px] tracking-[0.25em] uppercase font-mono text-[#00ff87] mb-1">
-              Top Pick Today
-            </p>
-            <p className="text-[10px] tracking-[0.2em] uppercase font-mono text-neutral-500">
-              {TOP_PICK.sport} · {TOP_PICK.league}
-            </p>
-          </div>
-          <span className="text-[10px] tracking-[0.2em] uppercase font-mono text-[#00ff87] border border-[#00ff87]/20 px-2.5 py-1">
-            EDGE {TOP_PICK.edge}
-          </span>
+      <section className="section">
+        <div>
+          <p className="section-label">Top Opportunities Today</p>
+          <h2 className="font-oswald text-2xl uppercase tracking-[0.08em] text-white">
+            Only the strongest data-backed opportunities.
+          </h2>
         </div>
-        <h2 className="text-2xl font-oswald tracking-[0.08em] uppercase text-white mb-5">
-          {TOP_PICK.match}
-        </h2>
-        <div className="flex items-end gap-6 flex-wrap">
-          <div>
-            <p className="text-[10px] tracking-[0.2em] uppercase font-mono text-neutral-500 mb-1">Pick</p>
-            <p className="text-lg font-bold text-[#00ff87] tracking-wider">{TOP_PICK.pick}</p>
+        {loading ? (
+          <div className="empty-state">
+            <p className="font-oswald text-lg uppercase tracking-normal text-white">Loading opportunities…</p>
           </div>
-          <div>
-            <p className="text-[10px] tracking-[0.2em] uppercase font-mono text-neutral-500 mb-1">Probability</p>
-            <p className="text-lg font-bold text-white">{TOP_PICK.prob}%</p>
+        ) : error ? (
+          <EmptyState title="Data unavailable" body="Could not load today's opportunities. The server may still be warming up." />
+        ) : topOpportunities.length > 0 ? (
+          <div className="grid-2">
+            {topOpportunities.map((decision) => (
+              <DecisionCard key={`${decision.action}-${decision.side}-${decision.matchup}`} decision={decision} featured />
+            ))}
           </div>
-          <div>
-            <p className="text-[10px] tracking-[0.2em] uppercase font-mono text-neutral-500 mb-1">Confidence</p>
-            <p className="text-lg font-bold text-white">{(TOP_PICK.confidence * 100).toFixed(0)}%</p>
-          </div>
-          <div className="ml-auto">
-            <div className="flex gap-2">
-              {['ML', 'RULES', 'ELO', 'STACK'].map((t) => (
-                <span key={t} className="text-[9px] tracking-widest font-mono text-neutral-600 border border-white/10 px-2 py-0.5">
-                  {t}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+        ) : (
+          <EmptyState title="Slate still forming" body="Once fixtures load, the strongest playable sides rise here automatically." />
+        )}
+      </section>
 
-      {/* ── KPI row ────────────────────────────────────────────────────── */}
-      <div className="kpi-grid">
-        {KPIS.map((k) => (
-          <div key={k.label} className="card">
-            <p className="section-label">{k.label}</p>
-            <p className="text-2xl font-bold text-[#00ff87] font-oswald">{k.value}</p>
-            <p className="text-[10px] text-neutral-600 font-mono mt-1">{k.sub}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Soccer + NBA previews ───────────────────────────────────────── */}
-      <div className="grid-2">
-        {/* Soccer */}
-        <div className="section-stack">
-          <p className="section-label">⚽ Soccer · Today</p>
-          {SOCCER_PREVIEW.map((g) => (
-            <div key={g.home} className="card flex items-center justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-white tracking-wide truncate">
-                  {g.home} <span className="text-neutral-600 font-normal">vs</span> {g.away}
-                </p>
-                <div className="mt-2 h-1 bg-white/5 overflow-hidden">
-                  <div className="h-full bg-[#00ff87]/60" style={{ width: `${g.prob}%` }} />
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs font-mono text-[#00ff87]">{g.prob}%</span>
-                <ConfBadge conf={g.conf} />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* NBA */}
-        <div className="section-stack">
-          <p className="section-label">🏀 NBA · Tonight</p>
-          {NBA_PREVIEW.map((g) => (
-            <div key={g.home} className="card flex items-center justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-white tracking-wide truncate">
-                  {g.home} <span className="text-neutral-600 font-normal">vs</span> {g.away}
-                </p>
-                <div className="mt-2 h-1 bg-white/5 overflow-hidden">
-                  <div className="h-full bg-[#00d4ff]/60" style={{ width: `${g.prob}%` }} />
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs font-mono text-[#00d4ff]">{g.prob}%</span>
-                <ConfBadge conf={g.conf} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Recent results ──────────────────────────────────────────────── */}
-      <div className="section">
-        <p className="section-label">Recent Results</p>
+      <section className="section">
+        <p className="section-label">Opportunity Radar</p>
         <div className="card overflow-x-auto">
-          <table className="w-full text-xs font-mono">
+          <table className="w-full min-w-[620px] text-sm">
             <thead>
-              <tr className="border-b border-white/5 text-neutral-600 uppercase tracking-wider">
-                <th className="text-left pb-3 pr-4 font-normal">Match</th>
-                <th className="text-left pb-3 pr-4 font-normal">Pick</th>
-                <th className="text-right pb-3 pr-4 font-normal">Prob</th>
-                <th className="text-right pb-3 font-normal">Result</th>
+              <tr className="border-b border-white/[0.06] text-left text-xs uppercase tracking-[0.12em] text-slate-500">
+                <th className="pb-3 font-medium">Match</th>
+                <th className="pb-3 font-medium">Action</th>
+                <th className="pb-3 font-medium">Side</th>
+                <th className="pb-3 font-medium">Confidence</th>
+                <th className="pb-3 font-medium">Trust</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
-              {RECENT.map((r) => (
-                <tr key={r.match}>
-                  <td className="py-2.5 pr-4 text-neutral-300">{r.match}</td>
-                  <td className="py-2.5 pr-4 text-neutral-500">{r.pick}</td>
-                  <td className="py-2.5 pr-4 text-right text-neutral-400">{r.pct}%</td>
-                  <td className="py-2.5 text-right">
-                    <span className={r.result === 'WIN' ? 'text-[#00ff87]' : 'text-red-400'}>
-                      {r.result}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-white/[0.05]">
+              {loading ? (
+                <tr><td colSpan={5} className="py-4 text-center text-slate-500">Loading…</td></tr>
+              ) : insightRows.length === 0 ? (
+                <tr><td colSpan={5} className="py-4 text-center text-slate-500">No data available yet.</td></tr>
+              ) : (
+                insightRows.map((row) => (
+                  <tr key={row.match}>
+                    <td className="py-3 text-slate-200">{row.match}</td>
+                    <td className="py-3 text-slate-400">{row.action}</td>
+                    <td className="py-3 text-slate-400">{row.side}</td>
+                    <td className="py-3 text-emerald-300">{row.confidence}</td>
+                    <td className="py-3 text-slate-400">{row.trust}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div className="h-px bg-[#00ff87]/10" />
+      <section className="grid-2">
+        {quickLinks.map((link) => (
+          <article key={link.title} className="card">
+            <h3 className="font-oswald text-xl uppercase tracking-[0.08em] text-white">{link.title}</h3>
+            <p className="mt-2 text-sm text-slate-500">{link.body}</p>
+          </article>
+        ))}
+      </section>
     </div>
   );
 }

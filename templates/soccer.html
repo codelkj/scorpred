@@ -1,281 +1,301 @@
 {% extends "base.html" %}
-{% block title %}Soccer Analysis | ScorPred{% endblock %}
+{% import "components/decision.html" as ui with context %}
+
+{% block title %}ScorPred | Soccer{% endblock %}
+{% block topbar_title %}Soccer{% endblock %}
+
+{% block topbar_actions %}
+  <form class="sp-filter-row" method="get" action="/soccer">
+    <select class="sp-filter-control" name="league" onchange="this.form.submit()" aria-label="Competition">
+      {% for league in supported_leagues %}
+        <option value="{{ league.id }}" {% if current_league_id == league.id %}selected{% endif %}>{{ league.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+{% endblock %}
 
 {% block content %}
 
-{# ── Hero ──────────────────────────────────────────────────────────────── #}
-<section class="sp-hero">
-  <span class="sp-kicker">Soccer Workspace</span>
-  <h1>Fixture Analysis</h1>
-  <p class="sp-hero__copy">Select a fixture for full ScorPred analysis, or build a custom matchup.</p>
-  <div class="sp-hero__actions">
-    <a href="/fixtures" class="btn btn-secondary btn-sm">View Fixtures</a>
-    <a href="/worldcup" class="btn btn-secondary btn-sm">World Cup Predictor</a>
+{# ── Header with league context ─────────────────────────────────────────────── #}
+<div class="sp-soccer-header">
+  <div class="sp-soccer-header__left">
+    <h1>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:28px;height:28px;display:inline-block;vertical-align:middle;margin-right:.4rem"><circle cx="12" cy="12" r="9"/><path d="m9 8 3-2 3 2 1 4-4 3-4-3 1-4Z"/><path d="m4.5 13.5 3.5-1.5M16 12l3.5 1.5M12 15v4"/></svg>
+      {{ current_league.name if current_league else 'Soccer' }}
+    </h1>
+    <p>AI-powered predictions and match analysis</p>
   </div>
-</section>
+  <div style="display:flex;gap:.6rem;align-items:center">
+    <a class="btn btn-secondary btn-sm" href="/today-soccer-predictions">Today's Predictions</a>
+    <a class="btn btn-secondary btn-sm" href="/fixtures">Fixture View</a>
+  </div>
+</div>
 
 {% if selection_notice %}
-<div class="sp-notice sp-notice--warn">
-  <span class="sp-notice__icon">!</span>
-  <div class="sp-notice__body">{{ selection_notice }}</div>
-</div>
+  <div class="sp-flash sp-flash--warn">{{ selection_notice }}</div>
 {% endif %}
 
-{# ── Upcoming Fixtures ─────────────────────────────────────────────────── #}
-<section class="sp-section">
-  <div class="sp-section-head">
-    <div>
-      <h2 class="sp-section-title">Upcoming Fixtures</h2>
-      <p class="sp-section-desc">Select a scheduled fixture to start the analysis flow.</p>
-    </div>
-    <span class="source-badge {{ 'source-espn' if fixtures_source == 'espn' else 'source-api' }}">
-      {{ 'ESPN' if fixtures_source == 'espn' else 'API' }}
+{# ── KPI Cards ───────────────────────────────────────────────────────────────── #}
+{% set plan = today_plan or {} %}
+{% set all_cards = (top_opportunities or []) + (full_slate or []) %}
+{% set total_matches = all_cards|length %}
+{% set conf_sum = namespace(v=0, n=0) %}
+{% for card in all_cards %}
+  {% if card.confidence_pct %}
+    {% set conf_sum.v = conf_sum.v + card.confidence_pct %}
+    {% set conf_sum.n = conf_sum.n + 1 %}
+  {% endif %}
+{% endfor %}
+{% set avg_conf = (conf_sum.v / conf_sum.n)|round|int if conf_sum.n > 0 else 0 %}
+
+<div class="sp-kpi-row" style="grid-template-columns:repeat(5,1fr)">
+  <div class="sp-kpi-card sp-kpi-card--bet">
+    <span class="sp-kpi-card__label">BET</span>
+    <span class="sp-kpi-card__value">{{ plan.bet or 0 }}</span>
+    <span class="sp-kpi-card__meta">High confidence</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
     </span>
   </div>
-
-
-  {% if fixtures_error and not upcoming_fixtures %}
-  <div class="sp-notice sp-notice--warn">{{ fixtures_error }}</div>
-  {% endif %}
-
-  {% if upcoming_fixtures %}
-  <div class="sp-fixture-list">
-    {% for f in upcoming_fixtures %}
-    {% set home = f.teams.home if f.teams and f.teams.home else {} %}
-    {% set away = f.teams.away if f.teams and f.teams.away else {} %}
-    {% set fdate = f.fixture.date[:10] if f.fixture and f.fixture.date else '' %}
-    {% set ftime = f.fixture.date[11:16] if f.fixture and f.fixture.date and f.fixture.date|length > 10 else '' %}
-    {% set venue = f.fixture.venue.name if f.fixture and f.fixture.venue and f.fixture.venue.name else '' %}
-    <form method="POST" action="/select" class="sp-fixture-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <input type="hidden" name="league_id"    value="{{ (f.league.id if f.league and f.league.id else current_league_id) }}" />
-      <input type="hidden" name="team_a"        value="{{ home.id or '' }}" />
-      <input type="hidden" name="team_b"        value="{{ away.id or '' }}" />
-      <input type="hidden" name="team_a_name"   value="{{ home.name or '' }}" />
-      <input type="hidden" name="team_a_logo"   value="{{ home.logo or '' }}" />
-      <input type="hidden" name="team_b_name"   value="{{ away.name or '' }}" />
-      <input type="hidden" name="team_b_logo"   value="{{ away.logo or '' }}" />
-      <input type="hidden" name="fixture_id"    value="{{ f.fixture.id if f.fixture else '' }}" />
-      <input type="hidden" name="fixture_date"  value="{{ f.fixture.date if f.fixture else '' }}" />
-      <input type="hidden" name="league_name"   value="{{ f.league.name if f.league else '' }}" />
-      <input type="hidden" name="round"         value="{{ f.league.round if f.league else '' }}" />
-      <input type="hidden" name="venue_name"    value="{{ f.fixture.venue.name if f.fixture and f.fixture.venue else '' }}" />
-      <input type="hidden" name="data_source"   value="{{ fixtures_source }}" />
-      <button type="submit" class="sp-fixture-row">
-        <article class="sp-fixture sp-fixture-card">
-          <div class="sp-fixture__meta sp-fixture-card__meta">
-            <span>{% if fdate %}{{ fdate }}{% if ftime %} &middot; {{ ftime }}{% endif %}{% else %}Kickoff TBD{% endif %}</span>
-            {% if f.league and f.league.name %}
-            <span>{{ f.league.name }}</span>
-            {% endif %}
-            {% if venue %}
-            <span>{{ venue }}</span>
-            {% endif %}
-          </div>
-          <div class="sp-fixture__teams sp-fixture-card__teams">
-            <div class="sp-fixture__team right sp-fixture-card__team">
-              <div class="sp-fixture-card__team-copy">
-                <span class="sp-fixture-card__team-name">{{ home.name or 'TBD' }}</span>
-              </div>
-              {% if home.logo %}<img src="{{ home.logo }}" alt="" class="team-logo-sm" />{% endif %}
-            </div>
-            <div class="sp-fixture-card__center">
-              <span class="sp-fixture__vs">vs</span>
-              {% if f.league and f.league.round %}
-              <span class="sp-fixture-card__round">{{ f.league.round }}</span>
-              {% endif %}
-            </div>
-            <div class="sp-fixture__team sp-fixture-card__team">
-              {% if away.logo %}<img src="{{ away.logo }}" alt="" class="team-logo-sm" />{% endif %}
-              <div class="sp-fixture-card__team-copy">
-                <span class="sp-fixture-card__team-name">{{ away.name or 'TBD' }}</span>
-              </div>
-            </div>
-          </div>
-          <div class="sp-fixture__footer sp-fixture-card__footer">
-            <span class="sp-fixture-card__footnote">Tap for the full matchup breakdown, ML read, and form context.</span>
-            <span class="sp-fixture-card__cta">Analyse Match -></span>
-          </div>
-        </article>
-      </button>
-    </form>
-    {% endfor %}
+  <div class="sp-kpi-card sp-kpi-card--consider">
+    <span class="sp-kpi-card__label">CONSIDER</span>
+    <span class="sp-kpi-card__value">{{ plan.consider or 0 }}</span>
+    <span class="sp-kpi-card__meta">Medium confidence</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </span>
   </div>
-  {% else %}
-    <div class="sp-notice" style="text-align:center; padding:1.5rem; color:var(--text-3)">No upcoming fixtures available right now.</div>
-  {% endif %}
+  <div class="sp-kpi-card sp-kpi-card--skip">
+    <span class="sp-kpi-card__label">SKIP</span>
+    <span class="sp-kpi-card__value">{{ plan.skip or 0 }}</span>
+    <span class="sp-kpi-card__meta">Low confidence</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+    </span>
+  </div>
+  <div class="sp-kpi-card sp-kpi-card--accuracy">
+    <span class="sp-kpi-card__label">Total Matches</span>
+    <span class="sp-kpi-card__value">{{ total_matches }}</span>
+    <span class="sp-kpi-card__meta">Today</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    </span>
+  </div>
+  <div class="sp-kpi-card sp-kpi-card--roi">
+    <span class="sp-kpi-card__label">Avg. Confidence</span>
+    <span class="sp-kpi-card__value">{{ avg_conf }}%</span>
+    <span class="sp-kpi-card__meta">Today</span>
+    <span class="sp-kpi-card__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M7 15l3-4 3 2 4-6"/><path d="M17 7h3v3"/></svg>
+    </span>
+  </div>
+</div>
 
-  {# Custom matchup picker (advanced) #}
-  <details class="sp-detail">
-    <summary>
-      <div>
-        <span class="sp-kicker">Advanced</span>
-        <span>Build a custom matchup</span>
+{# ── Page Tabs ────────────────────────────────────────────────────────────────── #}
+<div class="sp-page-tabs">
+  <a href="#top-opportunities" class="sp-page-tab active" onclick="showTab('top-opportunities',this)">Top Opportunities</a>
+  <a href="#full-slate" class="sp-page-tab" onclick="showTab('full-slate',this)">Full Slate</a>
+  <a href="#todays-plan" class="sp-page-tab" onclick="showTab('todays-plan',this)">Today's Plan</a>
+  <a href="/watchlist" class="sp-page-tab">Watchlist</a>
+</div>
+
+{# ── Sort Bar ─────────────────────────────────────────────────────────────────── #}
+<div class="sp-sort-bar">
+  <p class="sp-sort-bar__desc">The best AI-identified opportunities based on edge, form, and data quality.</p>
+  <div class="sp-sort-control">
+    Sort by:
+    <select onchange="return false;">
+      <option>Confidence</option>
+      <option>League</option>
+      <option>Time</option>
+    </select>
+  </div>
+</div>
+
+{# ── Top Opportunities Tab ────────────────────────────────────────────────────── #}
+<div id="tab-top-opportunities">
+  {% if top_opportunities %}
+    <div class="sp-match-table">
+      <div class="sp-match-table__header">
+        <span>Match</span>
+        <span>AI Pick</span>
+        <span>Confidence</span>
+        <span>Win Probabilities</span>
+        <span>Data Quality</span>
+        <span>Action</span>
       </div>
-      <span class="sp-detail__chevron">▸</span>
-    </summary>
-    <div class="sp-detail__body">
-      {% if not teams %}
-        <div class="sp-alert sp-alert--warn">{{ load_error or "Could not load teams." }}</div>
-      {% else %}
-        <form method="POST" action="/select" id="teamForm">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-          <div class="sp-pickers">
-            <div class="sp-picker-group" id="wrapA">
-              <div class="sp-select-trigger" id="triggerA">
-                <img class="team-logo-sm" id="logoA" src="" alt="" style="display:none" />
-                <span id="labelA">Choose Team A</span>
-                <span class="caret">▾</span>
-              </div>
-              <div class="sp-select-dropdown" id="dropA">
-                <input class="sp-select-search" type="text" placeholder="Search team…" id="searchA" autocomplete="off" />
-                <div id="optionsA">
-                  {% for t in teams | sort(attribute='team.name') %}
-                  <div class="sp-select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
-                    <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm" />
-                    <span>{{ t.team.name }}</span>
-                  </div>
-                  {% endfor %}
-                </div>
-              </div>
-              <input type="hidden" name="team_a" id="team_a" required />
+      {% for card in top_opportunities %}
+        {% include "components/match_row.html" ignore missing %}
+        {# Fallback if include fails - render inline #}
+        <div class="sp-match-row">
+          {# Match identity #}
+          <div class="sp-match-row__identity sp-match-cell">
+            <form method="post" action="/watchlist/team">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="team" value="{{ card.team_a }}" />
+              <button class="sp-match-row__star" aria-label="Add {{ card.team_a }} to watchlist" type="submit">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              </button>
+            </form>
+            <div class="sp-match-row__meta">
+              <span class="sp-match-row__league">{{ card.competition or 'Soccer' }}</span>
+              <span class="sp-match-row__time">Today</span>
             </div>
-            <div class="sp-team-form-preview" id="teamFormA">Last 5 form: --</div>
-            <div class="sp-picker-group" id="wrapB">
-              <div class="sp-select-trigger" id="triggerB">
-                <img class="team-logo-sm" id="logoB" src="" alt="" style="display:none" />
-                <span id="labelB">Choose Team B</span>
-                <span class="caret">▾</span>
-              </div>
-              <div class="sp-select-dropdown" id="dropB">
-                <input class="sp-select-search" type="text" placeholder="Search team…" id="searchB" autocomplete="off" />
-                <div id="optionsB">
-                  {% for t in teams | sort(attribute='team.name') %}
-                  <div class="sp-select-option" data-value="{{ t.team.id }}" data-name="{{ t.team.name }}" data-logo="{{ t.team.logo }}">
-                    <img src="{{ t.team.logo }}" alt="{{ t.team.name }}" class="team-logo-sm" />
-                    <span>{{ t.team.name }}</span>
-                  </div>
-                  {% endfor %}
-                </div>
-              </div>
-              <input type="hidden" name="team_b" id="team_b" required />
+            <div class="sp-match-row__teams">
+              {% if card.team_a_logo %}<img src="{{ card.team_a_logo }}" alt="{{ card.team_a }}" class="sp-match-row__logo" onerror="this.style.display='none'">{% else %}<span class="sp-match-row__logo-placeholder">{{ card.team_a_initials or card.team_a[:2] }}</span>{% endif %}
+              <span class="sp-match-row__vs">vs</span>
+              {% if card.team_b_logo %}<img src="{{ card.team_b_logo }}" alt="{{ card.team_b }}" class="sp-match-row__logo" onerror="this.style.display='none'">{% else %}<span class="sp-match-row__logo-placeholder">{{ card.team_b_initials or card.team_b[:2] }}</span>{% endif %}
             </div>
-            <div class="sp-team-form-preview" id="teamFormB">Last 5 form: --</div>
+            <div class="sp-match-row__names">
+              <span class="sp-match-row__team-name">{{ card.team_a }}</span>
+              <span class="sp-match-row__team-name" style="color:var(--text-3)">{{ card.team_b }}</span>
+            </div>
           </div>
-          <div id="sameTeamError" class="sp-alert sp-alert--error" style="display:none">
-            Please select two different teams.
+          {# AI Pick #}
+          <div class="sp-match-row__pick sp-match-cell">
+            <span class="sp-match-row__pick-side">{{ card.recommended_side }}</span>
+            <span class="sp-match-row__pick-type">{{ card.action_label or card.action }}</span>
           </div>
-          <button type="submit" class="btn btn-primary btn-lg btn-full" id="analyseBtn" disabled>
-            Analyze Matchup
-          </button>
-        </form>
-      {% endif %}
+          {# Confidence #}
+          <div class="sp-match-row__conf sp-match-cell">
+            <span class="sp-match-row__conf-pct" style="color:var(--{% if card.action_class == 'bet' %}c-strong{% elif card.action_class == 'consider' %}c-caution{% else %}text-3{% endif %})">{{ card.confidence_pct }}%</span>
+            <div class="sp-match-row__conf-bar">
+              <div class="sp-match-row__conf-fill sp-match-row__conf-fill--{{ card.action_class }}" style="width:{{ card.confidence_pct }}%"></div>
+            </div>
+          </div>
+          {# Win Probabilities #}
+          <div class="sp-match-row__probs sp-match-cell">
+            {% if card.probability_rows %}
+              {% for row in card.probability_rows %}
+                <div class="sp-match-row__prob-row">
+                  <span class="sp-match-row__prob-label">{{ row.label[:1] }}</span>
+                  <div class="sp-match-row__prob-bar">
+                    <div class="sp-match-row__prob-fill sp-match-row__prob-fill--{{ 'home' if loop.index == 1 else ('draw' if loop.index == 2 else 'away') }}" style="width:{{ row.value }}%"></div>
+                  </div>
+                  <span class="sp-match-row__prob-val">{{ row.value|round|int }}%</span>
+                </div>
+              {% endfor %}
+            {% endif %}
+          </div>
+          {# Data Quality #}
+          <div class="sp-match-row__dq sp-match-cell">
+            {% set dq = card.data_confidence %}
+            {% set dq_state = (dq.state if dq else 'limited') %}
+            <div class="sp-dq-dots">
+              {% set filled = 5 if dq_state == 'strong' else (3 if dq_state == 'partial' else 1) %}
+              {% for i in range(5) %}
+                <span class="sp-dq-dot {% if i < filled %}{{ 'sp-dq-dot--on' if dq_state == 'strong' else 'sp-dq-dot--on-caution' }}{% endif %}"></span>
+              {% endfor %}
+            </div>
+            <span class="sp-dq-label">{{ dq.label if dq else 'Limited' }}</span>
+          </div>
+          {# Action #}
+          <div class="sp-match-row__action sp-match-cell">
+            <button
+              type="button"
+              class="sp-action-btn sp-action-btn--track"
+              data-bet-button="1"
+              onclick='addBet(this, {{ {
+                "match_id": card.match_id,
+                "matchup": card.matchup,
+                "recommended_side": card.recommended_side,
+                "action": card.action,
+                "confidence": card.confidence,
+                "probabilities": card.probabilities
+              }|tojson }})'
+            >Track</button>
+            {% if card.cta_url %}
+              {% if card.cta_method == 'post' %}
+                <form method="post" action="{{ card.cta_url }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  {% for key, value in card.cta_payload.items() %}
+                    <input type="hidden" name="{{ key }}" value="{{ value }}" />
+                  {% endfor %}
+                  <button type="submit" class="sp-action-btn sp-action-btn--analyze">Analyze</button>
+                </form>
+              {% else %}
+                <a href="{{ card.cta_url }}" class="sp-action-btn sp-action-btn--analyze">Analyze</a>
+              {% endif %}
+            {% else %}
+              <a href="/prediction" class="sp-action-btn sp-action-btn--analyze">Analyze</a>
+            {% endif %}
+            <button class="sp-match-row__expand" aria-label="Expand">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+        </div>
+      {% endfor %}
     </div>
-  </details>
+  {% else %}
+    {{ ui.empty_state('No top opportunities yet', fixtures_error or 'ScorPred needs baseline fixture data before ranking opportunities.') }}
+  {% endif %}
+</div>
 
-{# ── Shortcuts ─────────────────────────────────────────────────────────── #}
-<section class="sp-section">
-  <h2 class="sp-section-title" style="margin-bottom:.75rem">Shortcuts</h2>
-  <div class="sp-route-grid">
-    <a href="/fixtures" class="sp-route-card">
-      <span class="sp-route-card__icon">FX</span>
-      <div class="sp-route-card__title">Fixtures</div>
-      <div class="sp-route-card__desc">Browse the current slate with predicted winners.</div>
-      <span class="sp-route-card__cta">Open →</span>
-    </a>
-    <a href="/worldcup" class="sp-route-card">
-      <span class="sp-route-card__icon">WC</span>
-      <div class="sp-route-card__title">World Cup</div>
-      <div class="sp-route-card__desc">International matchup predictor with tournament context.</div>
-      <span class="sp-route-card__cta">Open →</span>
-    </a>
-    <a href="/strategy-lab" class="sp-route-card">
-      <span class="sp-route-card__icon">SL</span>
-      <div class="sp-route-card__title">Strategy Lab</div>
-      <div class="sp-route-card__desc">Compare tracked accuracy, confidence tiers, and the ML read.</div>
-      <span class="sp-route-card__cta">Open →</span>
-    </a>
+{# ── Full Slate Tab ───────────────────────────────────────────────────────────── #}
+<div id="tab-full-slate" style="display:none">
+  {% if full_slate %}
+    <div class="sp-card-grid">
+      {% for card in full_slate %}
+        {{ ui.decision_card(card) }}
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('No full slate yet', 'Full slate data will appear here.') }}
+  {% endif %}
+</div>
+
+{# ── Today's Plan Tab ─────────────────────────────────────────────────────────── #}
+<div id="tab-todays-plan" style="display:none">
+  {{ ui.plan_strip(today_plan) }}
+  {% if top_opportunities %}
+    <div class="sp-card-grid">
+      {% for card in top_opportunities %}
+        {{ ui.decision_card(card, 'featured') }}
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ ui.empty_state('Today\'s plan loading', 'Check back when the slate refreshes.') }}
+  {% endif %}
+</div>
+
+{# ── Legend ────────────────────────────────────────────────────────────────────── #}
+<div class="sp-match-legend">
+  <span class="sp-match-legend__how">HOW TO READ</span>
+  <div class="sp-match-legend__item">
+    <span class="sp-match-legend__badge sp-match-legend__badge--bet">BET</span>
+    <span>High confidence · Strong edge detected</span>
   </div>
-</section>
+  <div class="sp-match-legend__item">
+    <span class="sp-match-legend__badge sp-match-legend__badge--consider">CONSIDER</span>
+    <span>Medium confidence · Possible value</span>
+  </div>
+  <div class="sp-match-legend__item">
+    <span class="sp-match-legend__badge sp-match-legend__badge--skip">SKIP</span>
+    <span>Low confidence · Low edge</span>
+  </div>
+  <div class="sp-match-legend__item" style="margin-left:auto">
+    Win Probabilities: <strong style="color:var(--c-strong);margin-left:.3rem">H</strong> = Home &nbsp;
+    <strong style="color:var(--c-caution)">D</strong> = Draw &nbsp;
+    <strong style="color:var(--c-active)">A</strong> = Away
+  </div>
+</div>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
-  const ACTIVE_LEAGUE_ID = {{ current_league_id }};
-
-  async function loadTeamForm(teamId, targetId) {
-    const target = document.getElementById(targetId);
-    if (!teamId || !target) return;
-    target.textContent = 'Last 5 form: loading...';
-    try {
-      const response = await fetch(`/api/football/team-form?team_id=${encodeURIComponent(teamId)}`);
-      const data = await response.json();
-      target.textContent = `Last 5 form: ${data.form_string || 'No recent data'}`;
-    } catch (error) {
-      target.textContent = 'Last 5 form: unavailable';
-    }
-  }
-
-  function initCustomSelect(wrapperId, triggerId, dropId, searchId, optionsId, hiddenId, logoId, labelId) {
-    const wrap = document.getElementById(wrapperId);
-    const trigger = document.getElementById(triggerId);
-    const drop = document.getElementById(dropId);
-    const searchEl = document.getElementById(searchId);
-    const optsCont = document.getElementById(optionsId);
-    const hidden = document.getElementById(hiddenId);
-    const logo = document.getElementById(logoId);
-    const label = document.getElementById(labelId);
-    const allOpts = () => optsCont.querySelectorAll('.sp-select-option');
-
-    trigger.addEventListener('click', () => {
-      drop.classList.toggle('open');
-      if (drop.classList.contains('open')) searchEl.focus();
-    });
-
-    searchEl.addEventListener('input', () => {
-      const q = searchEl.value.toLowerCase();
-      allOpts().forEach((o) => {
-        o.style.display = o.dataset.name.toLowerCase().includes(q) ? '' : 'none';
-      });
-    });
-
-    allOpts().forEach((opt) => {
-      opt.addEventListener('click', () => {
-        hidden.value = opt.dataset.value;
-        label.textContent = opt.dataset.name;
-        logo.src = opt.dataset.logo;
-        logo.style.display = 'inline';
-        drop.classList.remove('open');
-        if (hiddenId === 'team_a') loadTeamForm(opt.dataset.value, 'teamFormA');
-        if (hiddenId === 'team_b') loadTeamForm(opt.dataset.value, 'teamFormB');
-        validateForm();
-      });
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!wrap.contains(e.target)) drop.classList.remove('open');
-    });
-  }
-
-  initCustomSelect('wrapA', 'triggerA', 'dropA', 'searchA', 'optionsA', 'team_a', 'logoA', 'labelA');
-  initCustomSelect('wrapB', 'triggerB', 'dropB', 'searchB', 'optionsB', 'team_b', 'logoB', 'labelB');
-
-  function validateForm() {
-    const a = document.getElementById('team_a').value;
-    const b = document.getElementById('team_b').value;
-    const btn = document.getElementById('analyseBtn');
-    const err = document.getElementById('sameTeamError');
-    if (a && b && a === b) {
-      err.style.display = 'block';
-      btn.disabled = true;
-    } else if (a && b) {
-      err.style.display = 'none';
-      btn.disabled = false;
-    } else {
-      err.style.display = 'none';
-      btn.disabled = true;
-    }
-  }
+function showTab(id, el) {
+  // Hide all
+  ['top-opportunities','full-slate','todays-plan'].forEach(function(t) {
+    var el = document.getElementById('tab-' + t);
+    if (el) el.style.display = 'none';
+  });
+  document.querySelectorAll('.sp-page-tab').forEach(function(a) { a.classList.remove('active'); });
+  // Show target
+  var target = document.getElementById('tab-' + id);
+  if (target) target.style.display = '';
+  if (el) el.classList.add('active');
+  return false;
+}
 </script>
 {% endblock %}

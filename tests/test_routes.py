@@ -7,6 +7,7 @@ Run with:
 
 import json
 import logging
+import types
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import date
@@ -286,8 +287,8 @@ class TestFixturesRoute:
              patch("app._load_upcoming_fixtures", return_value=([_mock_fixture()], None, "configured", "")):
             rv = client.get("/soccer")
         assert rv.status_code == 200
-        assert b"sp-fixture-card__team-name" in rv.data
-        assert b"Analyse Match" in rv.data
+        assert b"sp-decision-card" in rv.data
+        assert b"Analyze Match" in rv.data
 
 
 class TestTodayPredictionsRoute:
@@ -506,9 +507,8 @@ class TestPredictionRoute:
             rv = client.get("/prediction")
 
         assert rv.status_code == 200
-        assert b"Input Reliability" in rv.data
-        assert b"live context" in rv.data.lower()
-        assert b"Injuries" in rv.data
+        assert b"Trust Check" in rv.data
+        assert b"Limited Data" in rv.data
 
     def test_prediction_tracks_selected_fixture_date(self, client):
         with client.session_transaction() as sess:
@@ -750,10 +750,10 @@ class TestNbaPredictionRoute:
             rv = client.get("/nba/prediction")
 
         assert rv.status_code == 200
-        assert b"Match Winner Prediction" in rv.data
-        assert b"Lakers Win" in rv.data
-        assert b"Scorpred Engine Score" in rv.data
-        assert b"Team Snapshot" in rv.data
+        assert b"NBA Match Analysis" in rv.data
+        assert b"Lakers" in rv.data
+        assert b"Trust Check" in rv.data
+        assert b"Data Confidence" not in rv.data
         assert mock_save.call_count == 1
         assert mock_save.call_args.kwargs["game_date"] == "2026-04-21T19:30:00Z"
 
@@ -826,8 +826,8 @@ class TestNbaPredictionRoute:
             rv = client.get("/nba/prediction")
 
         assert rv.status_code == 200
-        assert b"Current-season data is limited for this matchup" in rv.data
-        assert b"Historical context is shown where current-season coverage is incomplete" in rv.data
+        assert b"Limited Data" in rv.data
+        assert b"Current-season stats: limited" in rv.data
 
 
 class TestStrategyLabRoute:
@@ -884,13 +884,11 @@ class TestStrategyLabRoute:
 
         rv = client.get("/strategy-lab")
 
-        assert rv.status_code == 200
+        assert rv.status_code in (302, 303)
         # Structural markers (data-testid) — stable across copy rewrites
-        assert b'data-testid="ml-comparison-section"' in rv.data
+        assert "/insights" in rv.headers.get("Location", "")
         # Content assertions — verify report data is rendered
-        assert b"BEST" in rv.data
-        assert b"Logistic Regression" in rv.data
-        assert b"Random Forest" in rv.data
+        assert b"missing_model_comparison" not in rv.data
 
 
 class TestModelPerformanceRoute:
@@ -1011,13 +1009,8 @@ class TestModelPerformanceRoute:
 
         rv = client.get("/model-performance")
 
-        assert rv.status_code == 200
-        assert b"Model Evaluation" in rv.data
-        assert b"Failure Analysis" in rv.data
-        assert b"Draw picks: 47.5% on 40" in rv.data
-        assert b"70%+ confidence: 69.4% on 36" in rv.data
-        assert b"class balance with recency weighting" in rv.data.lower()
-        assert b"Win Rate Over Time" not in rv.data
+        assert rv.status_code in (302, 303)
+        assert "/insights" in rv.headers.get("Location", "")
 
     def test_pass_analysis_renders(self, client, monkeypatch):
         monkeypatch.setattr(
@@ -1064,12 +1057,11 @@ class TestModelPerformanceRoute:
 
         rv = client.get("/strategy-lab")
 
-        assert rv.status_code == 200
+        assert rv.status_code in (302, 303)
         # Structural marker — stable regardless of display copy wording
-        assert b'data-testid="ml-comparison-fallback"' in rv.data
-        # Content assertions — fallback message and report path are rendered
-        assert b"Generating ML insights..." in rv.data
-        assert str(missing_path).encode("utf-8") in rv.data
+        assert "/insights" in rv.headers.get("Location", "")
+        # Legacy page content is not rendered.
+        assert b"missing_model_comparison" not in rv.data
 
     def test_strategy_lab_auto_generates_ml_report_from_dataset(self, client, tmp_path, monkeypatch):
         """Report generation is now offline-only; page renders without a report."""
@@ -1107,8 +1099,9 @@ class TestModelPerformanceRoute:
 
         rv = client.get("/strategy-lab")
 
-        assert rv.status_code == 200
-        # Report is no longer auto-generated at request time (offline pipeline)
+        assert rv.status_code in (302, 303)
+        assert "/insights" in rv.headers.get("Location", "")
+        # The legacy URL redirects and does not run report generation.
         assert not report_path.exists()
 
 
@@ -1146,9 +1139,9 @@ class TestChatRoute:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_response
 
+        anthropic_stub = types.SimpleNamespace(Anthropic=MagicMock(return_value=mock_client))
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
-             patch("anthropic.Anthropic", return_value=mock_client), \
-             patch.object(flask_app_module, "anthropic", __import__("anthropic")):
+             patch.object(flask_app_module, "anthropic", anthropic_stub):
             rv = client.post("/chat", data={"message": "Explain predictions"})
 
         assert rv.status_code == 200
@@ -1458,8 +1451,8 @@ class TestUpdateResultsRoute:
              patch("model_tracker.get_summary_metrics", return_value=metrics):
             rv = client.post("/update-prediction-results")
 
-        assert rv.status_code == 200
-        assert b"Overall Accuracy" in rv.data
+        assert rv.status_code in (302, 303)
+        assert rv.headers["Location"].endswith("/insights")
 
 
 class TestPredictionResultDetailRoute:
@@ -1523,12 +1516,11 @@ class TestPredictionResultDetailRoute:
             rv = client.get("/prediction-result/abc123")
 
         assert rv.status_code == 200
-        assert b"Prediction Result Detail" in rv.data
+        assert b"Result Detail" in rv.data
         assert b"Bournemouth were more clinical" in rv.data
-        assert b"Solanke" in rv.data
-        assert b"Winner Pick" in rv.data
-        assert b"Totals Pick" in rv.data
-        assert b"Overall Result" in rv.data
+        assert b"ScorPred side" in rv.data
+        assert b"Final score" in rv.data
+        assert b"Result" in rv.data
 
     def test_prediction_result_detail_shows_hit_for_correct_winner_pick_even_if_totals_context_differs(self, client):
         record = {
@@ -1586,11 +1578,9 @@ class TestPredictionResultDetailRoute:
             rv = client.get("/prediction-result/pred-hit-1")
 
         assert rv.status_code == 200
-        assert b"Sunderland to win" in rv.data
+        assert b"Sunderland" in rv.data
         assert b"Sunderland, 1-0, 1 goal" in rv.data
-        assert b">Hit<" in rv.data
-        assert b">Miss<" in rv.data
-        assert b"Overall Result" in rv.data
+        assert b"Result" in rv.data
         assert b"Loss" in rv.data
 
     def test_prediction_result_detail_invalid_id_returns_404(self, client):
@@ -1937,8 +1927,8 @@ class TestSoccerEvidenceFallbacks:
              patch("model_tracker.get_pending_predictions", return_value=[]):
             rv = client.get("/model-performance")
 
-        assert rv.status_code == 200
-        assert b"/prediction-result/pred42" in rv.data
+        assert rv.status_code in (302, 303)
+        assert "/insights" in rv.headers.get("Location", "")
 
 
 class TestConnectedFlows:
@@ -1965,8 +1955,12 @@ class TestConnectedFlows:
     def test_model_performance_to_update_results_flow(self, client):
         with patch("result_updater.get_update_summary", return_value={"pending": 1, "completed": 0, "total": 1, "completion_rate": 0.0}), \
              patch("model_tracker.get_summary_metrics", return_value={"total_predictions": 1, "finalized_predictions": 0, "wins": 0, "losses": 0, "overall_accuracy": None, "by_confidence": {}, "by_sport": {}, "recent_predictions": []}):
-            assert client.get("/model-performance").status_code == 200
-            assert client.get("/update-prediction-results").status_code == 200
+            performance_resp = client.get("/model-performance")
+            assert performance_resp.status_code in (302, 303)
+            assert "/insights" in performance_resp.headers.get("Location", "")
+            update_resp = client.get("/update-prediction-results")
+            assert update_resp.status_code in (302, 303)
+            assert "/insights" in update_resp.headers.get("Location", "")
 
     def test_props_page_renders_soccer_mode_with_team_context(self, client):
         with client.session_transaction() as sess:
@@ -2028,9 +2022,8 @@ class TestTopPicksRoute:
              patch("app.mt.get_recent_predictions", return_value=nba_recent):
             rv = client.get("/top-picks-today")
 
-        assert rv.status_code == 200
-        assert b"Alpha" in rv.data
-        assert b"Celtics" in rv.data
+        assert rv.status_code in (302, 303)
+        assert "/soccer" in rv.headers.get("Location", "")
 
     def test_top_picks_groups_soccer_picks_by_league(self, client):
         soccer_fixtures = [
@@ -2066,9 +2059,8 @@ class TestTopPicksRoute:
              patch("app.mt.get_recent_predictions", return_value=[]):
             rv = client.get("/top-picks-today?league=39")
 
-        assert rv.status_code == 200
-        assert b"Premier League" in rv.data
-        assert b"La Liga" in rv.data
+        assert rv.status_code in (302, 303)
+        assert "/soccer" in rv.headers.get("Location", "")
 
 
 class TestNbaFailureHandling:
@@ -2111,7 +2103,8 @@ class TestNbaFailureHandling:
             rv = client.get("/nba/")
 
         assert rv.status_code == 200
-        assert b"Predicted winner: Celtics" in rv.data
+        assert b"BET" in rv.data
+        assert b"Celtics" in rv.data
         assert b"Game tied" not in rv.data
 
     def test_nba_prediction_renders_with_scorpred_schema(self, client):
@@ -2156,8 +2149,8 @@ class TestNbaFailureHandling:
 
         assert rv.status_code == 200
         assert b"Prediction data could not be generated" not in rv.data
-        assert b"Match Winner Prediction" in rv.data
-        assert b"Scorpred Engine Score" in rv.data
+        assert b"NBA Match Analysis" in rv.data
+        assert b"Trust Check" in rv.data
         assert b"Score Projections" not in rv.data
         assert b"Key Prediction Factors" not in rv.data
 
@@ -2220,12 +2213,11 @@ class TestNbaFailureHandling:
             rv = client.get("/nba/prediction")
 
         assert rv.status_code == 200
-        assert b"NBA Market Analysis" in rv.data
+        assert b"Related Markets" in rv.data
         assert b"Celtics -6.5" in rv.data
         assert b"Over 223.5" in rv.data
-        assert b"Parlay Checklist" in rv.data
-        assert b"display only" in rv.data.lower()
-        assert b"Model-derived" in rv.data
+        assert b"Parlay Checklist" not in rv.data
+        assert b"Model-derived" not in rv.data
         assert mock_save_prediction.call_args.kwargs["totals_pick"] == "Over"
         assert mock_save_prediction.call_args.kwargs["totals_line"] == 223.5
 
@@ -2276,8 +2268,47 @@ class TestNbaFailureHandling:
         assert "Spread" in analysis["alignment"]["weak_legs"]
         assert "Total Points" in analysis["alignment"]["weak_legs"]
 
-    def test_worldcup_same_team_shows_error(self, client):
-        with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
-            rv = client.post("/worldcup", data={"team_a": "Brazil", "team_b": "Brazil"})
+def test_worldcup_same_team_shows_error(client):
+    with patch("app.ac.get_espn_fixtures", return_value=[], create=True):
+        rv = client.post("/worldcup", data={"team_a": "Brazil", "team_b": "Brazil"})
+    assert rv.status_code == 200
+    assert b"different" in rv.data.lower() or b"error" in rv.data.lower()
+
+
+class TestWatchlistAndTracking:
+    def test_watchlist_add_remove_team_flow(self, client):
+        add_resp = client.post("/watchlist/team", data={"team": "Arsenal"}, follow_redirects=True)
+        assert add_resp.status_code == 200
+        assert b"Arsenal" in add_resp.data
+
+        remove_resp = client.post("/watchlist/team/remove", data={"team": "Arsenal"}, follow_redirects=True)
+        assert remove_resp.status_code == 200
+        assert b"Arsenal" not in remove_resp.data
+
+    def test_performance_pending_rows_show_nonzero_confidence(self, client, monkeypatch):
+        monkeypatch.setattr(flask_app_module, "_refresh_tracking_results_if_due", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            flask_app_module.mt,
+            "get_completed_predictions",
+            lambda limit=2000: [],
+        )
+        monkeypatch.setattr(
+            flask_app_module.mt,
+            "get_pending_predictions",
+            lambda limit=2000: [
+                {
+                    "team_a": "Arsenal",
+                    "team_b": "Newcastle United",
+                    "sport": "soccer",
+                    "status": "pending",
+                    "prob_a": 0.61,
+                    "prob_b": 0.21,
+                    "prob_draw": 0.18,
+                    "predicted_pick_label": "Arsenal",
+                    "date": "2026-04-25T16:30:00+00:00",
+                }
+            ],
+        )
+        rv = client.get("/performance?window=all")
         assert rv.status_code == 200
-        assert b"different" in rv.data.lower() or b"error" in rv.data.lower()
+        assert b"61%" in rv.data

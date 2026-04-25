@@ -1,100 +1,45 @@
 {% extends "base.html" %}
-{% block title %}Upcoming Fixtures{% endblock %}
+{% import "components/decision.html" as ui with context %}
 
+{% block title %}ScorPred | Fixtures{% endblock %}
+{% block topbar_title %}Soccer Fixtures{% endblock %}
+{% block topbar_actions %}
+  <form class="sp-filter-row" method="get" action="/fixtures">
+    <select class="sp-filter-control" name="league" onchange="this.form.submit()" aria-label="Competition">
+      {% for league in supported_leagues %}
+        <option value="{{ league.id }}" {% if current_league_id == league.id %}selected{% endif %}>{{ league.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h1>Upcoming <span class="accent">Fixtures</span></h1>
-  <p class="page-sub">Next 20 matches for the selected competition</p>
-</div>
+<section class="sp-page-hero">
+  <span class="sp-page-hero__eyebrow">{{ current_league.name if current_league else 'Soccer' }}</span>
+  <h1>Full slate, one consistent action system.</h1>
+  <p>Each fixture shows the side, action, confidence, reason, and data confidence before you open analysis.</p>
+</section>
 
-<div class="card glow-card" style="padding:1rem 1.5rem;">
-  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
-    <span style="font-size:.82rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Competition</span>
-    <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
-      {% for league in supported_leagues %}
-      <a href="/fixtures?league={{ league.id }}" class="btn btn-sm {{ 'btn-primary btn-glow' if current_league_id == league.id else 'btn-secondary' }}">{{ league.flag }} {{ league.name }}</a>
+{{ ui.plan_strip(today_plan) }}
+{{ ui.top_opportunities(top_opportunities) }}
+
+<section class="sp-section">
+  <div class="sp-section__header">
+    <div>
+      <h2>All Fixtures</h2>
+      <p>Scannable decisions for every available matchup.</p>
+    </div>
+    <a class="btn btn-secondary btn-sm" href="/soccer">Back to Soccer</a>
+  </div>
+
+  {% if full_slate %}
+    <div class="sp-card-grid">
+      {% for card in full_slate %}
+        {{ ui.decision_card(card) }}
       {% endfor %}
     </div>
-    <span class="source-badge {{ 'source-espn' if data_source == 'espn' else 'source-api' }}">
-      {{ 'ESPN fallback' if data_source == 'espn' else 'Configured provider' }}
-    </span>
-  </div>
-  <span class="source-badge {{ 'source-espn' if data_source == 'espn' else 'source-api' }}">
-    {{ 'ESPN' if data_source == 'espn' else 'API' }}
-  </span>
-</div>
-
-
-{% if not fixtures %}
-<div class="card glow-card">
-  <div class="empty-state">No upcoming fixtures found for this competition.</div>
-</div>
-{% endif %}
-
-{% if fixtures %}
-
-{% for f in fixtures %}
-{% set p = f.prediction or {} %}
-{% set best = p.best_pick or {} %}
-<div class="card glow-card fpred-card">
-  <div class="fpred-meta">
-    <span>{{ f.fixture.date[:10] }}</span>
-    {% if f.fixture.date | length > 10 %}
-    <span>{{ f.fixture.date[11:16] }} UTC</span>
-    {% endif %}
-    <span>{{ f.fixture.venue.name }}</span>
-    {% if f.league and f.league.round %}
-    <span>{{ f.league.round }}</span>
-    {% endif %}
-  </div>
-
-  <div class="fpred-teams-row">
-    <div class="fpred-team">
-      <img src="{{ f.teams.home.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.home.name }}" />
-      <span class="fpred-team-name">{{ f.teams.home.name }}</span>
-    </div>
-    <div class="fpred-centre">
-      <span class="fpred-vs">vs</span>
-      <span class="confidence-badge conf-{{ (best.confidence or 'Low') | lower }}">{{ best.confidence or 'Low' }}</span>
-    </div>
-    <div class="fpred-team right">
-      <span class="fpred-team-name">{{ f.teams.away.name }}</span>
-      <img src="{{ f.teams.away.logo }}" class="team-logo-sm team-badge" alt="{{ f.teams.away.name }}" />
-    </div>
-  </div>
-
-  <div class="fpred-footer">
-    <span class="fpred-winner-label">
-      Predicted:
-      <strong class="accent">{{ best.prediction or 'No prediction available' }}</strong>
-    </span>
-    <form method="POST" action="/select" style="display:inline">
-      <input type="hidden" name="league_id" value="{{ f.league.id if f.league and f.league.id else current_league_id }}" />
-      <input type="hidden" name="team_a" value="{{ f.teams.home.id }}" />
-      <input type="hidden" name="team_b" value="{{ f.teams.away.id }}" />
-      <input type="hidden" name="team_a_name" value="{{ f.teams.home.name }}" />
-      <input type="hidden" name="team_a_logo" value="{{ f.teams.home.logo }}" />
-      <input type="hidden" name="team_b_name" value="{{ f.teams.away.name }}" />
-      <input type="hidden" name="team_b_logo" value="{{ f.teams.away.logo }}" />
-      <input type="hidden" name="fixture_id" value="{{ f.fixture.id }}" />
-      <input type="hidden" name="fixture_date" value="{{ f.fixture.date }}" />
-      <input type="hidden" name="league_name" value="{{ f.league.name if f.league else '' }}" />
-      <input type="hidden" name="round" value="{{ f.league.round if f.league else '' }}" />
-      <input type="hidden" name="venue_name" value="{{ f.fixture.venue.name if f.fixture.venue else '' }}" />
-      <input type="hidden" name="data_source" value="{{ data_source }}" />
-      <button type="submit" class="btn btn-primary btn-sm">Full Analysis →</button>
-    </form>
-  </div>
-
-  {# Injury section fallback #}
-  {% if f.injuries is defined and f.injuries is none %}
-    <div class="sp-alert sp-alert--warn" style="margin-top:.5rem">Injury data unavailable.</div>
+  {% else %}
+    {{ ui.empty_state('No fixtures available', load_error or 'The slate is empty or the data feed is temporarily unavailable.') }}
   {% endif %}
-
-</div>
-{% endfor %}
-
-{% endif %}
-
+</section>
 {% endblock %}

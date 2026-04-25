@@ -61,9 +61,10 @@
     <div class="sp-prob-stack__bar" style="flex:{{ result.b_pct }}; background:var(--c-active); border-radius:0 4px 4px 0">&nbsp;</div>
   </div>
 
+  {% set wc_data_label = 'Strong Data' if result.confidence == 'High' else ('Partial Data' if result.confidence == 'Medium' else 'Limited Data') %}
   <div style="text-align:center; margin-bottom:.75rem">
-    Predicted winner: <strong style="color:var(--c-strong)">{{ result.winner }}</strong>
-    <span class="sp-badge sp-badge--{{ 'strong' if result.confidence == 'High' else ('caution' if result.confidence == 'Medium' else 'muted') }}">{{ result.confidence }}</span>
+    ScorPred side: <strong style="color:var(--c-strong)">{{ result.winner }}</strong>
+    <span class="sp-badge sp-badge--{{ 'strong' if result.confidence == 'High' else ('caution' if result.confidence == 'Medium' else 'muted') }}">{{ wc_data_label }}</span>
   </div>
 
   <div class="sp-split">

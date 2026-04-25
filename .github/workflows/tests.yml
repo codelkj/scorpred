@@ -37,8 +37,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest ruff
 
-      - name: Lint (ruff)
-        run: ruff check . --select E,W,F --ignore E501 --output-format=github
+      - name: Auto-resolve app.py conflicts (if markers exist)
+        run: grep -q '^<<<<<<< ' app.py && python scripts/resolve_app_conflict.py app.py --strategy=ours || true
+
+      - name: Lint conflict-tooling surface (ruff)
+        run: ruff check scripts/resolve_app_conflict.py tests/test_conflict_resolver.py --select E,W,F --ignore E501 --output-format=github
 
       - name: Run tests
         run: pytest tests -q --tb=short

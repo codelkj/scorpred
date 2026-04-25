@@ -36,7 +36,6 @@ def _page_label(page_kind: str) -> str:
         "soccer_prediction": "soccer prediction",
         "soccer_props": "soccer props",
         "result_detail": "result detail",
-        "model_performance": "model performance",
         "nba_home": "NBA home",
         "nba_matchup": "NBA matchup",
         "nba_prediction": "NBA prediction",
@@ -71,8 +70,6 @@ def _detect_intent(message: str, context: dict) -> str:
 
     if any(token in lower for token in ("what should i check", "where should i", "what next", "visit next", "check next")):
         return "next_step"
-    if "model performance" in lower or "tracked accuracy" in lower or "grading logic" in lower or "accuracy" in lower:
-        return "model_performance"
     if "spread vs" in lower or "winner vs totals" in lower or ("spread" in lower and "totals" in lower):
         return "market_compare"
     if "parlay" in lower:
@@ -202,26 +199,6 @@ def _parlay_reply(context: dict) -> str | None:
     return "A ScorPred parlay explanation is based on how each leg grades on its own first, then on whether the full ticket stays alive. Winner and totals can disagree, so one hit does not automatically save the overall result."
 
 
-def _model_performance_reply(context: dict) -> str | None:
-    page_context = context.get("assistant_page") or {}
-    overall_accuracy = _fmt_pct(page_context.get("overall_accuracy"))
-    wins = page_context.get("wins")
-    losses = page_context.get("losses")
-    finalized = page_context.get("finalized_predictions")
-    grading_logic = _clean_text(page_context.get("grading_logic"))
-
-    if overall_accuracy or finalized:
-        parts = []
-        if overall_accuracy and finalized is not None:
-            parts.append(f"Model Performance is tracking {overall_accuracy} overall accuracy across {finalized} finalized predictions.")
-        elif finalized is not None:
-            parts.append(f"Model Performance is summarizing {finalized} finalized predictions so far.")
-        if wins is not None and losses is not None:
-            parts.append(f"That currently breaks down to {wins} wins and {losses} losses.")
-        if grading_logic:
-            parts.append(grading_logic)
-        return " ".join(parts[:3])
-    return "The Model Performance page shows tracked outcomes after results settle. ScorPred separates leg-level grading from the overall verdict so you can see whether the winner call, totals call, or full ticket was correct."
 
 
 def _evidence_reply(context: dict) -> str | None:

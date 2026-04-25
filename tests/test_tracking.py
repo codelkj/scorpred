@@ -378,7 +378,7 @@ def test_evaluation_dashboard_builds_series_breakdowns_and_failures(tracking_fil
     strategies = {row["strategy"]: row for row in evaluation["strategy_comparison"]}
     assert strategies["ML (Stacking)"]["accuracy"] == 58.0
     assert strategies["Combined Signal"]["accuracy"] == 62.5
-    assert strategies["Rule-Based"]["sample_size"] == 3
+    assert strategies["Avoid-aware live policy"]["sample_size"] == 4
 
     failures = evaluation["failure_rows"]
     assert failures
