@@ -5671,8 +5671,8 @@ def today_soccer_predictions():
             away_team = teams_block.get("away", {})
             league_block = fixture.get("league", {})
             match_id = (fixture.get("fixture") or {}).get("id")
-            result = sm.analyze_match(match_id)
-            card = build_decision_card(result)
+            result = analyze_match(match_id)
+            card = build_decision_card(analysis=result)
             if card is None:
                 return None
             probs = card.get("probabilities") or {}
