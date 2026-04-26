@@ -5863,8 +5863,8 @@ def backtesting():
     conf_data = (agg.get("combined") or {}).get("by_confidence_bucket") or {}
     conf_labels = ["<50%", "50-59%", "60-69%", "70%+"]
     conf_keys = ["under_50", "50_59", "60_69", "70_plus"]
-    conf_acc = [round((conf_data.get(k) or {}).get("accuracy", 0) * 100, 1) for k in conf_keys]
-    conf_counts = [(conf_data.get(k) or {}).get("count", 0) for k in conf_keys]
+    conf_acc = [round(((conf_data.get(k) or {}).get("accuracy") or 0) * 100, 1) for k in conf_keys]
+    conf_counts = [(conf_data.get(k) or {}).get("count") or 0 for k in conf_keys]
 
     model_rows = []
     model_name_map = {"lr": "Logistic Regression", "rf": "Random Forest", "xgb": "XGBoost", "lgbm": "LightGBM", "stacking_ensemble": "Stacking Ensemble"}
@@ -5927,8 +5927,8 @@ def compare():
     by_outcome = combined.get("by_predicted_outcome") or {}
     outcome_labels = ["Home Win", "Draw", "Away Win"]
     outcome_keys = ["HomeWin", "Draw", "AwayWin"]
-    outcome_acc = [round((by_outcome.get(k) or {}).get("accuracy", 0) * 100, 1) for k in outcome_keys]
-    outcome_counts = [(by_outcome.get(k) or {}).get("count", 0) for k in outcome_keys]
+    outcome_acc = [round(((by_outcome.get(k) or {}).get("accuracy") or 0) * 100, 1) for k in outcome_keys]
+    outcome_counts = [(by_outcome.get(k) or {}).get("count") or 0 for k in outcome_keys]
 
     model_compare_rows = []
     name_map = {"lr": "Logistic Regression", "rf": "Random Forest", "xgb": "XGBoost", "lgbm": "LightGBM", "stacking_ensemble": "Stacking Ensemble"}
