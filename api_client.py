@@ -65,6 +65,13 @@ EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "
 EXTERNAL_API_RETRY_ATTEMPTS = 2
 EXTERNAL_API_RETRY_BACKOFF_SECONDS = 2.0
 
+# Direct API-SPORTS key (api-sports.io account, bypasses RapidAPI entirely).
+# If set, requests use x-apisports-key header instead of RapidAPI headers.
+_APISPORTS_KEY = os.getenv("APISPORTS_KEY", "").strip()
+
+# Auto-detect direct mode: either APISPORTS_KEY is set, or host is api-sports.io
+_USING_DIRECT_APISPORTS = bool(_APISPORTS_KEY) or "api-sports.io" in API_HOST
+
 # True when configured to use the free-api-live-football-data provider, which has
 # different endpoint paths from API-Football v3.
 _USING_FREE_API = "free-api-live-football-data" in API_HOST
@@ -251,8 +258,12 @@ def _save(path: Path, data: Any) -> None:
 # ── Core HTTP ──────────────────────────────────────────────────────────────────
 
 def _headers(api_key=None) -> dict[str, str]:
+    key = api_key or _APISPORTS_KEY or API_KEY
+    if _USING_DIRECT_APISPORTS:
+        # Direct api-sports.io access — uses a single header, no host header needed
+        return {"x-apisports-key": key, "Accept": "application/json"}
     return {
-        "X-RapidAPI-Key":  api_key or API_KEY,
+        "X-RapidAPI-Key":  key,
         "X-RapidAPI-Host": API_HOST,
         "Accept":          "application/json",
     }

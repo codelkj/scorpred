@@ -10,11 +10,11 @@ def now_stamp() -> str:
 
 
 def football_data_source(api_client) -> str:
-    return (
-        "API-Football via RapidAPI"
-        if getattr(api_client, "RAPIDAPI_OK", False)
-        else "ESPN public football fallback"
-    )
+    if not getattr(api_client, "RAPIDAPI_OK", False):
+        return "ESPN public football fallback"
+    if getattr(api_client, "_USING_DIRECT_APISPORTS", False):
+        return "API-Football (api-sports.io direct)"
+    return "API-Football via RapidAPI"
 
 
 def page_context(api_client, data_source: str | None = None, **kwargs) -> dict:
