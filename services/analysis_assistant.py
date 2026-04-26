@@ -10,11 +10,18 @@ def now_stamp() -> str:
 
 
 def football_data_source(api_client) -> str:
-    return (
-        "API-Football via RapidAPI"
-        if getattr(api_client, "RAPIDAPI_OK", False)
-        else "ESPN public football fallback"
-    )
+    api_key = str(getattr(api_client, "API_KEY", "") or "").strip()
+    if not api_key:
+        return "ESPN fallback (missing API_FOOTBALL_KEY)"
+
+    if getattr(api_client, "RAPIDAPI_OK", False):
+        return "API-Football via RapidAPI"
+
+    forbidden = getattr(api_client, "_FORBIDDEN_ENDPOINTS", set()) or set()
+    if forbidden:
+        return "ESPN fallback (RapidAPI 403/plan block)"
+
+    return "ESPN public football fallback"
 
 
 def page_context(api_client, data_source: str | None = None, **kwargs) -> dict:

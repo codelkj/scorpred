@@ -58,7 +58,7 @@ requests = _LazyModuleProxy("requests")
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
-API_KEY  = os.getenv("API_FOOTBALL_KEY", "").strip()
+API_KEY  = (os.getenv("API_FOOTBALL_KEY") or os.getenv("RAPIDAPI_KEY") or "").strip()
 API_HOST = os.getenv("API_FOOTBALL_HOST", "api-football-v1.p.rapidapi.com").strip()
 API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://api-football-v1.p.rapidapi.com/v3").rstrip("/")
 EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "8"))
@@ -288,7 +288,7 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             stale_entry = None
 
     if not api_key:
-        _logger.error("Missing API_FOOTBALL_KEY environment variable.")
+        _logger.error("Missing API_FOOTBALL_KEY/RAPIDAPI_KEY environment variable.")
         RAPIDAPI_OK = False
         return {}
 
