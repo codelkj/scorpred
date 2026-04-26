@@ -65,6 +65,59 @@ EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "
 EXTERNAL_API_RETRY_ATTEMPTS = 2
 EXTERNAL_API_RETRY_BACKOFF_SECONDS = 2.0
 
+# Direct API-SPORTS key (api-sports.io account, bypasses RapidAPI entirely).
+# If set, requests use x-apisports-key header instead of RapidAPI headers.
+_APISPORTS_KEY = os.getenv("APISPORTS_KEY", "").strip()
+
+# Auto-detect direct mode: either APISPORTS_KEY is set, or host is api-sports.io
+_USING_DIRECT_APISPORTS = bool(_APISPORTS_KEY) or "api-sports.io" in API_HOST
+
+# True when configured to use the free-api-live-football-data provider, which has
+# different endpoint paths from API-Football v3.
+_USING_FREE_API = "free-api-live-football-data" in API_HOST
+
+# Endpoint translation: API-Football v3 path → free-api-live-football-data path.
+# Params are re-mapped per entry: the value is (free_path, param_remapper_fn | None).
+# param_remapper_fn receives the original params dict and returns the translated dict.
+_FREE_API_ENDPOINT_MAP: dict[str, tuple[str, Any]] = {
+    "fixtures": (
+        "football-get-all-matches",
+        lambda p: (
+            {"date": p["date"]} if "date" in p else
+            {"matchId": p["id"]} if "id" in p else
+            {"leagueId": p.get("league"), "season": p.get("season")}
+        ),
+    ),
+    "fixtures/headtohead": (
+        "football-get-h2h",
+        lambda p: {"team1Id": p["h2h"].split("-")[0], "team2Id": p["h2h"].split("-")[1]} if "h2h" in p else p,
+    ),
+    "fixtures/statistics": (
+        "football-get-match-statistics",
+        lambda p: {"matchId": p.get("fixture")},
+    ),
+    "fixtures/events": (
+        "football-get-match-events",
+        lambda p: {"matchId": p.get("fixture")},
+    ),
+    "fixtures/players": (
+        "football-get-match-players",
+        lambda p: {"matchId": p.get("fixture")},
+    ),
+    "standings": (
+        "football-get-standings",
+        lambda p: {"leagueId": p.get("league"), "season": p.get("season")},
+    ),
+    "teams": (
+        "football-get-teams-by-league-id",
+        lambda p: {"leagueId": p.get("league"), "season": p.get("season")},
+    ),
+    "players": (
+        "football-players-search",
+        lambda p: {"searchrm": p.get("search", "")},
+    ),
+}
+
 CACHE_DIR          = cache_dir("football")
 CACHE_HOURS        = 1          # default 1-hour TTL
 PROPS_CACHE_DIR    = cache_dir("props")
@@ -205,8 +258,12 @@ def _save(path: Path, data: Any) -> None:
 # ── Core HTTP ──────────────────────────────────────────────────────────────────
 
 def _headers(api_key=None) -> dict[str, str]:
+    key = api_key or _APISPORTS_KEY or API_KEY
+    if _USING_DIRECT_APISPORTS:
+        # Direct api-sports.io access — uses a single header, no host header needed
+        return {"x-apisports-key": key, "Accept": "application/json"}
     return {
-        "X-RapidAPI-Key":  api_key or API_KEY,
+        "X-RapidAPI-Key":  key,
         "X-RapidAPI-Host": API_HOST,
         "Accept":          "application/json",
     }
@@ -215,8 +272,9 @@ def _headers(api_key=None) -> dict[str, str]:
 def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CACHE_HOURS, force_refresh: bool = False) -> dict:
     """
     GET request to API-Football with robust error handling, in-memory caching, rate-limit handling, and stale fallback.
-    Always returns a dict: {"data": ..., "status": "success"} or {"error": ..., "status": "fail"}
+    Returns the raw API-Football response dict (containing a "response" list) on success, or {} on failure.
     """
+    global RAPIDAPI_OK
     params = params or {}
     path = _cache_path(endpoint, params)
     force_refresh = force_refresh or FORCE_REFRESH
@@ -231,7 +289,7 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             age = now - cache_entry["ts"]
             if age < cache_ttl and not force_refresh:
                 _logger.debug("In-memory cache hit for %s (age=%.1fs)", endpoint, age)
-                return {"data": cache_entry["data"], "status": "success", "cached": True}
+                return cache_entry["data"] or {}
             elif age < cache_ttl * 3:
                 _logger.debug("Stale in-memory cache available for %s (age=%.1fs)", endpoint, age)
                 stale_entry = cache_entry
@@ -242,27 +300,24 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
 
     if not api_key:
         _logger.error("Missing API_FOOTBALL_KEY environment variable.")
-        return {"error": "Live data unavailable — API key not configured.", "status": "fail"}
+        RAPIDAPI_OK = False
+        return {}
 
     # 403 session suppression: if this endpoint was forbidden this process, skip the call
     endpoint_base = endpoint.split("?")[0].split("/")[0]
     if endpoint_base in _FORBIDDEN_ENDPOINTS:
         _logger.debug("Skipping forbidden endpoint %s (403 suppressed)", endpoint)
         if stale_entry:
-            return {"data": stale_entry["data"], "status": "success", "stale": True}
-        return {"error": "Live data unavailable for this endpoint.", "status": "fail", "restricted": True}
+            return stale_entry["data"] or {}
+        return {}
     cooldown_until = _RATE_LIMITED_ENDPOINTS.get(endpoint_base)
     if cooldown_until:
         remaining = cooldown_until - time.time()
         if remaining > 0:
             _logger.debug("Skipping rate-limited endpoint %s (cooldown %.1fs)", endpoint, remaining)
             if stale_entry:
-                return {"data": stale_entry["data"], "status": "success", "stale": True, "rate_limited": True}
-            return {
-                "error": "Live data temporarily unavailable. Please try again shortly.",
-                "status": "fail",
-                "rate_limited": True,
-            }
+                return stale_entry["data"] or {}
+            return {}
         _RATE_LIMITED_ENDPOINTS.pop(endpoint_base, None)
 
     # Token bucket: cap burst API calls per request
@@ -270,10 +325,23 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
     if call_count > _MAX_CALLS_PER_REQUEST:
         _logger.warning("Request call budget exceeded (%d) for endpoint %s", call_count, endpoint)
         if stale_entry:
-            return {"data": stale_entry["data"], "status": "success", "stale": True}
-        return {"error": "Live data temporarily unavailable.", "status": "fail"}
+            return stale_entry["data"] or {}
+        return {}
 
-    url = f"{API_BASE}/{endpoint.lstrip('/')}"
+    # Translate endpoint path and params when using the free football API provider
+    translated_params = params
+    if _USING_FREE_API:
+        mapping = _FREE_API_ENDPOINT_MAP.get(endpoint)
+        if mapping:
+            free_path, param_fn = mapping
+            translated_params = param_fn(params) if param_fn else params
+            url = f"{API_BASE}/{free_path}"
+        else:
+            # Endpoint has no known free-API equivalent; skip and let ESPN handle it
+            _logger.debug("No free-API mapping for endpoint '%s', skipping RapidAPI call", endpoint)
+            return {}
+    else:
+        url = f"{API_BASE}/{endpoint.lstrip('/')}"
 
     # Per-request dedup cache — prevent identical calls within one page render
     try:
@@ -290,7 +358,7 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
         _logger.debug("Dedup cache hit for %s in this request", endpoint)
         return _request_cache[req_cache_key]
 
-    result = None
+    result: dict = {}
     for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
         try:
             with requests.Session() as sess:
@@ -298,7 +366,7 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 resp = sess.get(
                     url,
                     headers=_headers(api_key),
-                    params=params,
+                    params=translated_params,
                     timeout=EXTERNAL_API_TIMEOUT_SECONDS,
                 )
             _logger.debug("%s status=%s", url, resp.status_code)
@@ -307,23 +375,14 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 _logger.warning("Rate limit (429) for %s", endpoint)
                 if stale_entry:
                     _logger.info("Serving stale cache for %s after 429", endpoint)
-                    result = {"data": stale_entry["data"], "status": "success", "stale": True, "rate_limited": True}
-                else:
-                    result = {
-                        "error": "Live data temporarily unavailable. Please try again shortly.",
-                        "status": "fail",
-                        "rate_limited": True,
-                    }
+                    result = stale_entry["data"] or {}
                 break
             if resp.status_code == 403:
                 _FORBIDDEN_ENDPOINTS.add(endpoint_base)
+                RAPIDAPI_OK = False
                 _logger.warning("403 Forbidden for endpoint '%s' — suppressing for this session", endpoint)
                 if stale_entry:
-                    result = {"data": stale_entry["data"], "status": "success", "stale": True}
-                elif "injuries" in endpoint:
-                    result = {"error": "Injury data is not available on the current API plan.", "status": "fail", "restricted": True}
-                else:
-                    result = {"error": "Live data unavailable for this endpoint.", "status": "fail", "restricted": True}
+                    result = stale_entry["data"] or {}
                 break
             if resp.status_code in RETRY_STATUS_CODES and attempt < EXTERNAL_API_RETRY_ATTEMPTS - 1:
                 retry_after = resp.headers.get("Retry-After")
@@ -335,12 +394,16 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             data = resp.json()
             if data.get("errors"):
                 _logger.warning("API-Football error for %s: %s", endpoint, data["errors"])
-                result = {"error": "Data unavailable from provider.", "status": "fail"}
                 break
+            # Normalize free-API responses to API-Football v3 format {"response": [...]}
+            if _USING_FREE_API and "response" not in data:
+                payload = data.get("data") or data.get("result") or data.get("matches") or data.get("teams") or data.get("standings") or data
+                data = {"response": payload if isinstance(payload, list) else ([payload] if isinstance(payload, dict) else [])}
             _save(path, data)
             with _cache_lock:
                 _memory_cache[cache_key] = {"data": data, "ts": now}
-            result = {"data": data, "status": "success"}
+            RAPIDAPI_OK = True
+            result = data
             break
         except (requests.RequestException, ValueError) as e:
             _logger.warning("Request failed for %s (attempt %d): %s", endpoint, attempt + 1, e)
@@ -349,25 +412,20 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 continue
             if stale_entry:
                 _logger.info("Serving stale cache for %s after exception", endpoint)
-                result = {"data": stale_entry["data"], "status": "success", "stale": True}
-            else:
-                result = {"error": "Live data temporarily unavailable.", "status": "fail"}
+                result = stale_entry["data"] or {}
             break
 
     # Fallback: try disk cache if no result
-    if result is None:
+    if not result:
         if path.exists():
             try:
                 cached = _load(path)
                 _logger.info("Serving disk cache for %s after API failure", endpoint)
                 with _cache_lock:
                     _memory_cache[cache_key] = {"data": cached, "ts": now}
-                result = {"data": cached, "status": "success", "stale": True}
+                result = cached or {}
             except Exception as e:
                 _logger.error("Disk cache load failed for %s: %s", endpoint, e)
-                result = {"error": "Data unavailable.", "status": "fail"}
-        else:
-            result = {"error": "Data unavailable.", "status": "fail"}
 
     # Store in request-level cache if available
     if _request_cache is not None:
@@ -580,7 +638,8 @@ def _normalize_espn_fixture(event: dict, league_id: int) -> dict | None:
         },
         "league": {
             "id": league_id,
-            "name": ((event.get("season") or {}).get("displayName")) or _league_name(league_id),
+            "name": _league_name(league_id) or ((event.get("season") or {}).get("displayName")),
+            "season": _requested_or_current_season(CURRENT_SEASON),
             "round": (((event.get("week") or {}).get("number")) and f"Round {(event.get('week') or {}).get('number')}") or "",
         },
         "teams": {
