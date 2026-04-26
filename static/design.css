@@ -4129,8 +4129,8 @@ h3 { font-size: 1.05rem; }
   .sp-perf-panel { overflow: hidden; }
 }
 
-/* ── Bottom padding so the chat toggle doesn't obscure content ───────────────── */
-@media (max-width: 760px) {
+/* ── Bottom padding so the bottom nav doesn't obscure content ───────────────── */
+@media (max-width: 900px) {
   .sp-container { padding-bottom: 5rem !important; }
 }
 
@@ -4199,11 +4199,9 @@ h3 { font-size: 1.05rem; }
 }
 .sp-bottom-nav__item:active { background: rgba(255,255,255,.04); }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .sp-bottom-nav { display: flex; }
   /* Push chat button above the bottom nav so it doesn't overlap */
   .sp-chat-toggle { bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px); }
   .sp-chat-window { bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 68px); }
-  /* Hide the topbar hamburger — the bottom nav Menu tab replaces it */
-  .sp-mobile-toggle { display: none !important; }
 }
