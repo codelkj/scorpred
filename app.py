@@ -4415,53 +4415,21 @@ def soccer():
     _set_data_refresh()
     _refresh_tracking_results_if_due()
     league_id = _set_active_league(_active_league_id())
-    results = _run_parallel(
-        {
-            "teams": (
-                lambda: ac.get_teams(league_id, SEASON),
-                [],
-                "Soccer teams fetch failed",
-            ),
-            "fixtures": (
-                lambda: _load_upcoming_fixtures(
-                    next_n=12,
-                    max_deep_predictions=0,
-                    league=league_id,
-                    include_injuries=False,
-                    include_standings=False,
-                ),
-                ([], "No upcoming fixtures available.", _football_data_source(), ""),
-                "Upcoming fixtures fetch failed",
-            ),
-        }
-    )
-    teams = results.get("teams") or []
-    fixtures, fixtures_error, fixtures_source, _ = results.get("fixtures") or (
-        [],
-        "No upcoming fixtures available.",
-        _football_data_source(),
-        "",
-    )
-    decision_cards = []
-    for fixture in fixtures:
-        match_id = (fixture.get("fixture") or {}).get("id")
-        result = sm.analyze_match(match_id)
-        card = build_decision_card(result)
-        if card is not None:
-            decision_cards.append({"fixture": fixture, "card": card})
-    full_slate = sort_cards_by_kickoff(decision_cards)
-    return_top_opportunities = top_opportunities(full_slate)
-    today_plan = plan_summary(full_slate)
-
+    teams = []
+    try:
+        teams = ac.get_teams(league_id, SEASON) or []
+    except Exception:
+        pass
+    full_slate, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
     return render_template(
         "soccer.html",
         teams=teams,
-        upcoming_fixtures=fixtures,
-        top_opportunities=return_top_opportunities,
+        upcoming_fixtures=fixtures or [],
+        top_opportunities=prediction_service.get_top_opportunities(league_id),
         full_slate=full_slate,
-        today_plan=today_plan,
+        today_plan=prediction_service.get_today_plan(league_id),
         fixtures_error=fixtures_error if fixtures_error or not fixtures else None,
-        fixtures_source=fixtures_source,
+        fixtures_source=fixtures_source or _football_data_source(),
         selection_notice=(request.args.get("selection_error") or "").strip() or None,
         selected_fixture=_selected_fixture(),
         **_league_context(league_id),
@@ -5644,8 +5612,8 @@ def today_soccer_predictions():
             away_team = teams_block.get("away", {})
             league_block = fixture.get("league", {})
             match_id = (fixture.get("fixture") or {}).get("id")
-            result = sm.analyze_match(match_id)
-            card = build_decision_card(result)
+            result = analyze_match(match_id)
+            card = build_decision_card(analysis=result)
             if card is None:
                 return None
             probs = card.get("probabilities") or {}

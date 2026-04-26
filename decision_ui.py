@@ -691,15 +691,22 @@ def build_decision_card(
     }
     data_state = card["data_confidence"]["state"]
     draw_risk = prob_draw >= 26 if sport == "soccer" else False
-    comparison_metrics = []
-    if analysis.get("metric_breakdown"):
-        mb_raw = analysis["metric_breakdown"]
-        if isinstance(mb_raw, dict):
-            for label in ("Recent form", "Attack", "Defense", "Venue/context"):
-                if mb_raw.get(label.lower().replace("/", "_").replace(" ", "_")):
-                    comparison_metrics.append({"label": label, "leader": recommended_side})
-    card["comparison_metrics"] = comparison_metrics
-    card["why_win"] = why_win_points_for(comparison_metrics, side=recommended_side, data_state=data_state, draw_risk=draw_risk)
+    # If components_a/b missing, synthesise from metric_breakdown so comparison_metrics has data.
+    enriched = dict(analysis)
+    if not enriched.get("components_a") and not enriched.get("components_b"):
+        mb = analysis.get("metric_breakdown") or {}
+        if isinstance(mb, dict):
+            comp_a, comp_b = {}, {}
+            for key, val in mb.items():
+                if isinstance(val, dict):
+                    comp_a[key] = val.get("home", 0)
+                    comp_b[key] = val.get("away", 0)
+            if comp_a or comp_b:
+                enriched["components_a"] = comp_a
+                enriched["components_b"] = comp_b
+    comp_metrics = comparison_metrics(enriched, team_a=team_a, team_b=team_b)
+    card["comparison_metrics"] = comp_metrics
+    card["why_win"] = why_win_points_for(comp_metrics, side=recommended_side, data_state=data_state, draw_risk=draw_risk)
     card["why_lose"] = why_lose_points_for(side=recommended_side, data_state=data_state, draw_risk=draw_risk, sport=sport)
     card["key_swing_factor"] = swing_factor_for(side=recommended_side, draw_risk=draw_risk, sport=sport)
     return card
@@ -715,6 +722,10 @@ def internal_confidence_tier(confidence_pct: float) -> str:
 
 def _playable_cards(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [card for card in cards or [] if card.get("action") in {"BET", "CONSIDER"}]
+
+
+def sort_cards_by_kickoff(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sort_cards(cards)
 
 
 def sort_cards(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
