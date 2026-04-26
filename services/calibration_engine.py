@@ -74,12 +74,21 @@ class CalibrationEngine:
             calibration_score = round(max(0.0, 100.0 - mae), 2)
             cal_for_trust = calibration_score
 
-        trust_result = _canonical_trust(
-            calibration_score=cal_for_trust,
-            recent_accuracy=(win_rate / 100.0) if win_rate is not None else None,
-            sample_size=completed_predictions,
-        )
-        trust_score = trust_result["trust_score"]
+        recent_accuracy = (win_rate / 100.0) if win_rate is not None else None
+        if completed_predictions >= self.min_samples:
+            # Respect engine's own min_samples threshold over the global gate.
+            effective_size = max(completed_predictions, _MIN_TRUST_SAMPLES)
+            trust_result = _canonical_trust(
+                calibration_score=cal_for_trust,
+                recent_accuracy=recent_accuracy,
+                sample_size=effective_size,
+            )
+            trust_score: float = trust_result["trust_score"] or 0.0
+        else:
+            # Below threshold — compute a penalized score without calibration.
+            acc = max(0.0, min(1.0, float(recent_accuracy or 0.0)))
+            maturity = min(1.0, completed_predictions / 50.0)
+            trust_score = round(acc * 100.0 * 0.30 + maturity * 100.0 * 0.10, 1)
 
         return {
             "total_predictions": total_predictions,

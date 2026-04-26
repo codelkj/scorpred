@@ -177,7 +177,7 @@
             <li>{{ team_b.nickname or team_b.name }}: {{ form_b|length }} recent games</li>
           {% endif %}
           {% if season_context is defined %}
-            <li>Stats: {{ 'available' if season_context.stats_current_available else 'limited' }}</li>
+            <li>Current-season stats: {{ 'available' if season_context.stats_current_available else 'limited' }}</li>
           {% endif %}
         </ul>
       </div>
