@@ -59,8 +59,8 @@ requests = _LazyModuleProxy("requests")
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 API_KEY  = os.getenv("API_FOOTBALL_KEY", "").strip()
-API_HOST = os.getenv("API_FOOTBALL_HOST", "free-api-live-football-data.p.rapidapi.com").strip()
-API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://free-api-live-football-data.p.rapidapi.com").rstrip("/")
+API_HOST = os.getenv("API_FOOTBALL_HOST", "api-football-v1.p.rapidapi.com").strip()
+API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://api-football-v1.p.rapidapi.com/v3").rstrip("/")
 EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "8"))
 EXTERNAL_API_RETRY_ATTEMPTS = 2
 EXTERNAL_API_RETRY_BACKOFF_SECONDS = 2.0
@@ -627,7 +627,8 @@ def _normalize_espn_fixture(event: dict, league_id: int) -> dict | None:
         },
         "league": {
             "id": league_id,
-            "name": ((event.get("season") or {}).get("displayName")) or _league_name(league_id),
+            "name": _league_name(league_id) or ((event.get("season") or {}).get("displayName")),
+            "season": _requested_or_current_season(CURRENT_SEASON),
             "round": (((event.get("week") or {}).get("number")) and f"Round {(event.get('week') or {}).get('number')}") or "",
         },
         "teams": {
