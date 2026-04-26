@@ -2602,7 +2602,11 @@ def _soccer_card_from_fixture_analysis(fixture: dict[str, Any], analysis: dict[s
         card["team_b_logo"] = away.get("logo") or ""
         card["team_a_initials"] = dui.initials(team_a)
         card["team_b_initials"] = dui.initials(team_b)
-        card["competition"] = league_block.get("name") or "Soccer"
+        card["competition"] = (
+            (LEAGUE_BY_ID.get(league_block.get("id")) or {}).get("name")
+            or league_block.get("name")
+            or "Soccer"
+        )
         card["action_label"] = card.get("action")
         card["action_class"] = str(card.get("action") or "").lower()
         card["confidence_pct"] = int(card.get("confidence") or 0)
