@@ -4144,3 +4144,66 @@ h3 { font-size: 1.05rem; }
   .sp-soccer-header { align-items: flex-start; }
   .sp-soccer-header > div:last-child { flex-wrap: wrap; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Mobile Bottom Navigation Bar
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.sp-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 250;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: stretch;
+  box-shadow: 0 -4px 24px rgba(0,0,0,.35);
+}
+
+.sp-bottom-nav__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .18rem;
+  padding: .55rem .25rem .45rem;
+  flex: 1;
+  text-decoration: none;
+  color: var(--text-3);
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color .15s, background .15s;
+  min-height: 56px;
+  position: relative;
+}
+.sp-bottom-nav__item svg { width: 22px; height: 22px; transition: stroke .15s; }
+.sp-bottom-nav__item span { line-height: 1; }
+
+.sp-bottom-nav__item.active { color: var(--c-strong); }
+.sp-bottom-nav__item.active svg { stroke: var(--c-strong); }
+.sp-bottom-nav__item.active::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%;
+  height: 2px;
+  background: var(--c-strong);
+  border-radius: 0 0 2px 2px;
+}
+.sp-bottom-nav__item:active { background: rgba(255,255,255,.04); }
+
+@media (max-width: 760px) {
+  .sp-bottom-nav { display: flex; }
+  /* Push chat button above the bottom nav so it doesn't overlap */
+  .sp-chat-toggle { bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px); }
+  .sp-chat-window { bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 68px); }
+  /* Hide the topbar hamburger — the bottom nav Menu tab replaces it */
+  .sp-mobile-toggle { display: none !important; }
+}

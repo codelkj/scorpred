@@ -193,11 +193,12 @@ document.querySelectorAll('.shimmer-wrap').forEach(wrap => {
   }
 });
 
-/* ── Mobile nav toggle ───────────────────────────────────────────────────────── */
-const navToggle = document.getElementById('navToggle');
-const sidebar   = document.querySelector('.sp-sidebar');
-if (navToggle && sidebar) {
-  /* Create overlay backdrop */
+/* ── Mobile nav toggle + bottom nav Menu button ─────────────────────────────── */
+const navToggle    = document.getElementById('navToggle');
+const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+const sidebar      = document.querySelector('.sp-sidebar');
+
+if (sidebar) {
   const overlay = document.createElement('div');
   overlay.className = 'sp-sidebar-overlay';
   document.body.appendChild(overlay);
@@ -205,21 +206,38 @@ if (navToggle && sidebar) {
   const openSidebar = () => {
     sidebar.classList.add('open');
     overlay.classList.add('visible');
-    navToggle.setAttribute('aria-expanded', 'true');
+    if (navToggle) navToggle.setAttribute('aria-expanded', 'true');
+    if (mobileMenuBtn) mobileMenuBtn.setAttribute('aria-expanded', 'true');
   };
   const closeSidebar = () => {
     sidebar.classList.remove('open');
     overlay.classList.remove('visible');
-    navToggle.setAttribute('aria-expanded', 'false');
+    if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+    if (mobileMenuBtn) mobileMenuBtn.setAttribute('aria-expanded', 'false');
   };
 
-  navToggle.addEventListener('click', () => {
-    sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
-  });
+  if (navToggle) {
+    navToggle.addEventListener('click', () => {
+      sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+    });
+  }
+
+  if (mobileMenuBtn) {
+    mobileMenuBtn.addEventListener('click', () => {
+      sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+    });
+  }
+
   overlay.addEventListener('click', closeSidebar);
-  /* Close sidebar on outside click (mobile) */
+
   document.addEventListener('click', e => {
-    if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && e.target !== navToggle) {
+    if (
+      sidebar.classList.contains('open') &&
+      !sidebar.contains(e.target) &&
+      e.target !== navToggle &&
+      e.target !== mobileMenuBtn &&
+      !mobileMenuBtn?.contains(e.target)
+    ) {
       closeSidebar();
     }
   });
