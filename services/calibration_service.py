@@ -9,6 +9,25 @@ _BUCKETS = [
     (80, 101, "80-100"),
 ]
 
+_STRING_TIER_MAP = {"high": 72.0, "medium": 61.0, "low": 52.0}
+
+
+def _to_numeric_confidence(r: dict) -> float:
+    val = r.get("confidence_pct")
+    if val is not None:
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            pass
+    raw = r.get("confidence")
+    if raw is not None:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            pass
+        return _STRING_TIER_MAP.get(str(raw).lower(), 0.0)
+    return 0.0
+
 
 def get_calibration(evaluated_rows: list[dict[str, Any]]) -> dict[str, Any]:
     rows = [r for r in evaluated_rows if str(r.get("status") or "").lower() == "completed"]
@@ -20,10 +39,10 @@ def get_calibration(evaluated_rows: list[dict[str, Any]]) -> dict[str, Any]:
     total_error = 0.0
     total_samples = 0
     for low, high, label in _BUCKETS:
-        members = [r for r in rows if low <= float(r.get("confidence", 0)) < high]
+        members = [r for r in rows if low <= _to_numeric_confidence(r) < high]
         if not members:
             continue
-        avg_conf = sum(float(r.get("confidence", 0)) for r in members) / len(members)
+        avg_conf = sum(_to_numeric_confidence(r) for r in members) / len(members)
         actual = sum(1 for r in members if r.get("is_correct") is True) / len(members) * 100
         error = abs(avg_conf - actual)
         total_error += error * len(members)

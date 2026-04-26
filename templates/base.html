@@ -90,6 +90,34 @@
         </a>
       </nav>
 
+      <p class="sp-nav-label" style="margin-top:1rem">Analytics</p>
+      <nav class="sp-nav" role="navigation" aria-label="Analytics">
+        <a href="/strategy-lab" class="{% if request.path == '/strategy-lab' %}active{% endif %}">
+          <span class="sp-nav__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
+          </span>
+          Strategy Lab
+        </a>
+        <a href="/backtesting" class="{% if request.path == '/backtesting' %}active{% endif %}">
+          <span class="sp-nav__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </span>
+          Backtesting
+        </a>
+        <a href="/compare" class="{% if request.path == '/compare' %}active{% endif %}">
+          <span class="sp-nav__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>
+          </span>
+          ML vs Rules
+        </a>
+        <a href="/explainability" class="{% if request.path == '/explainability' %}active{% endif %}">
+          <span class="sp-nav__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+          </span>
+          Explainability
+        </a>
+      </nav>
+
       <p class="sp-nav-label" style="margin-top:1rem">Tracking</p>
       <nav class="sp-nav" role="navigation" aria-label="Tracking">
         <a href="/my-bets" class="{% if request.path == '/my-bets' %}active{% endif %}">
@@ -211,6 +239,30 @@
       </footer>
     </div>
   </div>
+
+  {# ── Mobile Bottom Navigation Bar ─────────────────────────────────────── #}
+  <nav class="sp-bottom-nav" aria-label="Mobile navigation">
+    <a href="/" class="sp-bottom-nav__item{% if request.path == '/' %} active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+      <span>Home</span>
+    </a>
+    <a href="/soccer" class="sp-bottom-nav__item{% if request.path in ['/soccer', '/today-soccer-predictions', '/fixtures'] %} active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m9 8 3-2 3 2 1 4-4 3-4-3 1-4Z"/><path d="m4.5 13.5 3.5-1.5M16 12l3.5 1.5M12 15v4"/></svg>
+      <span>Soccer</span>
+    </a>
+    <a href="/nba/" class="sp-bottom-nav__item{% if request.path.startswith('/nba') %} active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.5 12h17"/><path d="M12 3c2.2 2.3 3.3 5.3 3.3 9S14.2 18.7 12 21"/><path d="M12 3C9.8 5.3 8.7 8.3 8.7 12S9.8 18.7 12 21"/></svg>
+      <span>NBA</span>
+    </a>
+    <a href="/my-bets" class="sp-bottom-nav__item{% if request.path == '/my-bets' %} active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 12 2 2 4-4"/></svg>
+      <span>Bets</span>
+    </a>
+    <button type="button" class="sp-bottom-nav__item" id="mobileMenuBtn" aria-label="Open full menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      <span>Menu</span>
+    </button>
+  </nav>
 
   <button id="chat-toggle" class="sp-chat-toggle" type="button" aria-controls="chat-window" aria-expanded="false">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
