@@ -4086,3 +4086,124 @@ h3 { font-size: 1.05rem; }
   }
   .sp-page-tabs::-webkit-scrollbar { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Mobile Supplement — analytics pages, grid utilities, breakpoint corrections
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Responsive grid utility classes ─────────────────────────────────────────── */
+.sp-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.sp-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+
+/* ── League performance row — prevent 560px min-width overflow on mobile ─────── */
+@media (max-width: 760px) {
+  .sp-league-perf-row {
+    grid-template-columns: 1fr 48px 48px 48px 65px 65px 65px;
+    font-size: .76rem;
+    padding: .5rem .6rem;
+    gap: .3rem;
+  }
+}
+@media (max-width: 480px) {
+  .sp-league-perf-row > *:nth-child(n+6) { display: none; }
+  .sp-league-perf-row { grid-template-columns: 1fr 48px 48px 48px 60px; }
+}
+
+/* ── .sp-kpi-row: force media query breakpoints over inline grid-template-columns  */
+@media (max-width: 760px) {
+  .sp-kpi-row { grid-template-columns: repeat(2, 1fr) !important; }
+  .sp-bets-table__head { display: none !important; }
+  .sp-bets-row { display: flex !important; flex-wrap: wrap; gap: .4rem; }
+  .sp-grid-3 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .sp-grid-2 { grid-template-columns: 1fr; }
+  .sp-grid-3 { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .sp-kpi-row { grid-template-columns: 1fr 1fr !important; }
+}
+
+/* ── Prevent chart canvas from overflowing its panel ────────────────────────── */
+@media (max-width: 760px) {
+  .sp-perf-panel { overflow: hidden; }
+}
+
+/* ── Bottom padding so the chat toggle doesn't obscure content ───────────────── */
+@media (max-width: 760px) {
+  .sp-container { padding-bottom: 5rem !important; }
+}
+
+/* ── Topbar: prevent text overflow on very small phones ──────────────────────── */
+@media (max-width: 360px) {
+  .sp-topbar__title { max-width: 35vw; font-size: .8rem; }
+}
+
+/* ── Soccer / analytics page header: wrap action buttons cleanly ─────────────── */
+@media (max-width: 480px) {
+  .sp-soccer-header { align-items: flex-start; }
+  .sp-soccer-header > div:last-child { flex-wrap: wrap; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Mobile Bottom Navigation Bar
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.sp-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 250;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: stretch;
+  box-shadow: 0 -4px 24px rgba(0,0,0,.35);
+}
+
+.sp-bottom-nav__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .18rem;
+  padding: .55rem .25rem .45rem;
+  flex: 1;
+  text-decoration: none;
+  color: var(--text-3);
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color .15s, background .15s;
+  min-height: 56px;
+  position: relative;
+}
+.sp-bottom-nav__item svg { width: 22px; height: 22px; transition: stroke .15s; }
+.sp-bottom-nav__item span { line-height: 1; }
+
+.sp-bottom-nav__item.active { color: var(--c-strong); }
+.sp-bottom-nav__item.active svg { stroke: var(--c-strong); }
+.sp-bottom-nav__item.active::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%;
+  height: 2px;
+  background: var(--c-strong);
+  border-radius: 0 0 2px 2px;
+}
+.sp-bottom-nav__item:active { background: rgba(255,255,255,.04); }
+
+@media (max-width: 760px) {
+  .sp-bottom-nav { display: flex; }
+  /* Push chat button above the bottom nav so it doesn't overlap */
+  .sp-chat-toggle { bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px); }
+  .sp-chat-window { bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 68px); }
+  /* Hide the topbar hamburger — the bottom nav Menu tab replaces it */
+  .sp-mobile-toggle { display: none !important; }
+}
