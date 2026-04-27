@@ -544,8 +544,18 @@ def _now_stamp() -> str:
 
 
 def _page_context(**kwargs) -> dict:
+    try:
+        import api_client as _ac
+        status = _ac.api_status()
+        data_source = (
+            f"Degraded — {status['message']}"
+            if status.get("degraded") and status.get("message")
+            else "ESPN public NBA feeds + live standings source"
+        )
+    except Exception:
+        data_source = "ESPN public NBA feeds + live standings source"
     context = {
-        "data_source": "ESPN public NBA feeds + live standings source",
+        "data_source": data_source,
         "last_updated": _now_stamp(),
     }
     context.update(kwargs)
@@ -680,9 +690,11 @@ def _fallback_prediction_card_from_game(game: dict, team_map: dict[str, dict] | 
         },
         support_text=support,
     )
+    if card is None:
+        return {**game, "prediction": None}
     prediction["decision_card"] = card
     prediction["play_type"] = card.get("action")
-    prediction["confidence_pct"] = card.get("confidence_pct")
+    prediction["confidence_pct"] = card.get("confidence_pct", 0)
     return {**game, "prediction": prediction}
 
 
@@ -1015,7 +1027,7 @@ def _apply_nba_product_presentation(
     else:
         risk_label = "Elevated"
     prediction["play_type"] = action
-    prediction["confidence_pct"] = decision_card["confidence_pct"]
+    prediction["confidence_pct"] = decision_card.get("confidence_pct", 0)
     prediction["risk_label"] = risk_label
     prediction["data_completeness"] = data_completeness
     prediction["decision_card"] = decision_card
@@ -2242,8 +2254,8 @@ def _build_today_prediction_card(
         "decision_card": prediction.get("decision_card"),
         "predicted_winner": best_pick.get("prediction", "—"),
         "confidence": best_pick.get("confidence", "Low"),
-        "prob_home": probs.get("a", 50),
-        "prob_away": probs.get("b", 50),
+        "prob_home": dui.normalize_percent(probs.get("a"), 50),
+        "prob_away": dui.normalize_percent(probs.get("b"), 50),
         "reasoning": best_pick.get("reasoning", ""),
     }
 
@@ -2270,8 +2282,8 @@ def _today_prediction_from_fallback_game(game: dict, team_map: dict[str, dict]) 
         "decision_card": card,
         "predicted_winner": (prediction.get("best_pick") or {}).get("prediction", ""),
         "confidence": (prediction.get("best_pick") or {}).get("confidence", "Medium"),
-        "prob_home": probs.get("a", 50),
-        "prob_away": probs.get("b", 50),
+        "prob_home": dui.normalize_percent(probs.get("a"), 50),
+        "prob_away": dui.normalize_percent(probs.get("b"), 50),
         "reasoning": (prediction.get("best_pick") or {}).get("reasoning", ""),
     }
 

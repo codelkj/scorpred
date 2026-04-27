@@ -132,9 +132,11 @@ class MatchBrain:
             "risk_level": decision.get("risk_level"),
             "decision_grade": decision.get("decision_grade"),
         }
+        raw_matchup = (fixture.get("fixture") or {}).get("matchup") or ""
+        matchup = raw_matchup if raw_matchup else f"{home_name} vs {away_name}"
         canonical = {
             "match_id": str(fixture_id),
-            "matchup": f"{home_name} vs {away_name}",
+            "matchup": matchup,
             "league": league,
             "kickoff": kickoff,
             "status": status,
