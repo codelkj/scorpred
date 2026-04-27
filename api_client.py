@@ -269,6 +269,75 @@ def _headers(api_key=None) -> dict[str, str]:
     }
 
 
+def _normalize_free_api_fixture_record(record: dict) -> dict:
+    """Convert a free-api-live-football-data fixture record to API-Football v3 shape.
+
+    The free API uses homeTeam/awayTeam at the top level without a nested
+    'fixture' wrapper. Downstream code (evidence.py, match_brain.py) expects
+    v3 format with fixture.id, teams.home, teams.away, league.id etc.
+    If the record already looks like v3 format, it is returned unchanged.
+    """
+    if not isinstance(record, dict):
+        return record
+    # Already in v3 format
+    if "fixture" in record and "teams" in record:
+        return record
+
+    home_raw = record.get("homeTeam") or record.get("home_team") or {}
+    away_raw = record.get("awayTeam") or record.get("away_team") or {}
+    league_raw = record.get("league") or {}
+    status_raw = record.get("status") or {}
+    status_short = (
+        status_raw.get("short") if isinstance(status_raw, dict)
+        else str(status_raw)
+    ) or "NS"
+    status_long = (
+        status_raw.get("long") if isinstance(status_raw, dict) else ""
+    ) or "Not Started"
+
+    # Date: free API may give a string "YYYY-MM-DD" or ISO datetime
+    date_val = record.get("date") or record.get("matchDate") or record.get("event_date") or ""
+    time_val = record.get("time") or record.get("matchTime") or ""
+    if date_val and time_val and "T" not in date_val:
+        date_val = f"{date_val}T{time_val}+00:00"
+
+    match_id = record.get("id") or record.get("matchId") or record.get("match_id") or 0
+
+    return {
+        **record,
+        "fixture": {
+            "id": int(match_id) if match_id else 0,
+            "date": date_val,
+            "status": {"short": status_short, "long": status_long},
+            "venue": {"name": record.get("venue") or record.get("venueName") or ""},
+        },
+        "teams": {
+            "home": {
+                "id": int(home_raw.get("id") or 0),
+                "name": home_raw.get("name") or home_raw.get("teamName") or "Home",
+                "logo": home_raw.get("logo") or home_raw.get("teamLogo") or "",
+            },
+            "away": {
+                "id": int(away_raw.get("id") or 0),
+                "name": away_raw.get("name") or away_raw.get("teamName") or "Away",
+                "logo": away_raw.get("logo") or away_raw.get("teamLogo") or "",
+            },
+        },
+        "league": {
+            "id": int(league_raw.get("id") or record.get("leagueId") or 0),
+            "name": league_raw.get("name") or record.get("leagueName") or "",
+            "season": league_raw.get("season") or record.get("season"),
+            "round": league_raw.get("round") or record.get("round") or "",
+        },
+        "goals": {
+            "home": record.get("homeGoals") or (record.get("score") or {}).get("home"),
+            "away": record.get("awayGoals") or (record.get("score") or {}).get("away"),
+        },
+        "prediction": record.get("prediction") or {},
+        "source": "free-api",
+    }
+
+
 def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CACHE_HOURS, force_refresh: bool = False) -> dict:
     """
     GET request to API-Football with robust error handling, in-memory caching, rate-limit handling, and stale fallback.
@@ -404,7 +473,11 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             # Normalize free-API responses to API-Football v3 format {"response": [...]}
             if _USING_FREE_API and "response" not in data:
                 payload = data.get("data") or data.get("result") or data.get("matches") or data.get("teams") or data.get("standings") or data
-                data = {"response": payload if isinstance(payload, list) else ([payload] if isinstance(payload, dict) else [])}
+                records = payload if isinstance(payload, list) else ([payload] if isinstance(payload, dict) else [])
+                # If this is a fixture endpoint, convert each record to v3 format
+                if endpoint in ("fixtures", "fixtures/headtohead"):
+                    records = [_normalize_free_api_fixture_record(r) for r in records if r]
+                data = {"response": records}
             _save(path, data)
             with _cache_lock:
                 _memory_cache[cache_key] = {"data": data, "ts": now}
