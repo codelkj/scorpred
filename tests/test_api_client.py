@@ -43,6 +43,8 @@ class _FakeSession:
 def _reset_api_client_state(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(api_client, "API_KEY", "test-key")
     monkeypatch.setattr(api_client, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(api_client, "_USING_FREE_API", False)
+    monkeypatch.setattr(api_client, "API_BASE", "https://api-football-v1.p.rapidapi.com/v3")
     api_client._memory_cache.clear()
     api_client._FORBIDDEN_ENDPOINTS.clear()
     api_client._RATE_LIMITED_ENDPOINTS.clear()

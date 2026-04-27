@@ -317,7 +317,7 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             _logger.debug("Skipping rate-limited endpoint %s (cooldown %.1fs)", endpoint, remaining)
             if stale_entry:
                 return stale_entry["data"] or {}
-            return {}
+            return {"status": "fail", "rate_limited": True}
         _RATE_LIMITED_ENDPOINTS.pop(endpoint_base, None)
 
     # Token bucket: cap burst API calls per request
@@ -376,6 +376,8 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 if stale_entry:
                     _logger.info("Serving stale cache for %s after 429", endpoint)
                     result = stale_entry["data"] or {}
+                else:
+                    result = {"status": "fail", "rate_limited": True}
                 break
             if resp.status_code == 403:
                 _FORBIDDEN_ENDPOINTS.add(endpoint_base)
