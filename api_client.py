@@ -338,8 +338,11 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             url = f"{API_BASE}/{free_path}"
         else:
             # Endpoint has no known free-API equivalent; skip and let ESPN handle it
-            _logger.debug("No free-API mapping for endpoint '%s', skipping RapidAPI call", endpoint)
-            return {}
+            _logger.warning(
+                "No free-API mapping for endpoint '%s' on provider '%s' — skipping RapidAPI call",
+                endpoint, API_HOST,
+            )
+            return {"status": "fail", "unavailable": True, "reason": f"endpoint '{endpoint}' not supported on free API provider"}
     else:
         url = f"{API_BASE}/{endpoint.lstrip('/')}"
 
@@ -371,8 +374,9 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
                 )
             _logger.debug("%s status=%s", url, resp.status_code)
             if resp.status_code == 429:
+                RAPIDAPI_OK = False
                 _RATE_LIMITED_ENDPOINTS[endpoint_base] = time.time() + _RATE_LIMIT_COOLDOWN_SECONDS
-                _logger.warning("Rate limit (429) for %s", endpoint)
+                _logger.warning("Rate limit (429) for %s — marking API degraded", endpoint)
                 if stale_entry:
                     _logger.info("Serving stale cache for %s after 429", endpoint)
                     result = stale_entry["data"] or {}
@@ -436,6 +440,20 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
 
 
 # -- Runtime controls --------------------------------------------------------
+
+def api_status() -> dict:
+    """Return a lightweight status snapshot for UI transparency."""
+    rate_limited = [ep for ep, until in _RATE_LIMITED_ENDPOINTS.items() if until > time.time()]
+    return {
+        "ok": RAPIDAPI_OK,
+        "rate_limited_endpoints": rate_limited,
+        "degraded": not RAPIDAPI_OK or bool(rate_limited),
+        "message": (
+            f"Rate limited: {', '.join(rate_limited)}" if rate_limited
+            else ("API unavailable" if not RAPIDAPI_OK else "")
+        ),
+    }
+
 
 def set_force_refresh(enabled: bool) -> None:
     global FORCE_REFRESH

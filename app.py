@@ -404,6 +404,10 @@ def _reset_force_refresh(response):
 
 
 def _football_data_source() -> str:
+    status = ac.api_status()
+    if status.get("degraded"):
+        msg = status.get("message") or "API degraded"
+        return f"Degraded — {msg}"
     return assistant_services.football_data_source(ac)
 
 
@@ -2297,7 +2301,8 @@ def _load_upcoming_fixtures(
 
 
 def load_fixtures_cached(league_id: int):
-    redis_key = cache_service.make_key("fixtures", league_id)
+    # Use fixtures_raw namespace to avoid collision with prediction_service fixture_cards cache.
+    redis_key = cache_service.make_key("fixtures_raw", league_id)
     redis_cached = cache_service.get_json(redis_key)
     if redis_cached is not None:
         _logger.debug("fixture_cache hit(redis) league_id=%s", league_id)
@@ -2333,9 +2338,12 @@ def _analysis_from_fixture(fixture: dict[str, Any]) -> dict[str, Any] | None:
         return None
     pred_block = canonical.get("prediction") or {}
     metric_breakdown = canonical.get("metric_breakdown") or {}
+    home_name = (fixture.get("teams") or {}).get("home", {}).get("name") or ""
+    away_name = (fixture.get("teams") or {}).get("away", {}).get("name") or ""
+    matchup = canonical.get("matchup") or (f"{home_name} vs {away_name}" if home_name and away_name else "")
     return {
         "match_id": canonical.get("match_id", ""),
-        "matchup": canonical.get("matchup", ""),
+        "matchup": matchup,
         "league": canonical.get("league", ""),
         "kickoff": canonical.get("kickoff", ""),
         "status": canonical.get("status", "scheduled"),
@@ -2624,7 +2632,19 @@ def _soccer_cards_from_fixtures(fixtures: list[dict[str, Any]]) -> list[dict[str
 
 
 def _fixture_by_id(match_id: str) -> dict[str, Any] | None:
-    return _FIXTURE_INDEX.get(str(match_id))
+    mid = str(match_id)
+    if mid in _FIXTURE_INDEX:
+        return _FIXTURE_INDEX[mid]
+    # Fixture index is empty (fresh process / different worker). Try loading
+    # fixtures for all supported leagues to populate it, then retry.
+    for lid in SUPPORTED_LEAGUE_IDS:
+        try:
+            load_fixtures_cached(lid)
+        except Exception:
+            pass
+        if mid in _FIXTURE_INDEX:
+            return _FIXTURE_INDEX[mid]
+    return None
 
 
 _MATCH_BRAIN = MatchBrain(

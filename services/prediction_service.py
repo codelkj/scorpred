@@ -27,15 +27,20 @@ def get_match_analysis(match_id: str | int):
 
 
 def get_fixture_cards(league_id: int):
-    fixture_key = cache_service.make_key("fixtures", league_id)
-    payload = cache_service.get_json(fixture_key)
+    # Separate namespace from load_fixtures_cached to avoid shape collision.
+    raw_key = cache_service.make_key("fixtures_raw", league_id)
+    payload = cache_service.get_json(raw_key)
     if payload is None:
         load_fn = _deps.get("load_fixtures")
         if not load_fn:
             return [], None, "Unavailable", "", ""
         payload = load_fn(league_id)
-        cache_service.set_json(fixture_key, payload, ttl=120)
-    fixtures, load_error, source, marker = payload
+        cache_service.set_json(raw_key, payload, ttl=120)
+    # payload is a 4-tuple: (fixtures, load_error, source, marker)
+    try:
+        fixtures, load_error, source, marker = payload
+    except (TypeError, ValueError):
+        fixtures, load_error, source, marker = [], "Cache shape error", "", ""
 
     cards: list[dict[str, Any]] = []
     for fixture in fixtures or []:
