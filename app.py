@@ -2611,9 +2611,9 @@ def _soccer_card_from_fixture_analysis(fixture: dict[str, Any], analysis: dict[s
         card["action_class"] = str(card.get("action") or "").lower()
         card["confidence_pct"] = int(card.get("confidence") or 0)
         card["probability_rows"] = [
-            {"label": team_a, "value": probs.get("a"), "selected": card.get("recommended_side") == team_a},
-            {"label": "Draw", "value": probs.get("draw"), "selected": False},
-            {"label": team_b, "value": probs.get("b"), "selected": card.get("recommended_side") == team_b},
+            {"label": team_a, "value": dui.normalize_percent(probs.get("a"), 0), "selected": card.get("recommended_side") == team_a},
+            {"label": "Draw", "value": dui.normalize_percent(probs.get("draw"), 0), "selected": False},
+            {"label": team_b, "value": dui.normalize_percent(probs.get("b"), 0), "selected": card.get("recommended_side") == team_b},
         ]
         card["data_confidence"] = {"state": dq_state, "label": dq_text}
         card["cta_url"] = f"/prediction?match_id={fixture_id}"
