@@ -22,10 +22,6 @@ It combines a **machine learning pipeline** (Logistic Regression → Random Fore
 | **Soccer Predictions** | Premier League + 10 other competitions via ESPN fallback |
 | **NBA Predictions** | Game predictions with team form, standings, and injury context |
 | **Hybrid Engine** | ML × 0.65 + Rules × 0.35 blended prediction signal |
-| **Strategy Lab** | Live hit rate vs offline accuracy, sport/confidence breakdown |
-| **Backtesting** | Walk-forward evaluation across 5 chronological folds, 3,790+ test matches |
-| **ML vs Rules Compare** | Side-by-side accuracy of each model against the rule baseline |
-| **Explainability** | Feature attribution analysis — which signals drive correct vs incorrect calls |
 | **Performance Tracker** | Track real predictions, grade results, calibration chart |
 | **Alerts** | High-confidence opportunity alerts |
 | **Watchlist** | Monitor specific teams across upcoming fixtures |
@@ -170,10 +166,10 @@ pytest tests/ -v
 | `/` | Dashboard |
 | `/soccer` | Soccer predictions |
 | `/nba/` | NBA predictions |
-| `/strategy-lab` | Strategy Lab — live vs offline accuracy |
-| `/backtesting` | Walk-forward backtest results with charts |
-| `/compare` | ML vs Rules side-by-side comparison |
-| `/explainability` | Feature attribution & signal analysis |
+| `/strategy-lab` | Redirects to `/insights` (retired analytics page) |
+| `/backtesting` | Redirects to `/insights` (retired analytics page) |
+| `/compare` | Redirects to `/insights` (retired analytics page) |
+| `/explainability` | Redirects to `/insights` (retired analytics page) |
 | `/performance` | Prediction tracking & calibration |
 | `/insights` | Cross-sport insights |
 | `/prediction` | Match analysis |

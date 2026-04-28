@@ -26,10 +26,6 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _ensure_tracking_file() -> None:
     """Create tracking file if it doesn't exist."""
     if os.path.exists(_TRACKING_FILE):

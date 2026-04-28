@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 from services import cache_service
+
+_logger = logging.getLogger(__name__)
 
 
 _deps: dict[str, Callable[..., Any]] = {}
@@ -42,7 +45,11 @@ def get_fixture_cards(league_id: int):
         fixture_id = (fixture.get("fixture") or {}).get("id")
         if fixture_id is None:
             continue
-        analysis = get_match_analysis(str(fixture_id))
+        try:
+            analysis = get_match_analysis(str(fixture_id))
+        except Exception:
+            _logger.warning("get_match_analysis failed for fixture_id=%s", fixture_id, exc_info=True)
+            analysis = None
         if not analysis:
             continue
         build_fn = _deps.get("card_from_fixture")
