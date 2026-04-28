@@ -2306,7 +2306,13 @@ def load_fixtures_cached(league_id: int):
     redis_cached = cache_service.get_json(redis_key)
     if redis_cached is not None:
         _logger.debug("fixture_cache hit(redis) league_id=%s", league_id)
-        return tuple(redis_cached)
+        data = tuple(redis_cached)
+        fixtures = data[0] if data else []
+        for fixture in fixtures or []:
+            fixture_id = (fixture.get("fixture") or {}).get("id")
+            if fixture_id is not None and str(fixture_id) not in _FIXTURE_INDEX:
+                _FIXTURE_INDEX[str(fixture_id)] = fixture
+        return data
     if league_id in _local_fixture_cache:
         _logger.debug("fixture_cache hit league_id=%s", league_id)
         return _local_fixture_cache[league_id]
@@ -2711,6 +2717,11 @@ def _load_grouped_upcoming_fixtures_all_leagues(
         if load_error:
             league_name = (LEAGUE_BY_ID.get(league_id) or {}).get("name", f"League {league_id}")
             load_errors.append(f"{league_name}: {load_error}")
+
+        for fixture in fixtures or []:
+            fixture_id = (fixture.get("fixture") or {}).get("id")
+            if fixture_id is not None and str(fixture_id) not in _FIXTURE_INDEX:
+                _FIXTURE_INDEX[str(fixture_id)] = fixture
 
         fixtures = sorted(fixtures or [], key=_prediction_confidence_rank)
         league_info = LEAGUE_BY_ID.get(league_id, {})
