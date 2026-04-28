@@ -587,11 +587,11 @@ def build_decision_card(
         team_a = team_a or "Team A"
         team_b = team_b or "Team B"
         probs = prediction.get("win_probabilities") if isinstance(prediction.get("win_probabilities"), dict) else {}
-        if not probs:
+        if not probs or not any(probs.get(k) is not None and probs.get(k) != 0 for k in ("a", "b", "draw")):
             probs = {
-                "a": prediction.get("prob_a") or prediction.get("team_a_probability"),
-                "draw": prediction.get("prob_draw"),
-                "b": prediction.get("prob_b") or prediction.get("team_b_probability"),
+                "a": prediction.get("prob_a") or prediction.get("team_a_probability") or prediction.get("home_pct"),
+                "draw": prediction.get("prob_draw") or prediction.get("draw_pct"),
+                "b": prediction.get("prob_b") or prediction.get("team_b_probability") or prediction.get("away_pct"),
             }
         best_pick = prediction.get("best_pick") if isinstance(prediction.get("best_pick"), dict) else {}
         conf = prediction.get("confidence_pct") or prediction.get("confidence") or 0
@@ -631,6 +631,9 @@ def build_decision_card(
     prob_a = normalize_percent(probabilities.get("a"), 0)
     prob_b = normalize_percent(probabilities.get("b"), 0)
     prob_draw = normalize_percent(probabilities.get("draw"), 0) if sport == "soccer" else 0
+    if prob_a == 0 and prob_b == 0 and (sport != "soccer" or prob_draw == 0):
+        prob_a, prob_b = (37.0, 37.0) if sport == "soccer" else (50.0, 50.0)
+        prob_draw = 26.0 if sport == "soccer" else 0
     recommended_side = str(analysis.get("recommended_side") or "").strip() or team_a
     recommended_side_l = recommended_side.lower()
     if " vs " in recommended_side_l or ("vs" in recommended_side_l and len(recommended_side) > 22):

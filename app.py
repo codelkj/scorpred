@@ -3700,6 +3700,9 @@ def _build_home_dashboard_context() -> dict[str, Any]:
                 "b": record.get("prob_b"),
                 "draw": record.get("prob_draw"),
             },
+            "prob_a": record.get("prob_a"),
+            "prob_b": record.get("prob_b"),
+            "prob_draw": record.get("prob_draw"),
             "confidence_pct": record.get("confidence_pct"),
             "data_completeness": record.get("data_completeness") or {},
         }
