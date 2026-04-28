@@ -76,6 +76,19 @@ _USING_DIRECT_APISPORTS = bool(_APISPORTS_KEY) or "api-sports.io" in API_HOST
 # different endpoint paths from API-Football v3.
 _USING_FREE_API = "free-api-live-football-data" in API_HOST
 
+# True when football-data.org key is configured — takes priority over api-sports.io.
+try:
+    from football_data_client import (
+        is_available as _fdo_available,
+        get_upcoming_fixtures_fdo as _get_fixtures_fdo,
+        get_standings_fdo as _get_standings_fdo,
+        get_teams_fdo as _get_teams_fdo,
+    )
+    _USING_FDO = _fdo_available()
+except Exception:
+    _USING_FDO = False
+    _fdo_available = lambda: False  # noqa: E731
+
 # Endpoint translation: API-Football v3 path → free-api-live-football-data path.
 # Params are re-mapped per entry: the value is (free_path, param_remapper_fn | None).
 # param_remapper_fn receives the original params dict and returns the translated dict.
@@ -997,6 +1010,13 @@ def _stat(stats: dict, section: str, key: str) -> float | None:
 # ── Domain methods ─────────────────────────────────────────────────────────────
 
 def get_teams(league_id: int = DEFAULT_LEAGUE_ID, season: int = CURRENT_SEASON) -> list:
+    if _USING_FDO:
+        try:
+            teams = _get_teams_fdo(league_id)
+            if teams:
+                return teams
+        except Exception as exc:
+            logging.getLogger("api_client").warning("FDO teams failed for league %s: %s", league_id, exc)
     try:
         data = api_get("teams", {"league": league_id, "season": season}, cache_hours=24)
         if data.get("response"):
@@ -1329,6 +1349,13 @@ def get_standings(
     league_id: int = DEFAULT_LEAGUE_ID,
     season: int = CURRENT_SEASON,
 ) -> list:
+    if _USING_FDO:
+        try:
+            rows = _get_standings_fdo(league_id)
+            if rows:
+                return rows
+        except Exception as exc:
+            logging.getLogger("api_client").warning("FDO standings failed for league %s: %s", league_id, exc)
     try:
         response = api_get("standings", {"league": league_id, "season": season}, cache_hours=4).get("response", [])
         if response:
@@ -1382,6 +1409,13 @@ def get_upcoming_fixtures(
     season: int = CURRENT_SEASON,
     next_n: int = 20,
 ) -> list:
+    if _USING_FDO:
+        try:
+            fixtures = _get_fixtures_fdo(league_id, next_n)
+            if fixtures:
+                return fixtures
+        except Exception as exc:
+            logging.getLogger("api_client").warning("FDO fixtures failed for league %s: %s", league_id, exc)
     try:
         logger = logging.getLogger("api_client")
         logger.debug(f"[API_CLIENT] Fetching upcoming fixtures: league_id={league_id}, season={season}, next_n={next_n}")
