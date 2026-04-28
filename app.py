@@ -5773,6 +5773,13 @@ def strategy_lab():
     """Redirect the legacy lab surface to Insights."""
     return redirect(url_for("insights"))
 
+@app.route("/backtesting")
+@app.route("/compare")
+@app.route("/explainability")
+def retired_analytics_pages():
+    """Retire legacy analytics pages and keep users on Insights."""
+    return redirect(url_for("insights"))
+
 @app.route("/update-prediction-results", methods=["GET", "POST"])
 def update_prediction_results():
     return redirect(url_for("insights"))
