@@ -12,6 +12,18 @@ _BUCKETS: list[tuple[int, int, str]] = [
     (90, 101, "90-100"),
 ]
 
+_STRING_TIER_MAP = {"high": 72.0, "medium": 61.0, "low": 52.0}
+
+
+def _to_numeric_confidence(row: dict[str, Any]) -> float:
+    raw = row.get("confidence")
+    if raw is None:
+        return 0.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return _STRING_TIER_MAP.get(str(raw).strip().lower(), 0.0)
+
 
 @dataclass(slots=True)
 class CalibrationEngine:
@@ -52,10 +64,10 @@ class CalibrationEngine:
         buckets: dict[str, dict[str, float | int | None]] = {label: {"sample_size": 0, "predicted": None, "actual": None, "error": None} for *_rng, label in _BUCKETS}
         errors = []
         for low, high, label in _BUCKETS:
-            members = [r for r in completed if low <= int(round(float(r.get("confidence") or 0))) < high]
+            members = [r for r in completed if low <= int(round(_to_numeric_confidence(r))) < high]
             if not members:
                 continue
-            predicted = sum(float(r.get("confidence") or 0) for r in members) / len(members)
+            predicted = sum(_to_numeric_confidence(r) for r in members) / len(members)
             actual = sum(1 for r in members if r.get("is_correct") is True) / len(members) * 100.0
             err = abs(predicted - actual)
             errors.append(err)

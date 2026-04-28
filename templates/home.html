@@ -12,7 +12,7 @@
     <p>AI-Powered Predictions. Data-Driven Decisions.</p>
   </div>
   <div class="sp-dash-header__right">
-    <span class="sp-dash-date">{{ now.strftime('%A, %B %-d, %Y') if now else 'Today' }}</span>
+    <span class="sp-dash-date">{{ now.strftime('%A, %B ') ~ now.day ~ ', ' ~ now.year if now else 'Today' }}</span>
     <span class="sp-dash-sync">
       <span class="sp-dash-sync__dot"></span>
       Last synced: {{ last_updated or '2m ago' }}

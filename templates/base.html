@@ -90,34 +90,6 @@
         </a>
       </nav>
 
-      <p class="sp-nav-label" style="margin-top:1rem">Analytics</p>
-      <nav class="sp-nav" role="navigation" aria-label="Analytics">
-        <a href="/strategy-lab" class="{% if request.path == '/strategy-lab' %}active{% endif %}">
-          <span class="sp-nav__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
-          </span>
-          Strategy Lab
-        </a>
-        <a href="/backtesting" class="{% if request.path == '/backtesting' %}active{% endif %}">
-          <span class="sp-nav__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          </span>
-          Backtesting
-        </a>
-        <a href="/compare" class="{% if request.path == '/compare' %}active{% endif %}">
-          <span class="sp-nav__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>
-          </span>
-          ML vs Rules
-        </a>
-        <a href="/explainability" class="{% if request.path == '/explainability' %}active{% endif %}">
-          <span class="sp-nav__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-          </span>
-          Explainability
-        </a>
-      </nav>
-
       <p class="sp-nav-label" style="margin-top:1rem">Tracking</p>
       <nav class="sp-nav" role="navigation" aria-label="Tracking">
         <a href="/my-bets" class="{% if request.path == '/my-bets' %}active{% endif %}">
@@ -156,24 +128,39 @@
       </nav>
 
       <div class="sp-sidebar__footer">
-        <div class="sp-fang-mode">
-          <span class="sp-fang-mode__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          </span>
-          <div class="sp-fang-mode__text">
-            <strong>FANG LEVEL MODE</strong>
-            <span class="sp-fang-mode__status">Maximum intelligence.</span>
+        {# ── Data mode toggle ─────────────────────────────────────────── #}
+        {% set _dm = current_data_mode | default('demo') %}
+        <div class="sp-data-mode-card">
+          <div class="sp-data-mode-card__header">
+            <svg class="sp-data-mode-card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            <span class="sp-data-mode-card__label">Data Source</span>
+            {% if _dm == 'demo' %}
+              <span class="sp-badge sp-badge--demo">DEMO</span>
+            {% else %}
+              <span class="sp-badge sp-badge--live">LIVE</span>
+            {% endif %}
           </div>
-          <span class="sp-fang-mode__badge">ON</span>
-        </div>
-        <div class="sp-sidebar-stats">
-          <div class="sp-sidebar-stat">
-            <span class="sp-sidebar-stat__label">Daily Record</span>
-            <span class="sp-sidebar-stat__value sp-sidebar-stat__value--strong">8W - 3L - 1P</span>
-          </div>
-          <div class="sp-sidebar-stat">
-            <span class="sp-sidebar-stat__label">ROI</span>
-            <span class="sp-sidebar-stat__value sp-sidebar-stat__value--strong">+24.6%</span>
+          <p class="sp-data-mode-card__hint">
+            {% if _dm == 'demo' %}
+              Synthetic fixtures — no API quota used.
+            {% else %}
+              Real fixtures from the API.
+            {% endif %}
+          </p>
+          <div class="sp-data-mode-card__actions">
+            <form method="post" action="{{ url_for('set_data_mode') }}" style="display:contents">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" name="mode" value="demo"
+                class="sp-data-mode-btn{% if _dm == 'demo' %} sp-data-mode-btn--active{% endif %}">
+                Demo
+              </button>
+              <button type="submit" name="mode" value="live"
+                class="sp-data-mode-btn{% if _dm == 'live' %} sp-data-mode-btn--active{% endif %}">
+                Live
+              </button>
+            </form>
           </div>
         </div>
         {% if is_guest %}

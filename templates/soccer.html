@@ -167,12 +167,14 @@
           <div class="sp-match-row__probs sp-match-cell">
             {% if card.probability_rows %}
               {% for row in card.probability_rows %}
+                {% set short_label = 'H' if loop.index == 1 else ('D' if loop.index == 2 else 'A') %}
+                {% set prob_value = (row.value if row.value is not none else 0) %}
                 <div class="sp-match-row__prob-row">
-                  <span class="sp-match-row__prob-label">{{ row.label[:1] }}</span>
+                  <span class="sp-match-row__prob-label">{{ short_label }}</span>
                   <div class="sp-match-row__prob-bar">
-                    <div class="sp-match-row__prob-fill sp-match-row__prob-fill--{{ 'home' if loop.index == 1 else ('draw' if loop.index == 2 else 'away') }}" style="width:{{ row.value }}%"></div>
+                    <div class="sp-match-row__prob-fill sp-match-row__prob-fill--{{ 'home' if loop.index == 1 else ('draw' if loop.index == 2 else 'away') }}" style="width:{{ prob_value }}%"></div>
                   </div>
-                  <span class="sp-match-row__prob-val">{{ row.value|round|int }}%</span>
+                  <span class="sp-match-row__prob-val">{{ prob_value|round|int }}%</span>
                 </div>
               {% endfor %}
             {% endif %}
