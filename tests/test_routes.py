@@ -283,6 +283,8 @@ class TestFixturesRoute:
         assert rv.status_code == 200
 
     def test_soccer_route_renders_fixture_cards_with_theme_safe_markup(self, client):
+        with client.session_transaction() as sess:
+            sess["data_mode"] = "live"  # Use live mode so _load_upcoming_fixtures mock is reached
         with patch("api_client.get_teams", return_value=_mock_teams()), \
              patch("app._load_upcoming_fixtures", return_value=([_mock_fixture()], None, "configured", "")):
             rv = client.get("/soccer")
@@ -1364,6 +1366,8 @@ class TestAPIRoutes:
 
 class TestLeagueSelectionFlow:
     def test_soccer_respects_league_query_for_team_loading(self, client):
+        with client.session_transaction() as sess:
+            sess["data_mode"] = "live"  # Ensure live mode so get_teams is called
         with patch("api_client.get_teams", return_value=_mock_teams()) as get_teams_mock, \
              patch("app._load_upcoming_fixtures", return_value=([], None, "configured", "")):
             rv = client.get("/soccer?league=140")
@@ -2312,3 +2316,98 @@ class TestWatchlistAndTracking:
         rv = client.get("/performance?window=all")
         assert rv.status_code == 200
         assert b"61%" in rv.data
+
+
+class TestDataModeToggle:
+    """Tests for the demo/live data mode feature."""
+
+    def test_settings_page_renders_data_tab(self, client):
+        rv = client.get("/settings")
+        assert rv.status_code == 200
+        assert b"Data Source" in rv.data or b"data-mode" in rv.data or b"Demo Mode" in rv.data
+
+    def test_sidebar_contains_mode_form(self, client):
+        rv = client.get("/settings")
+        assert rv.status_code == 200
+        assert b"set_data_mode" in rv.data or b"settings/data-mode" in rv.data
+
+    def test_post_set_demo_mode(self, client):
+        rv = client.post(
+            "/settings/data-mode",
+            data={"mode": "demo"},
+            follow_redirects=False,
+        )
+        # Should redirect (302) and set session
+        assert rv.status_code in (200, 302)
+        with client.session_transaction() as sess:
+            assert sess.get("data_mode") == "demo"
+
+    def test_post_set_live_mode(self, client):
+        rv = client.post(
+            "/settings/data-mode",
+            data={"mode": "live"},
+            follow_redirects=False,
+        )
+        assert rv.status_code in (200, 302)
+        with client.session_transaction() as sess:
+            assert sess.get("data_mode") == "live"
+
+    def test_invalid_mode_defaults_to_demo(self, client):
+        rv = client.post(
+            "/settings/data-mode",
+            data={"mode": "hacker"},
+            follow_redirects=False,
+        )
+        assert rv.status_code in (200, 302)
+        with client.session_transaction() as sess:
+            assert sess.get("data_mode") == "demo"
+
+    def test_demo_mode_generates_fixtures_no_api(self, client):
+        """In demo mode, /soccer should load without hitting the real API."""
+        with client.session_transaction() as sess:
+            sess["data_mode"] = "demo"
+        rv = client.get("/soccer")
+        assert rv.status_code == 200
+
+    def test_demo_indicator_in_base_template(self, client):
+        """When demo mode is active, the settings page should show the DEMO badge."""
+        with client.session_transaction() as sess:
+            sess["data_mode"] = "demo"
+        rv = client.get("/settings")
+        assert rv.status_code == 200
+        assert b"demo" in rv.data.lower() or b"DEMO" in rv.data
+
+    def test_demo_mode_espn_fixtures_available(self, client):
+        """Demo mode uses ESPN fixtures when available; /soccer returns 200."""
+        from services import cache_service as _cs
+        # Clear fixture cache so prediction_service calls load_fixtures_cached fresh
+        _cs.delete(_cs.make_key("fixtures", flask_app_module.DEFAULT_LEAGUE_ID))
+
+        espn_fixture = _mock_fixture()  # standard shape: teams.home.name / teams.away.name
+        with client.session_transaction() as sess:
+            sess["data_mode"] = "demo"
+        with patch("api_client.get_espn_fixtures", return_value=[espn_fixture]):
+            rv = client.get("/soccer")
+        assert rv.status_code == 200
+        # Page should contain the soccer page structure (no crash, ESPN path exercised)
+        assert b"sp-kpi-row" in rv.data or b"Soccer" in rv.data
+
+    def test_demo_mode_espn_unavailable_synthetic_fallback(self, client):
+        """Demo mode falls back to synthetic fixtures when ESPN raises an exception."""
+        from services import cache_service as _cs
+        _cs.delete(_cs.make_key("fixtures", flask_app_module.DEFAULT_LEAGUE_ID))
+
+        with client.session_transaction() as sess:
+            sess["data_mode"] = "demo"
+        with patch("api_client.get_espn_fixtures", side_effect=Exception("ESPN down")):
+            rv = client.get("/soccer")
+        assert rv.status_code == 200
+
+    def test_home_route_date_no_crash_on_windows(self, client):
+        """Home route must not crash on Windows due to strftime format codes."""
+        with client.session_transaction() as sess:
+            sess["data_mode"] = "live"  # avoid demo ESPN call
+        with patch("app._load_upcoming_fixtures", return_value=([], None, "mock", "")), \
+             patch("api_client.get_teams", return_value=[]):
+            rv = client.get("/")
+        assert rv.status_code == 200

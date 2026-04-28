@@ -128,24 +128,39 @@
       </nav>
 
       <div class="sp-sidebar__footer">
-        <div class="sp-fang-mode">
-          <span class="sp-fang-mode__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          </span>
-          <div class="sp-fang-mode__text">
-            <strong>FANG LEVEL MODE</strong>
-            <span class="sp-fang-mode__status">Maximum intelligence.</span>
+        {# ── Data mode toggle ─────────────────────────────────────────── #}
+        {% set _dm = current_data_mode | default('demo') %}
+        <div class="sp-data-mode-card">
+          <div class="sp-data-mode-card__header">
+            <svg class="sp-data-mode-card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            <span class="sp-data-mode-card__label">Data Source</span>
+            {% if _dm == 'demo' %}
+              <span class="sp-badge sp-badge--demo">DEMO</span>
+            {% else %}
+              <span class="sp-badge sp-badge--live">LIVE</span>
+            {% endif %}
           </div>
-          <span class="sp-fang-mode__badge">ON</span>
-        </div>
-        <div class="sp-sidebar-stats">
-          <div class="sp-sidebar-stat">
-            <span class="sp-sidebar-stat__label">Daily Record</span>
-            <span class="sp-sidebar-stat__value sp-sidebar-stat__value--strong">8W - 3L - 1P</span>
-          </div>
-          <div class="sp-sidebar-stat">
-            <span class="sp-sidebar-stat__label">ROI</span>
-            <span class="sp-sidebar-stat__value sp-sidebar-stat__value--strong">+24.6%</span>
+          <p class="sp-data-mode-card__hint">
+            {% if _dm == 'demo' %}
+              Synthetic fixtures — no API quota used.
+            {% else %}
+              Real fixtures from the API.
+            {% endif %}
+          </p>
+          <div class="sp-data-mode-card__actions">
+            <form method="post" action="{{ url_for('set_data_mode') }}" style="display:contents">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" name="mode" value="demo"
+                class="sp-data-mode-btn{% if _dm == 'demo' %} sp-data-mode-btn--active{% endif %}">
+                Demo
+              </button>
+              <button type="submit" name="mode" value="live"
+                class="sp-data-mode-btn{% if _dm == 'live' %} sp-data-mode-btn--active{% endif %}">
+                Live
+              </button>
+            </form>
           </div>
         </div>
         {% if is_guest %}

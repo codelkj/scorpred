@@ -25,7 +25,7 @@ try:
 except ImportError:  # pragma: no cover
     def load_dotenv(*_args, **_kwargs):
         return False
-from flask import Flask, jsonify, redirect, render_template as flask_render_template, request, session, url_for, g
+from flask import Flask, flash, jsonify, redirect, render_template as flask_render_template, request, session, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 
@@ -278,6 +278,7 @@ def handle_404(exc):
 LEAGUE = DEFAULT_LEAGUE_ID
 SEASON = CURRENT_SEASON
 LEAGUE_SESSION_KEY = "selected_league_id"
+DATA_MODE_SESSION_KEY = "data_mode"  # "demo" | "live"
 
 
 # â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -407,10 +408,24 @@ def _football_data_source() -> str:
     return assistant_services.football_data_source(ac)
 
 
+def _data_mode() -> str:
+    """Return current data mode: 'demo' or 'live'. Defaults to 'demo'."""
+    try:
+        return str(session.get(DATA_MODE_SESSION_KEY, "demo"))
+    except Exception:
+        return "demo"
+
+
+def _is_demo_mode() -> bool:
+    return _data_mode() == "demo"
+
+
 def _page_context(data_source: str | None = None, **kwargs) -> dict:
     if "alert_count" not in kwargs:
         kwargs["alert_count"] = 0
-    return assistant_services.page_context(ac, data_source=data_source, **kwargs)
+    ctx = assistant_services.page_context(ac, data_source=data_source, **kwargs)
+    ctx.setdefault("current_data_mode", _data_mode())
+    return ctx
 
 
 def _selection_error_redirect(endpoint: str, message: str):
@@ -2296,7 +2311,163 @@ def _load_upcoming_fixtures(
     )
 
 
+# ── Demo mode data pools ────────────────────────────────────────────────────
+
+_DEMO_TEAM_POOL: dict[int, list[str]] = {
+    39: [  # Premier League
+        "Arsenal", "Chelsea", "Liverpool", "Man City", "Man Utd",
+        "Tottenham", "Newcastle", "Aston Villa", "West Ham", "Everton",
+        "Brighton", "Wolves",
+    ],
+    140: [  # La Liga
+        "Real Madrid", "Barcelona", "Atletico Madrid", "Sevilla", "Valencia",
+        "Athletic Club", "Real Sociedad", "Villarreal", "Betis", "Celta Vigo",
+        "Getafe", "Osasuna",
+    ],
+    135: [  # Serie A
+        "Juventus", "Inter Milan", "AC Milan", "Napoli", "Roma",
+        "Lazio", "Atalanta", "Fiorentina", "Torino", "Bologna",
+        "Udinese", "Sampdoria",
+    ],
+    78: [  # Bundesliga
+        "Bayern Munich", "Borussia Dortmund", "RB Leipzig", "Bayer Leverkusen",
+        "Wolfsburg", "Eintracht Frankfurt", "Borussia Monchengladbach",
+        "Union Berlin", "Hoffenheim", "Freiburg", "Mainz", "Cologne",
+    ],
+    61: [  # Ligue 1
+        "PSG", "Marseille", "Lyon", "Monaco", "Lille",
+        "Nice", "Rennes", "Strasbourg", "Nantes", "Lens",
+        "Montpellier", "Bordeaux",
+    ],
+}
+
+_DEMO_TEAM_POOL_DEFAULT: list[str] = [
+    "Red Lions", "Blue Eagles", "Gold United", "Silver City",
+    "Iron FC", "Storm Athletic", "Thunder SC", "Falcon United",
+    "City Rovers", "Bay Athletic", "North Stars", "South United",
+]
+
+_DEMO_REASONING_TEMPLATES: list[str] = [
+    "{home} enjoy a strong home record this season. {away} have struggled on the road.",
+    "{away} are on a 4-match winning streak. {home} lost their last outing.",
+    "Head-to-head history favours {home} at this venue with 3 wins in last 5.",
+    "Both sides are evenly matched — expect a close contest with goals at both ends.",
+    "{home} have the superior xG numbers; {away} rely on set-pieces.",
+    "{away} top-scorer is in fine form; {home} defence has been leaky lately.",
+    "A midweek fixture may leave {home} fatigued. {away} had extra rest days.",
+    "{home} pressing style should trouble {away}'s slow build-up play.",
+    "Poor weather forecast may nullify {home}'s passing game; physical {away} benefit.",
+    "Tactical switch by {home} manager adds unpredictability; {away} familiar formation.",
+]
+
+
+def _generate_demo_fixtures(league_id: int) -> list[dict]:
+    """Return a deterministic list of synthetic fixtures for demo mode."""
+    import hashlib
+    from datetime import date
+
+    today = date.today().isoformat()
+    seed_bytes = hashlib.md5(f"{league_id}-{today}".encode()).digest()
+    seed = int.from_bytes(seed_bytes[:4], "little")
+
+    pool = _DEMO_TEAM_POOL.get(league_id, _DEMO_TEAM_POOL_DEFAULT)
+
+    # Linear congruential RNG (portable, no random state side effects)
+    def _lcg(s: int) -> int:
+        return (1664525 * s + 1013904223) & 0xFFFFFFFF
+
+    rng = seed
+    fixtures: list[dict] = []
+    used_teams: set[str] = set()
+
+    for i in range(min(10, len(pool) // 2)):
+        available = [t for t in pool if t not in used_teams]
+        if len(available) < 2:
+            break
+
+        rng = _lcg(rng)
+        hi = rng % len(available)
+        home = available[hi]
+
+        rng = _lcg(rng)
+        remaining = [t for t in available if t != home]
+        ai = rng % len(remaining)
+        away = remaining[ai]
+
+        used_teams.add(home)
+        used_teams.add(away)
+
+        # Raw probability weights (home, draw, away)
+        rng = _lcg(rng); hw = 30 + rng % 36       # 30–65
+        rng = _lcg(rng); dw = 15 + rng % 16       # 15–30
+        aw = max(5, 100 - hw - dw)
+        total = hw + dw + aw
+        home_p = round(hw / total * 100, 1)
+        draw_p = round(dw / total * 100, 1)
+        away_p = round(100 - home_p - draw_p, 1)
+
+        # Pick
+        if home_p >= draw_p and home_p >= away_p:
+            pick = f"{home} Win"
+            pick_key = "home"
+        elif away_p >= draw_p:
+            pick = f"{away} Win"
+            pick_key = "away"
+        else:
+            pick = "Draw"
+            pick_key = "draw"
+
+        rng = _lcg(rng)
+        confidence = 52 + rng % 38  # 52–89
+
+        rng = _lcg(rng)
+        tmpl = _DEMO_REASONING_TEMPLATES[rng % len(_DEMO_REASONING_TEMPLATES)]
+        reasoning = tmpl.format(home=home, away=away)
+
+        rng = _lcg(rng)
+        tiers = ["high", "medium", "medium", "low"]
+        quality_tier = tiers[rng % len(tiers)]
+
+        fixtures.append({
+            "id": 900000 + league_id * 100 + i,
+            "home_team": home,
+            "away_team": away,
+            "home_win_prob": home_p,
+            "draw_prob": draw_p,
+            "away_win_prob": away_p,
+            "pick": pick,
+            "pick_key": pick_key,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "data_quality_tier": quality_tier,
+            "is_demo": True,
+            "league_id": league_id,
+        })
+
+    return fixtures
+
+
+# ── Fixture cache ────────────────────────────────────────────────────────────
+
 def load_fixtures_cached(league_id: int):
+    # Demo mode: prefer ESPN (no API-Football quota), fall back to synthetic
+    try:
+        from flask import has_request_context
+        if has_request_context() and _is_demo_mode():
+            _logger.debug("fixture_cache demo mode league_id=%s", league_id)
+            try:
+                slug = getattr(ac, "ESPN_SLUG_BY_LEAGUE", {}).get(league_id)
+                espn_fx = ac.get_espn_fixtures(slug, next_n=12) if slug else []
+            except Exception:
+                espn_fx = []
+            if espn_fx:
+                _logger.debug("fixture_cache demo ESPN hit league_id=%s count=%d", league_id, len(espn_fx))
+                return (espn_fx, None, "espn", "")
+            _logger.debug("fixture_cache demo synthetic fallback league_id=%s", league_id)
+            return (_generate_demo_fixtures(league_id), None, "demo-mode", "")
+    except Exception:
+        pass
+
     redis_key = cache_service.make_key("fixtures", league_id)
     redis_cached = cache_service.get_json(redis_key)
     if redis_cached is not None:
@@ -4415,12 +4586,25 @@ def soccer():
     _set_data_refresh()
     _refresh_tracking_results_if_due()
     league_id = _set_active_league(_active_league_id())
+    full_slate, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
     teams = []
     try:
-        teams = ac.get_teams(league_id, SEASON) or []
+        if _is_demo_mode():
+            # Build teams from whichever fixtures were returned (ESPN or synthetic)
+            seen_names: set[str] = set()
+            tid = 0
+            for f in fixtures or []:
+                h = (f.get("teams") or {}).get("home", {}).get("name") or f.get("home_team", "")
+                a = (f.get("teams") or {}).get("away", {}).get("name") or f.get("away_team", "")
+                for name in (h, a):
+                    if name and name not in seen_names:
+                        teams.append({"id": tid, "name": name})
+                        seen_names.add(name)
+                        tid += 1
+        else:
+            teams = ac.get_teams(league_id, SEASON) or []
     except Exception:
         pass
-    full_slate, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
     return render_template(
         "soccer.html",
         teams=teams,
@@ -6279,6 +6463,19 @@ def watchlist_team_remove():
 def settings():
     ctx = _page_context()
     return render_template("settings.html", **ctx)
+
+
+@app.route("/settings/data-mode", methods=["POST"])
+def set_data_mode():
+    """Toggle between demo and live data modes."""
+    mode = (request.form.get("mode") or "").strip().lower()
+    if mode not in {"demo", "live"}:
+        mode = "demo"
+    session[DATA_MODE_SESSION_KEY] = mode
+    label = "Demo Mode" if mode == "demo" else "Live Mode"
+    flash(f"Switched to {label}.", "success")
+    referrer = request.referrer or url_for("settings")
+    return redirect(referrer)
 
 
 @app.route("/ui-mockup", methods=["GET"])

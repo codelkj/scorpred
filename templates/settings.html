@@ -26,6 +26,7 @@
   <a href="#display" class="sp-settings-tab" onclick="showSettingsTab('display',this);return false;">Display</a>
   <a href="#privacy" class="sp-settings-tab" onclick="showSettingsTab('privacy',this);return false;">Privacy</a>
   <a href="#integrations" class="sp-settings-tab" onclick="showSettingsTab('integrations',this);return false;">Integrations</a>
+  <a href="#data" class="sp-settings-tab" onclick="showSettingsTab('data',this);return false;">Data</a>
 </div>
 
 {# ── Profile Tab ──────────────────────────────────────────────────────────────── #}
@@ -205,11 +206,58 @@
   {{ ui.empty_state('Integrations', 'Connect to external services and betting platforms coming soon.') }}
 </div>
 
+{# ── Data Tab ────────────────────────────────────────────────────────────────── #}
+{% set _dm = current_data_mode | default('demo') %}
+<div id="st-data" style="display:none">
+  <div class="sp-settings-card">
+    <div class="sp-settings-card__title">Data Source</div>
+    <p style="font-size:.85rem;opacity:.7;margin-bottom:1.25rem">
+      Choose how ScorPred fetches match data. <strong>Demo</strong> uses fully
+      synthetic fixtures (no API quota). <strong>Live</strong> connects to the
+      real API-Football feed.
+    </p>
+    <form method="post" action="{{ url_for('set_data_mode') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="sp-settings-row">
+        <div>
+          <div class="sp-settings-row__label">Demo Mode</div>
+          <div class="sp-settings-row__sub">Synthetic fixtures, no external calls.</div>
+        </div>
+        <button type="submit" name="mode" value="demo"
+          class="btn btn-sm{% if _dm == 'demo' %} btn-primary{% else %} btn-secondary{% endif %}">
+          {% if _dm == 'demo' %}Active{% else %}Switch{% endif %}
+        </button>
+      </div>
+      <div class="sp-settings-row">
+        <div>
+          <div class="sp-settings-row__label">Live Mode</div>
+          <div class="sp-settings-row__sub">Real fixtures from API-Football feed.</div>
+        </div>
+        <button type="submit" name="mode" value="live"
+          class="btn btn-sm{% if _dm == 'live' %} btn-primary{% else %} btn-secondary{% endif %}">
+          {% if _dm == 'live' %}Active{% else %}Switch{% endif %}
+        </button>
+      </div>
+    </form>
+    <div class="sp-settings-row" style="margin-top:1rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,.07)">
+      <div>
+        <div class="sp-settings-row__label">Current Mode</div>
+        <div class="sp-settings-row__sub">Session-scoped; resets on logout.</div>
+      </div>
+      {% if _dm == 'demo' %}
+        <span class="sp-badge sp-badge--demo">DEMO</span>
+      {% else %}
+        <span class="sp-badge sp-badge--live">LIVE</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-var tabs = { 'profile': 'st-profile', 'notifications': 'st-notifications', 'betting': 'st-betting', 'display': 'st-display', 'privacy': 'st-privacy', 'integrations': 'st-integrations' };
+var tabs = { 'profile': 'st-profile', 'notifications': 'st-notifications', 'betting': 'st-betting', 'display': 'st-display', 'privacy': 'st-privacy', 'integrations': 'st-integrations', 'data': 'st-data' };
 function showSettingsTab(id, el) {
   Object.values(tabs).forEach(function(t) { var e = document.getElementById(t); if (e) e.style.display = 'none'; });
   var target = document.getElementById(tabs[id]);

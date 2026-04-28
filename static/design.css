@@ -4205,3 +4205,85 @@ h3 { font-size: 1.05rem; }
   .sp-chat-toggle { bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px); }
   .sp-chat-window { bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 68px); }
 }
+
+
+/* -- Data mode toggle card ------------------------------------------------- */
+.sp-data-mode-card {
+  background: var(--c-surface, rgba(255,255,255,.04));
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 10px;
+  padding: .75rem;
+  margin-top: .5rem;
+}
+.sp-data-mode-card__header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: .35rem;
+}
+.sp-data-mode-card__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  opacity: .7;
+}
+.sp-data-mode-card__label {
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  opacity: .75;
+  flex: 1;
+}
+.sp-data-mode-card__hint {
+  font-size: .7rem;
+  opacity: .55;
+  margin: 0 0 .55rem;
+  line-height: 1.4;
+}
+.sp-data-mode-card__actions {
+  display: flex;
+  gap: .4rem;
+}
+.sp-data-mode-btn {
+  flex: 1;
+  padding: .3rem .5rem;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.15);
+  background: transparent;
+  color: var(--c-text, #d1d5db);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.sp-data-mode-btn:hover {
+  background: rgba(255,255,255,.07);
+}
+.sp-data-mode-btn--active {
+  background: var(--c-strong, #6ee7b7);
+  color: #0d1117;
+  border-color: var(--c-strong, #6ee7b7);
+}
+.sp-badge--demo {
+  background: rgba(251,191,36,.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251,191,36,.35);
+  border-radius: 4px;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: .1rem .35rem;
+}
+.sp-badge--live {
+  background: rgba(52,211,153,.15);
+  color: #34d399;
+  border: 1px solid rgba(52,211,153,.35);
+  border-radius: 4px;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: .1rem .35rem;
+}
