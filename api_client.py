@@ -64,6 +64,7 @@ API_BASE = os.getenv("API_FOOTBALL_BASE_URL", "https://api-football-v1.p.rapidap
 EXTERNAL_API_TIMEOUT_SECONDS = float(os.getenv("EXTERNAL_API_TIMEOUT_SECONDS", "8"))
 EXTERNAL_API_RETRY_ATTEMPTS = 2
 EXTERNAL_API_RETRY_BACKOFF_SECONDS = 2.0
+FREE_PLAN_MAX_SEASON = int(os.getenv("API_FOOTBALL_FREE_MAX_SEASON", "2024"))
 
 # Direct API-SPORTS key (api-sports.io account, bypasses RapidAPI entirely).
 # If set, requests use x-apisports-key header instead of RapidAPI headers.
@@ -359,6 +360,7 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
         return _request_cache[req_cache_key]
 
     result: dict = {}
+    free_plan_season_retry_used = False
     for attempt in range(EXTERNAL_API_RETRY_ATTEMPTS):
         try:
             with requests.Session() as sess:
@@ -395,6 +397,28 @@ def api_get(endpoint: str, params: dict | None = None, *, cache_hours: int = CAC
             resp.raise_for_status()
             data = resp.json()
             if data.get("errors"):
+                error_text = str(data.get("errors", "")).lower()
+                if (
+                    "free plans do not have access to this season" in error_text
+                    and not free_plan_season_retry_used
+                    and isinstance(translated_params, dict)
+                    and translated_params.get("season") is not None
+                ):
+                    try:
+                        requested = int(translated_params.get("season"))
+                    except (TypeError, ValueError):
+                        requested = FREE_PLAN_MAX_SEASON
+                    if requested > FREE_PLAN_MAX_SEASON:
+                        translated_params = dict(translated_params)
+                        translated_params["season"] = FREE_PLAN_MAX_SEASON
+                        free_plan_season_retry_used = True
+                        _logger.warning(
+                            "Retrying %s with free-plan season fallback: %s -> %s",
+                            endpoint,
+                            requested,
+                            FREE_PLAN_MAX_SEASON,
+                        )
+                        continue
                 _logger.warning("API-Football error for %s: %s", endpoint, data["errors"])
                 break
             # Normalize free-API responses to API-Football v3 format {"response": [...]}
