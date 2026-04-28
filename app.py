@@ -5868,6 +5868,21 @@ def health():
             brain_health = {}
 
     degraded_mode = bool(brain_health.get("degraded_mode")) or db_status != "connected" or not api_ok
+
+    # Football data provider info
+    provider_info: dict[str, Any] = {}
+    try:
+        import football_data_client as _fdo
+        if _fdo.is_available():
+            provider_info = _fdo.get_provider_info()
+    except Exception:
+        pass
+    if not provider_info:
+        provider_info = {
+            "provider": "api-sports" if ac._USING_DIRECT_APISPORTS else "rapidapi",
+            "base_url": ac.API_BASE,
+        }
+
     return jsonify(
         {
             "status": "ok" if not degraded_mode else "degraded",
@@ -5876,6 +5891,7 @@ def health():
             "db": db_status,
             "cache": cache_status,
             "api": "reachable" if api_ok else "unreachable",
+            "football_provider": provider_info,
             "degraded_mode": degraded_mode,
             "last_refresh": brain_health.get("last_refresh_time"),
             "error_count": int(brain_health.get("error_count") or 0),

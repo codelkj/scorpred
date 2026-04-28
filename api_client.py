@@ -76,18 +76,14 @@ _USING_DIRECT_APISPORTS = bool(_APISPORTS_KEY) or "api-sports.io" in API_HOST
 # different endpoint paths from API-Football v3.
 _USING_FREE_API = "free-api-live-football-data" in API_HOST
 
-# True when football-data.org key is configured — takes priority over api-sports.io.
+# football-data.org provider — takes priority over api-sports.io when active.
+# Activated by API_FOOTBALL_PROVIDER=football_data OR FOOTBALL_DATA_KEY being set.
 try:
-    from football_data_client import (
-        is_available as _fdo_available,
-        get_upcoming_fixtures_fdo as _get_fixtures_fdo,
-        get_standings_fdo as _get_standings_fdo,
-        get_teams_fdo as _get_teams_fdo,
-    )
-    _USING_FDO = _fdo_available()
+    import football_data_client as _fdo_mod
+    _USING_FDO = _fdo_mod.is_available()
 except Exception:
+    _fdo_mod = None  # type: ignore[assignment]
     _USING_FDO = False
-    _fdo_available = lambda: False  # noqa: E731
 
 # Endpoint translation: API-Football v3 path → free-api-live-football-data path.
 # Params are re-mapped per entry: the value is (free_path, param_remapper_fn | None).
@@ -1012,7 +1008,7 @@ def _stat(stats: dict, section: str, key: str) -> float | None:
 def get_teams(league_id: int = DEFAULT_LEAGUE_ID, season: int = CURRENT_SEASON) -> list:
     if _USING_FDO:
         try:
-            teams = _get_teams_fdo(league_id)
+            teams = _fdo_mod.get_teams(league_id)
             if teams:
                 return teams
         except Exception as exc:
@@ -1351,7 +1347,7 @@ def get_standings(
 ) -> list:
     if _USING_FDO:
         try:
-            rows = _get_standings_fdo(league_id)
+            rows = _fdo_mod.get_standings(league_id)
             if rows:
                 return rows
         except Exception as exc:
@@ -1411,7 +1407,7 @@ def get_upcoming_fixtures(
 ) -> list:
     if _USING_FDO:
         try:
-            fixtures = _get_fixtures_fdo(league_id, next_n)
+            fixtures = _fdo_mod.get_upcoming_fixtures(league_id, next_n)
             if fixtures:
                 return fixtures
         except Exception as exc:
