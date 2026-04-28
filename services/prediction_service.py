@@ -42,7 +42,10 @@ def get_fixture_cards(league_id: int):
         fixture_id = (fixture.get("fixture") or {}).get("id")
         if fixture_id is None:
             continue
-        analysis = get_match_analysis(str(fixture_id))
+        try:
+            analysis = get_match_analysis(str(fixture_id))
+        except Exception:
+            analysis = None
         if not analysis:
             continue
         build_fn = _deps.get("card_from_fixture")
