@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import hashlib
 import copy
+import random
 import os
 import sys
 import time
@@ -420,6 +421,8 @@ def _football_data_source() -> str:
 def _page_context(data_source: str | None = None, **kwargs) -> dict:
     if "alert_count" not in kwargs:
         kwargs["alert_count"] = 0
+    if "current_data_mode" not in kwargs:
+        kwargs["current_data_mode"] = _data_mode()
     return assistant_services.page_context(ac, data_source=data_source, **kwargs)
 
 
@@ -2311,6 +2314,8 @@ def load_fixtures_cached(league_id: int):
         league = LEAGUE_BY_ID.get(league_id, {})
         league_name = league.get("name") or f"League {league_id}"
         now_utc = datetime.now(timezone.utc)
+        demo_seed = f"{league_id}:{now_utc.strftime('%Y-%m-%d')}"
+        rng = random.Random(demo_seed)
         fixtures = []
         for idx, pair in enumerate(
             [
@@ -2318,9 +2323,28 @@ def load_fixtures_cached(league_id: int):
                 ("Mock Rovers", "Test Athletic"),
                 ("Academy FC", "Prototype FC"),
                 ("Data Stars", "Pipeline Town"),
+                ("Velocity FC", "Neural Albion"),
+                ("Quantum Rangers", "Edge Athletic"),
             ],
             start=1,
         ):
+            home_strength = rng.uniform(0.35, 0.7)
+            away_strength = rng.uniform(0.25, 0.6)
+            draw_bias = rng.uniform(0.16, 0.34)
+            total = home_strength + away_strength + draw_bias
+            p_home = round((home_strength / total) * 100)
+            p_draw = round((draw_bias / total) * 100)
+            p_away = max(1, 100 - p_home - p_draw)
+            if p_home + p_draw + p_away != 100:
+                p_away = 100 - p_home - p_draw
+            side = pair[0] if p_home >= p_away else pair[1]
+            confidence = int(min(89, max(52, max(p_home, p_away) + rng.randint(-4, 8))))
+            completeness_tier = "strong" if confidence >= 72 else ("partial" if confidence >= 60 else "limited")
+            reasoning = (
+                f"{side} show stronger recent form momentum and matchup profile."
+                if confidence >= 68
+                else f"Balanced matchup with slight edge toward {side}."
+            )
             kickoff = (now_utc + timedelta(hours=idx * 3)).isoformat().replace("+00:00", "Z")
             fixtures.append(
                 {
@@ -2331,10 +2355,10 @@ def load_fixtures_cached(league_id: int):
                         "away": {"id": 20_000 + idx, "name": pair[1], "logo": ""},
                     },
                     "prediction": {
-                        "win_probabilities": {"a": 44, "draw": 28, "b": 28},
-                        "best_pick": {"prediction": f"{pair[0]} Win", "team": pair[0], "reasoning": "Demo mode baseline sample."},
-                        "confidence_pct": 64,
-                        "data_completeness": {"tier": "partial"},
+                        "win_probabilities": {"a": p_home, "draw": p_draw, "b": p_away},
+                        "best_pick": {"prediction": f"{side} Win", "team": side, "reasoning": reasoning},
+                        "confidence_pct": confidence,
+                        "data_completeness": {"tier": completeness_tier},
                     },
                 }
             )

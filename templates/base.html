@@ -128,6 +128,25 @@
       </nav>
 
       <div class="sp-sidebar__footer">
+        <div class="sp-fang-mode" style="margin-bottom:.75rem;padding:.7rem .75rem">
+          <div class="sp-fang-mode__text">
+            <strong>DATA MODE</strong>
+            <span class="sp-fang-mode__status">{{ 'Demo data (ML-style)' if current_data_mode == 'demo' else 'Live API data' }}</span>
+          </div>
+          <span class="sp-fang-mode__badge">{{ 'DEMO' if current_data_mode == 'demo' else 'LIVE' }}</span>
+        </div>
+        <div style="display:flex;gap:.45rem;margin-bottom:.75rem">
+          <form method="post" action="/settings/data-mode" style="margin:0;flex:1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <input type="hidden" name="mode" value="demo" />
+            <button type="submit" class="btn btn-sm {% if current_data_mode == 'demo' %}btn-primary{% else %}btn-secondary{% endif %}" style="width:100%">Demo</button>
+          </form>
+          <form method="post" action="/settings/data-mode" style="margin:0;flex:1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <input type="hidden" name="mode" value="live" />
+            <button type="submit" class="btn btn-sm {% if current_data_mode == 'live' %}btn-primary{% else %}btn-secondary{% endif %}" style="width:100%">Live</button>
+          </form>
+        </div>
         <div class="sp-fang-mode">
           <span class="sp-fang-mode__icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>

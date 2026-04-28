@@ -2327,3 +2327,10 @@ class TestDataModeSettings:
         assert rv.headers["Location"].endswith("/settings")
         with client.session_transaction() as sess:
             assert sess.get("football_data_mode") == "demo"
+
+    def test_sidebar_renders_data_mode_toggle(self, client):
+        rv = client.get("/")
+        assert rv.status_code == 200
+        assert b"DATA MODE" in rv.data
+        assert b"Demo" in rv.data
+        assert b"Live" in rv.data
