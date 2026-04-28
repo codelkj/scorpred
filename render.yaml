@@ -13,6 +13,16 @@ services:
         sync: false
       - key: SCORPRED_DATA_ROOT
         value: /tmp/scorpred
+      - key: API_FOOTBALL_HOST
+        value: free-api-live-football-data.p.rapidapi.com
+      - key: API_FOOTBALL_BASE_URL
+        value: https://free-api-live-football-data.p.rapidapi.com
+      - key: API_FOOTBALL_MODE
+        value: rapidapi
+      - key: NBA_API_HOST
+        value: nba-api-free-data.p.rapidapi.com
+      - key: NBA_API_BASE_URL
+        value: https://nba-api-free-data.p.rapidapi.com
       - key: API_FOOTBALL_KEY
         sync: false
       - key: NBA_API_KEY

@@ -2306,14 +2306,7 @@ def load_fixtures_cached(league_id: int):
     redis_cached = cache_service.get_json(redis_key)
     if redis_cached is not None:
         _logger.debug("fixture_cache hit(redis) league_id=%s", league_id)
-        result = tuple(redis_cached)
-        # Repopulate the in-process fixture index from the cached data so that
-        # /prediction?match_id=X can resolve fixtures even after a Redis hit.
-        for _fix in (result[0] if result else []) or []:
-            _fid = (_fix.get("fixture") or {}).get("id")
-            if _fid is not None:
-                _FIXTURE_INDEX[str(_fid)] = _fix
-        return result
+        return tuple(redis_cached)
     if league_id in _local_fixture_cache:
         _logger.debug("fixture_cache hit league_id=%s", league_id)
         return _local_fixture_cache[league_id]
@@ -2610,11 +2603,7 @@ def _soccer_card_from_fixture_analysis(fixture: dict[str, Any], analysis: dict[s
         card["team_b_logo"] = away.get("logo") or ""
         card["team_a_initials"] = dui.initials(team_a)
         card["team_b_initials"] = dui.initials(team_b)
-        card["competition"] = (
-            (LEAGUE_BY_ID.get(league_block.get("id")) or {}).get("name")
-            or league_block.get("name")
-            or "Soccer"
-        )
+        card["competition"] = league_block.get("name") or "Soccer"
         card["action_label"] = card.get("action")
         card["action_class"] = str(card.get("action") or "").lower()
         card["confidence_pct"] = int(card.get("confidence") or 0)
@@ -4446,69 +4435,21 @@ def soccer():
     _set_data_refresh()
     _refresh_tracking_results_if_due()
     league_id = _set_active_league(_active_league_id())
-    results = _run_parallel(
-        {
-            "teams": (
-                lambda: ac.get_teams(league_id, SEASON),
-                [],
-                "Soccer teams fetch failed",
-            ),
-            "fixtures": (
-                lambda: _load_upcoming_fixtures(
-                    next_n=12,
-                    max_deep_predictions=0,
-                    league=league_id,
-                    include_injuries=False,
-                    include_standings=False,
-                ),
-                ([], "No upcoming fixtures available.", _football_data_source(), ""),
-                "Upcoming fixtures fetch failed",
-            ),
-        }
-    )
-    teams = results.get("teams") or []
-    fixtures, fixtures_error, fixtures_source, _ = results.get("fixtures") or (
-        [],
-        "No upcoming fixtures available.",
-        _football_data_source(),
-        "",
-    )
-    decision_cards = []
-    for fixture in fixtures:
-        match_id = (fixture.get("fixture") or {}).get("id")
-        if match_id is None:
-            continue
-        # Use _analysis_from_fixture instead of sm.analyze_match:
-        # sm.analyze_match() first calls ac.get_fixture_by_id() (API-Football)
-        # which 403s when the plan doesn't cover that endpoint, returning None
-        # for every fixture. _analysis_from_fixture() works purely from the
-        # fixture dict we already have and also populates _MATCH_BRAIN._fixture_index
-        # so that /prediction?match_id=X can look it up for Match Analysis.
-        try:
-            result = _analysis_from_fixture(fixture)
-        except Exception as _af_exc:
-            app.logger.debug("_analysis_from_fixture failed for fixture %s: %s", match_id, _af_exc)
-            result = None
-        if result is None:
-            continue
-        # Also populate the app-level index so get_fixture_by_id() fallback works
-        _FIXTURE_INDEX[str(match_id)] = fixture
-        card = _soccer_card_from_fixture_analysis(fixture, result)
-        if card is not None:
-            decision_cards.append(card)
-    full_slate = sort_cards_by_kickoff(decision_cards)
-    return_top_opportunities = top_opportunities(full_slate)
-    today_plan = plan_summary(full_slate)
-
+    teams = []
+    try:
+        teams = ac.get_teams(league_id, SEASON) or []
+    except Exception:
+        pass
+    full_slate, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
     return render_template(
         "soccer.html",
         teams=teams,
-        upcoming_fixtures=fixtures,
-        top_opportunities=return_top_opportunities,
+        upcoming_fixtures=fixtures or [],
+        top_opportunities=prediction_service.get_top_opportunities(league_id),
         full_slate=full_slate,
-        today_plan=today_plan,
+        today_plan=prediction_service.get_today_plan(league_id),
         fixtures_error=fixtures_error if fixtures_error or not fixtures else None,
-        fixtures_source=fixtures_source,
+        fixtures_source=fixtures_source or _football_data_source(),
         selection_notice=(request.args.get("selection_error") or "").strip() or None,
         selected_fixture=_selected_fixture(),
         **_league_context(league_id),
@@ -5849,176 +5790,8 @@ def prediction_result_detail(prediction_id: str):
 
 @app.route("/strategy-lab")
 def strategy_lab():
-    try:
-        lab_ctx = strategy_lab_services.build_strategy_lab_context()
-    except Exception as exc:
-        app.logger.exception("strategy-lab error: %s", exc)
-        lab_ctx = {}
-    ctx = _page_context()
-    ctx.update(lab_ctx)
-    return render_template("strategy_lab.html", **ctx)
-
-
-@app.route("/backtesting")
-def backtesting():
-    import json as _json
-    from runtime_paths import walk_forward_report_path as _wfr_path
-    report: dict[str, Any] = {}
-    try:
-        p = _wfr_path()
-        if p.exists():
-            with open(p) as _f:
-                report = _json.load(_f)
-    except Exception as exc:
-        app.logger.warning("backtesting report load error: %s", exc)
-    agg = report.get("aggregate") or {}
-    folds = report.get("folds") or []
-    base_models = agg.get("base_models") or {}
-
-    fold_labels = [f"Fold {i+1}" for i in range(len(folds))]
-    fold_rf = [round((f.get("base_models") or {}).get("rf", {}).get("accuracy", 0) * 100, 1) for f in folds]
-    fold_lr = [round((f.get("base_models") or {}).get("lr", {}).get("accuracy", 0) * 100, 1) for f in folds]
-    fold_combined = [round((f.get("combined") or {}).get("combined_accuracy", 0) * 100, 1) for f in folds]
-
-    conf_data = (agg.get("combined") or {}).get("by_confidence_bucket") or {}
-    conf_labels = ["<50%", "50-59%", "60-69%", "70%+"]
-    conf_keys = ["under_50", "50_59", "60_69", "70_plus"]
-    conf_acc = [round((conf_data.get(k) or {}).get("accuracy", 0) * 100, 1) for k in conf_keys]
-    conf_counts = [(conf_data.get(k) or {}).get("count", 0) for k in conf_keys]
-
-    model_rows = []
-    model_name_map = {"lr": "Logistic Regression", "rf": "Random Forest", "xgb": "XGBoost", "lgbm": "LightGBM", "stacking_ensemble": "Stacking Ensemble"}
-    for key, label in model_name_map.items():
-        m = base_models.get(key) or {}
-        if m:
-            model_rows.append({
-                "label": label,
-                "accuracy": round((m.get("mean_accuracy") or 0) * 100, 1),
-                "brier": round(m.get("mean_brier") or 0, 4),
-                "folds": m.get("folds_evaluated", 0),
-                "std": round((m.get("std_accuracy") or 0) * 100, 1),
-            })
-
-    ctx = _page_context()
-    ctx.update({
-        "report": report,
-        "agg": agg,
-        "folds": folds,
-        "model_rows": model_rows,
-        "fold_labels": fold_labels,
-        "fold_rf": fold_rf,
-        "fold_lr": fold_lr,
-        "fold_combined": fold_combined,
-        "conf_labels": conf_labels,
-        "conf_acc": conf_acc,
-        "conf_counts": conf_counts,
-        "total_test_matches": agg.get("total_test_matches", 0),
-        "n_folds": agg.get("n_folds", 0),
-        "best_fold": agg.get("best_fold") or {},
-        "worst_fold": agg.get("worst_fold") or {},
-        "trend": agg.get("trend", "stable"),
-        "trend_delta": agg.get("trend_delta"),
-        "policy": agg.get("policy") or {},
-        "generated_at": report.get("generated_at", ""),
-    })
-    return render_template("backtesting.html", **ctx)
-
-
-@app.route("/compare")
-def compare():
-    import json as _json
-    from runtime_paths import walk_forward_report_path as _wfr_path
-    report: dict[str, Any] = {}
-    try:
-        p = _wfr_path()
-        if p.exists():
-            with open(p) as _f:
-                report = _json.load(_f)
-    except Exception as exc:
-        app.logger.warning("compare report load error: %s", exc)
-    agg = report.get("aggregate") or {}
-    combined = agg.get("combined") or {}
-    base_models = agg.get("base_models") or {}
-
-    ml_acc = round((combined.get("mean_ml_accuracy") or 0) * 100, 1)
-    rule_acc = round((combined.get("mean_rule_accuracy") or 0) * 100, 1)
-    hybrid_acc = round((combined.get("mean_combined_accuracy") or 0) * 100, 1)
-
-    by_outcome = combined.get("by_predicted_outcome") or {}
-    outcome_labels = ["Home Win", "Draw", "Away Win"]
-    outcome_keys = ["HomeWin", "Draw", "AwayWin"]
-    outcome_acc = [round((by_outcome.get(k) or {}).get("accuracy", 0) * 100, 1) for k in outcome_keys]
-    outcome_counts = [(by_outcome.get(k) or {}).get("count", 0) for k in outcome_keys]
-
-    model_compare_rows = []
-    name_map = {"lr": "Logistic Regression", "rf": "Random Forest", "xgb": "XGBoost", "lgbm": "LightGBM", "stacking_ensemble": "Stacking Ensemble"}
-    for key, label in name_map.items():
-        m = base_models.get(key) or {}
-        if m:
-            acc = round((m.get("mean_accuracy") or 0) * 100, 1)
-            model_compare_rows.append({
-                "label": label,
-                "accuracy": acc,
-                "brier": round(m.get("mean_brier") or 0, 4),
-                "vs_rule": round(acc - rule_acc, 1),
-                "vs_hybrid": round(acc - hybrid_acc, 1),
-            })
-
-    folds = report.get("folds") or []
-    fold_labels = [f"Fold {i+1}" for i in range(len(folds))]
-    fold_ml = [round((f.get("combined") or {}).get("ml_accuracy", 0) * 100, 1) for f in folds]
-    fold_rule = [round((f.get("combined") or {}).get("rule_accuracy", 0) * 100, 1) for f in folds]
-    fold_hybrid = [round((f.get("combined") or {}).get("combined_accuracy", 0) * 100, 1) for f in folds]
-
-    ctx = _page_context()
-    ctx.update({
-        "ml_acc": ml_acc,
-        "rule_acc": rule_acc,
-        "hybrid_acc": hybrid_acc,
-        "model_compare_rows": model_compare_rows,
-        "outcome_labels": outcome_labels,
-        "outcome_acc": outcome_acc,
-        "outcome_counts": outcome_counts,
-        "fold_labels": fold_labels,
-        "fold_ml": fold_ml,
-        "fold_rule": fold_rule,
-        "fold_hybrid": fold_hybrid,
-        "avg_confidence": combined.get("mean_avg_confidence_pct", 0),
-        "policy": agg.get("policy") or {},
-        "generated_at": report.get("generated_at", ""),
-    })
-    return render_template("compare.html", **ctx)
-
-
-@app.route("/explainability")
-def explainability():
-    from services.feature_attribution_engine import FeatureAttributionEngine
-    completed = mt.get_completed_predictions(limit=500)
-    engine = FeatureAttributionEngine(min_samples=5)
-    attribution = {}
-    try:
-        attribution = engine.summarize(completed)
-    except Exception as exc:
-        app.logger.warning("explainability engine error: %s", exc)
-
-    features = list((attribution.get("feature_impacts") or {}).items())
-    features.sort(key=lambda kv: abs(float(kv[1].get("impact") or 0)), reverse=True)
-    chart_labels = [k.replace("_", " ").title() for k, _ in features[:12]]
-    chart_impacts = [round(v.get("impact", 0), 4) for _, v in features[:12]]
-    chart_colors = ["rgba(60,242,164,0.8)" if x > 0 else "rgba(248,113,113,0.8)" for x in chart_impacts]
-
-    ctx = _page_context()
-    ctx.update({
-        "attribution": attribution,
-        "top_positive": attribution.get("top_positive_signals") or [],
-        "top_negative": attribution.get("top_negative_signals") or [],
-        "all_features": [{"feature": k.replace("_", " ").title(), **v} for k, v in features],
-        "chart_labels": chart_labels,
-        "chart_impacts": chart_impacts,
-        "chart_colors": chart_colors,
-        "sample_size": len(completed),
-    })
-    return render_template("explainability.html", **ctx)
+    """Redirect the legacy lab surface to Insights."""
+    return redirect(url_for("insights"))
 
 @app.route("/update-prediction-results", methods=["GET", "POST"])
 def update_prediction_results():
@@ -6405,38 +6178,34 @@ def performance():
 
 @app.route("/alerts", methods=["GET"])
 def alerts():
-    try:
-        league_id = _active_league_id()
-        if _MATCH_BRAIN is not None:
-            canonical_alerts = _MATCH_BRAIN.get_alerts(league_id)
-            active_alerts = [
-                {
-                    "level": "high" if row.get("type") == "high_confidence_opportunity" else "info",
-                    "type": row.get("type", "Alert").replace("_", " ").title(),
-                    "title": row.get("title") or "Alert",
-                    "description": row.get("description") or "",
-                    "time": "Live",
-                    "match_url": f"/prediction?match_id={row.get('match_id')}" if row.get("match_id") else "/soccer",
-                }
-                for row in canonical_alerts
-            ]
-        else:
-            cards = prediction_service.get_top_opportunities(league_id) or []
-            active_alerts = []
-            for card in cards:
-                active_alerts.append(
-                    {
-                        "level": "high" if str(card.get("action") or "").upper() == "BET" else "info",
-                        "type": "Opportunity",
-                        "title": card.get("matchup") or "Unavailable",
-                        "description": f"Pick: {card.get('recommended_side') or 'Unavailable'} · Confidence: {int(_safe_float(card.get('confidence_pct'), 0))}%",
-                        "time": "Live",
-                        "match_url": "/soccer",
-                    }
-                )
-    except Exception as exc:
-        app.logger.exception("alerts route error: %s", exc)
+    league_id = _active_league_id()
+    if _MATCH_BRAIN is not None:
+        canonical_alerts = _MATCH_BRAIN.get_alerts(league_id)
+        active_alerts = [
+            {
+                "level": "high" if row.get("type") == "high_confidence_opportunity" else "info",
+                "type": row.get("type", "Alert").replace("_", " ").title(),
+                "title": row.get("title") or "Alert",
+                "description": row.get("description") or "",
+                "time": "Live",
+                "match_url": f"/prediction?match_id={row.get('match_id')}" if row.get("match_id") else "/soccer",
+            }
+            for row in canonical_alerts
+        ]
+    else:
+        cards = prediction_service.get_top_opportunities(league_id) or []
         active_alerts = []
+        for card in cards:
+            active_alerts.append(
+                {
+                    "level": "high" if str(card.get("action") or "").upper() == "BET" else "info",
+                    "type": "Opportunity",
+                    "title": card.get("matchup") or "Unavailable",
+                    "description": f"Pick: {card.get('recommended_side') or 'Unavailable'} · Confidence: {int(_safe_float(card.get('confidence_pct'), 0))}%",
+                    "time": "Live",
+                    "match_url": "/soccer",
+                }
+            )
     ctx = _page_context()
     ctx.update({"active_alerts": active_alerts, "alert_count": len(active_alerts)})
     return render_template("alerts.html", **ctx)
@@ -6453,47 +6222,42 @@ def system_intelligence():
 
 @app.route("/watchlist", methods=["GET"])
 def watchlist():
-    try:
-        watched_names = session.get("watchlist_teams") if isinstance(session.get("watchlist_teams"), list) else []
-        watched_names = [str(team).strip() for team in watched_names if str(team).strip()]
-        watched_set = {team.lower() for team in watched_names}
+    watched_names = session.get("watchlist_teams") if isinstance(session.get("watchlist_teams"), list) else []
+    watched_names = [str(team).strip() for team in watched_names if str(team).strip()]
+    watched_set = {team.lower() for team in watched_names}
 
-        league_id = _active_league_id()
-        _, fixtures, _, _, _ = prediction_service.get_fixture_cards(league_id)
-        upcoming_matches = []
-        for fixture in fixtures or []:
-            teams_block = fixture.get("teams") or {}
-            home = (teams_block.get("home") or {}).get("name") or ""
-            away = (teams_block.get("away") or {}).get("name") or ""
-            if not home or not away:
-                continue
-            if home.lower() not in watched_set and away.lower() not in watched_set:
-                continue
-            upcoming_matches.append(
-                {
-                    "matchup": f"{home} vs {away}",
-                    "date": _format_prediction_date(((fixture.get("fixture") or {}).get("date") or "")),
-                    "league": ((fixture.get("league") or {}).get("name") or f"League {league_id}"),
-                }
-            )
-        upcoming_matches = sorted(upcoming_matches, key=lambda row: row.get("date", ""))[:40]
-        watched_teams = []
-        for team_name in watched_names:
-            next_match = next((m["matchup"] for m in upcoming_matches if team_name.lower() in m["matchup"].lower()), "No upcoming match")
-            watched_teams.append(
-                {
-                    "name": team_name,
-                    "logo": "",
-                    "league": "Tracked",
-                    "next_match": next_match,
-                    "recent_form": [],
-                    "form_pct": None,
-                }
-            )
-    except Exception as exc:
-        app.logger.exception("watchlist route error: %s", exc)
-        watched_teams = []
-        upcoming_matches = []
+    league_id = _active_league_id()
+    _, fixtures, _, _, _ = prediction_service.get_fixture_cards(league_id)
+    upcoming_matches = []
+    for fixture in fixtures or []:
+        teams_block = fixture.get("teams") or {}
+        home = (teams_block.get("home") or {}).get("name") or ""
+        away = (teams_block.get("away") or {}).get("name") or ""
+        if not home or not away:
+            continue
+        if home.lower() not in watched_set and away.lower() not in watched_set:
+            continue
+        upcoming_matches.append(
+            {
+                "matchup": f"{home} vs {away}",
+                "date": _format_prediction_date(((fixture.get("fixture") or {}).get("date") or "")),
+                "league": ((fixture.get("league") or {}).get("name") or f"League {league_id}"),
+            }
+        )
+    upcoming_matches = sorted(upcoming_matches, key=lambda row: row.get("date", ""))[:40]
+    watched_teams = []
+    for team_name in watched_names:
+        next_match = next((m["matchup"] for m in upcoming_matches if team_name.lower() in m["matchup"].lower()), "No upcoming match")
+        watched_teams.append(
+            {
+                "name": team_name,
+                "logo": "",
+                "league": "Tracked",
+                "next_match": next_match,
+                "recent_form": [],
+                "form_pct": None,
+            }
+        )
     ctx = _page_context()
     ctx.update({"watched_teams": watched_teams, "watchlist_matches": upcoming_matches})
     return render_template("watchlist.html", **ctx)
