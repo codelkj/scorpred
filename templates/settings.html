@@ -18,6 +18,28 @@
   </button>
 </div>
 
+<div class="sp-settings-card" style="margin-bottom:1rem">
+  <div class="sp-settings-card__title">Data Mode</div>
+  <div class="sp-settings-row">
+    <div>
+      <div class="sp-settings-row__label">Current Mode: {{ 'Demo' if current_data_mode == 'demo' else 'Live API' }}</div>
+      <div class="sp-settings-row__sub">Use Demo mode for stable mock data, or Live API mode for advanced real-time provider data.</div>
+    </div>
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <form method="post" action="/settings/data-mode" style="margin:0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="mode" value="demo" />
+        <button type="submit" class="btn btn-sm {% if current_data_mode == 'demo' %}btn-primary{% else %}btn-secondary{% endif %}">Demo Mode</button>
+      </form>
+      <form method="post" action="/settings/data-mode" style="margin:0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="mode" value="live" />
+        <button type="submit" class="btn btn-sm {% if current_data_mode == 'live' %}btn-primary{% else %}btn-secondary{% endif %}">Live API Mode</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 {# ── Settings Tab Nav ─────────────────────────────────────────────────────────── #}
 <div class="sp-settings-tab-nav">
   <a href="#profile" class="sp-settings-tab active" onclick="showSettingsTab('profile',this);return false;">Profile</a>

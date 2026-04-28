@@ -278,6 +278,16 @@ def handle_404(exc):
 LEAGUE = DEFAULT_LEAGUE_ID
 SEASON = CURRENT_SEASON
 LEAGUE_SESSION_KEY = "selected_league_id"
+DATA_MODE_SESSION_KEY = "football_data_mode"
+
+
+def _data_mode() -> str:
+    mode = str(session.get(DATA_MODE_SESSION_KEY) or os.getenv("FOOTBALL_DATA_MODE", "live")).strip().lower()
+    return mode if mode in {"live", "demo"} else "live"
+
+
+def _is_demo_mode() -> bool:
+    return _data_mode() == "demo"
 
 
 # â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2297,6 +2307,39 @@ def _load_upcoming_fixtures(
 
 
 def load_fixtures_cached(league_id: int):
+    if _is_demo_mode():
+        league = LEAGUE_BY_ID.get(league_id, {})
+        league_name = league.get("name") or f"League {league_id}"
+        now_utc = datetime.now(timezone.utc)
+        fixtures = []
+        for idx, pair in enumerate(
+            [
+                ("Demo United", "Sample City"),
+                ("Mock Rovers", "Test Athletic"),
+                ("Academy FC", "Prototype FC"),
+                ("Data Stars", "Pipeline Town"),
+            ],
+            start=1,
+        ):
+            kickoff = (now_utc + timedelta(hours=idx * 3)).isoformat().replace("+00:00", "Z")
+            fixtures.append(
+                {
+                    "fixture": {"id": int(f"{league_id}{idx}"), "date": kickoff, "status": {"short": "NS"}},
+                    "league": {"id": league_id, "name": league_name, "country": league.get("country") or "", "logo": ""},
+                    "teams": {
+                        "home": {"id": 10_000 + idx, "name": pair[0], "logo": ""},
+                        "away": {"id": 20_000 + idx, "name": pair[1], "logo": ""},
+                    },
+                    "prediction": {
+                        "win_probabilities": {"a": 44, "draw": 28, "b": 28},
+                        "best_pick": {"prediction": f"{pair[0]} Win", "team": pair[0], "reasoning": "Demo mode baseline sample."},
+                        "confidence_pct": 64,
+                        "data_completeness": {"tier": "partial"},
+                    },
+                }
+            )
+        return fixtures, None, "demo", "demo-mode"
+
     redis_key = cache_service.make_key("fixtures", league_id)
     redis_cached = cache_service.get_json(redis_key)
     if redis_cached is not None:
@@ -4416,11 +4459,22 @@ def soccer():
     _refresh_tracking_results_if_due()
     league_id = _set_active_league(_active_league_id())
     teams = []
-    try:
-        teams = ac.get_teams(league_id, SEASON) or []
-    except Exception:
-        pass
+    if not _is_demo_mode():
+        try:
+            teams = ac.get_teams(league_id, SEASON) or []
+        except Exception:
+            pass
     full_slate, fixtures, fixtures_error, fixtures_source, _ = prediction_service.get_fixture_cards(league_id)
+    if _is_demo_mode():
+        team_map: dict[int, dict] = {}
+        for fixture in fixtures or []:
+            for side in ("home", "away"):
+                block = ((fixture.get("teams") or {}).get(side) or {})
+                team_id = block.get("id")
+                if team_id is None:
+                    continue
+                team_map[int(team_id)] = {"team": {"id": int(team_id), "name": block.get("name") or "", "logo": block.get("logo") or ""}}
+        teams = list(team_map.values())
     return render_template(
         "soccer.html",
         teams=teams,
@@ -6278,7 +6332,16 @@ def watchlist_team_remove():
 @app.route("/settings", methods=["GET"])
 def settings():
     ctx = _page_context()
+    ctx["current_data_mode"] = _data_mode()
     return render_template("settings.html", **ctx)
+
+
+@app.route("/settings/data-mode", methods=["POST"])
+def settings_data_mode():
+    requested = str(request.form.get("mode") or "").strip().lower()
+    if requested in {"demo", "live"}:
+        session[DATA_MODE_SESSION_KEY] = requested
+    return redirect(url_for("settings"))
 
 
 @app.route("/ui-mockup", methods=["GET"])

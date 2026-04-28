@@ -2312,3 +2312,18 @@ class TestWatchlistAndTracking:
         rv = client.get("/performance?window=all")
         assert rv.status_code == 200
         assert b"61%" in rv.data
+
+
+class TestDataModeSettings:
+    def test_settings_page_shows_data_mode_controls(self, client):
+        rv = client.get("/settings")
+        assert rv.status_code == 200
+        assert b"Demo Mode" in rv.data
+        assert b"Live API Mode" in rv.data
+
+    def test_settings_data_mode_post_sets_demo_mode(self, client):
+        rv = client.post("/settings/data-mode", data={"mode": "demo"}, follow_redirects=False)
+        assert rv.status_code == 302
+        assert rv.headers["Location"].endswith("/settings")
+        with client.session_transaction() as sess:
+            assert sess.get("football_data_mode") == "demo"
